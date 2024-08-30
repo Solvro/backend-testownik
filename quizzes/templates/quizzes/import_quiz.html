@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block extra_head %}
+    <link rel="stylesheet" href="{% static 'css/import_quiz.css' %}">
+    <script src="{% static 'js/import_quiz.js' %}"></script>
+{% endblock %}
+{% block title %}Importuj quiz{% endblock %}
+{% block content %}
+    <div class="box h-1">
+        <h1 class="subtitle is-5">Zaimportuj quiz</h1>
+        <div class="notification is-danger" id="import-error" style="display: none;"></div>
+        <div class="buttons has-addons is-centered">
+            <button class="button" data-upload-type="file">Z pliku</button>
+            <button class="button is-inverted is-selected" data-upload-type="link">Z linku</button>
+            <button class="button" data-upload-type="json">Z tekstu</button>
+        </div>
+        <div class="field" id="file" style="display: none;">
+            <label class="label" for="file-input">Plik z quizem</label>
+            <div class="control">
+                <div class="file is-boxed is-fullwidth" id="file-box">
+                    <label class="file-label has-text-centered" id="file-label">
+                        <input class="file-input" type="file" accept=".json" id="file-input">
+                        <span class="file-cta">
+                        <span class="file-icon">
+                            <iconify-icon icon="bi:file-earmark-arrow-up"></iconify-icon>
+                        </span>
+                        <span class="file-label">Wybierz plik…</span>
+                    </span>
+                        <span class="file-name" id="file-name" style="display: none;"></span>
+                    </label>
+                </div>
+            </div>
+            <p class="help" id="file-help" style="display: none;"></p>
+        </div>
+        <div class="field" id="link">
+            <label class="label" for="link-input">Link do quizu</label>
+            <div class="control">
+                <input class="input" type="text" placeholder="Wklej link do quizu" id="link-input">
+            </div>
+            <p class="help" id="link-help" style="display: none;"></p>
+        </div>
+        <div class="field" id="text" style="display: none;">
+            <label class="label" for="text-input">Quiz w formie tekstu</label>
+            <div class="control">
+                <textarea class="textarea" placeholder="Wklej quiz w formie tekstu" id="text-input"></textarea>
+            </div>
+            <p class="help" id="text-help" style="display: none;"></p>
+        </div>
+        <div class="field">
+            <div class="control has-text-centered">
+                <button class="button is-inverted" id="import-button">Importuj</button>
+            </div>
+        </div>
+    </div>
+{% endblock %}

@@ -1,0 +1,59 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}{{ block.super }}
+    <link rel="stylesheet" href="{% static "admin/css/login.css" %}">
+    {{ form.media }}
+{% endblock %}
+
+{% block title %}Admin login{% endblock %}
+
+{% block branding %}
+    <h1 id="site-name"><a href="/">< Back</a> | <a href="{% url 'admin:index' %}">Django administration</a></h1>
+{% endblock %}
+
+{% block bodyclass %}{{ block.super }} login{% endblock %}
+
+{% block usertools %}{% endblock %}
+
+{% block nav-global %}{% endblock %}
+
+{% block nav-sidebar %}{% endblock %}
+
+{% block content_title %}{% endblock %}
+
+{% block nav-breadcrumbs %}{% endblock %}
+
+{% block content %}
+
+    <div id="content-main">
+
+        {% if user.is_authenticated %}
+            <p class="errornote">
+                {% blocktranslate trimmed %}
+                    You are authenticated as {{ username }}, but are not authorized to
+                    access this page. Would you like to login to a different account?
+                {% endblocktranslate %}
+            </p>
+        {% endif %}
+
+        <div class="submit-row">
+            {% if not user.is_authenticated %}
+                <a class="button" href="{% url 'login_usos' %}?next={{ next }}">Log in with USOS</a>
+            {% else %}
+                <a class="button" href="{% url 'login_usos' %}?confirm_user=true&next={{ next }}">Log in with a
+                    different account</a>
+            {% endif %}
+        </div>
+
+    </div>
+    <style>
+        a.button {
+            display: inline-block;
+            padding: 10px 20px;
+            margin: 10px 0;
+            text-decoration: none;
+            border-radius: 5px;
+        }
+    </style>
+{% endblock %}

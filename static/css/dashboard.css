@@ -1,0 +1,15 @@
+.h-05 {
+    height: 16rem;
+}
+
+.h-1 {
+    height: 33.5rem;
+}
+
+.box {
+    overflow: auto;
+}
+
+.is-fullheight {
+    height: 100%;
+}

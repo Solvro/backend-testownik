@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block extra_head %}
+    <script src="{% static 'js/quizzes.js' %}"></script>
+{% endblock %}
+{% block title %}Twoje bazy{% endblock %}
+{% block content %}
+    {% if user_quizzes %}
+        <h1 class="title has-text-weight-semibold">Stworzone przez Ciebie</h1>
+        <div class="columns is-multiline">
+            {% for quiz in user_quizzes %}
+                <div class="column is-one-third">
+                    <div class="box">
+                        <h1 class="subtitle is-5">{{ quiz.title }}</h1>
+                        {% if quiz.description %}
+                            <p class="is-7">{{ quiz.description }}</p>
+                        {% endif %}
+                        <div class="is-flex is-justify-content-space-between">
+                            <a class="button is-small is-inverted"
+                               href="{% url 'quizzes:quiz' quiz.id %}">Rozpocznij</a>
+                            <a class="button is-small is-inverted"
+                               href="{% url 'quizzes:edit_quiz' quiz.id %}">Edytuj</a>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+    {% if shared_quizzes %}
+        <h1 class="title has-text-weight-semibold">Udostępnione dla Ciebie</h1>
+        <div class="columns is-multiline">
+            {% for quiz in shared_quizzes %}
+                <div class="column is-one-third">
+                    <div class="box">
+                        <h1 class="subtitle is-5">{{ quiz.title }}</h1>
+                        {% if quiz.description %}
+                            <p class="is-7">{{ quiz.description }}</p>
+                        {% endif %}
+                        <div class="is-flex is-justify-content-space-between">
+                            <a class="button is-small is-inverted"
+                               href="{% url 'quizzes:quiz' quiz.id %}">Rozpocznij</a>
+                            <a class="button is-small is-inverted unshare" data-quiz-id="{{ quiz.id }}">Usuń z
+                                udostępnionych</a>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+    {% if group_quizzes %}
+        <h1 class="title has-text-weight-semibold">Udostępnione dla twoich grup</h1>
+        <div class="columns is-multiline">
+            {% for quiz in group_quizzes %}
+                <div class="column is-one-third">
+                    <div class="box">
+                        <h1 class="subtitle is-5">{{ quiz.title }}</h1>
+                        {% if quiz.description %}
+                            <p class="is-7">{{ quiz.description }}</p>
+                        {% endif %}
+                        <div class="is-flex is-justify-content-space-between">
+                            <a class="button is-small is-inverted"
+                               href="{% url 'quizzes:quiz' quiz.id %}">Rozpocznij</a>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+    {% if not user_quizzes and not shared_quizzes and not group_quizzes %}
+        <h1 class="title has-text-weight-semibold">Nie masz jeszcze żadnych baz</h1>
+    {% endif %}
+{% endblock %}

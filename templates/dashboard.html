@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block extra_head %}
+    <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+    <script src="{% static 'js/dashboard.js' %}"></script>
+{% endblock %}
+{#{% block title %}Dashboard{% endblock %}#}
+{% block content %}
+    <div class="columns">
+        <div class="column">
+            <div class="box h-1">
+                <p class="is-7">Powtórz to jeszcze raz:</p>
+                <h1 class="subtitle is-5" id="question">159. Różne barwy baniek mydlanych obserwujemy w wyniku</h1>
+                <div class="buttons is-flex-direction-column" id="answers">
+                    <button class="button answer is-small is-fullwidth" data-correct="false">Występowania barwników w
+                        detergencie.
+                    </button>
+                    <button class="button answer is-small is-fullwidth" data-correct="false">Różnych grubości ścianek
+                        baniek.
+                    </button>
+                    <button class="button answer is-small is-fullwidth" data-correct="true">Interferencji światła.
+                    </button>
+                    <button class="button answer is-small is-fullwidth" data-correct="false">Zjawiska dyfrakcji.
+                    </button>
+                </div>
+                <div class="is-flex is-justify-content-end">
+                    <button class="button is-small is-inverted" id="next">Sprawdź odpowiedź</button>
+                </div>
+            </div>
+        </div>
+        <div class="column">
+            <div class="box h-05">
+                <h1 class="subtitle">Ostatnio używane</h1>
+                <table class="table is-fullwidth">
+                    <tbody id="recommendations-body">
+                    <tr>
+                        <td class="has-text-weight-light">Po pierwszym użyciu pojawią się tutaj ostatnio używane bazy.
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="box h-05">
+                <div class="buttons is-flex is-justify-content-center is-align-content-center is-fullheight">
+                    <a class="button" id="create-new">Dodaj nową bazę</a>
+                    <a class="button" id="import" href="{% url 'quizzes:import_quiz' %}">Importuj bazę</a>
+                    <a class="button" id="import-old" href="{% url 'quizzes:import_quiz_old' %}">Importuj bazę (stara
+                        wersja)</a>
+                </div>
+            </div>
+        </div>
+        <div class="column">
+            <div class="box h-05">
+                <div class="is-flex is-justify-content-center">
+                    <div class="field has-addons">
+                        <div class="control">
+                            <input class="input" type="text" placeholder="Wyszukaj bazę" id="search-input">
+                        </div>
+                        <div class="control">
+                            <button class="button">
+                            <span class="icon">
+                                <iconify-icon icon="bi:search"></iconify-icon>
+                            </span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div id="search-results">
+                    <table class="table is-fullwidth">
+                        <tbody id="search-results-body">
+                        <tr>
+                            <td class="has-text-weight-light"></td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="box h-05">
+                <h1 class="subtitle">Rekomendacje</h1>
+                <table class="table is-fullwidth">
+                    <tbody id="recommendations-body">
+                    <tr>
+                        <td class="has-text-weight-light">Brak rekomendacji w tej chwili.</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+{% endblock %}

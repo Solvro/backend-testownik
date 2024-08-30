@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Profil{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet" href="{% static 'css/profile.css' %}">
+{% endblock %}
+{% block content %}
+    <div class="columns">
+        <div class="column is-one-third">
+            <div class="box" id="menu">
+                <aside class="menu">
+                    <p class="menu-label">Ogólne</p>
+                    <ul class="menu-list">
+                        <li><a id="account-link" class="menu-item is-active" data-target="account">Konto</a></li>
+                        <li><a id="settings-link" class="menu-item" data-target="settings">Ustawienia</a></li>
+                    </ul>
+                </aside>
+            </div>
+        </div>
+        <div class="column">
+            <div class="box tab-content" id="account">
+                <div class="is-flex is-justify-content-center mb-4">
+                    <img src="{{ user.photo_url }}" alt="Profilowe" id="profile-pic"
+                         style="border-radius: 50%; width: 6em; height: 6em; object-fit: cover;">
+                </div>
+                <div class="is-flex is-justify-content-center">
+                    <h1 class="title is-3">{{ user.full_name }}</h1>
+                </div>
+                <div class="is-flex is-justify-content-center">
+                    <h2 class="subtitle is-4">{{ user.student_number }}</h2>
+                </div>
+                {% if user.is_superuser %}
+                    <div class="is-flex is-justify-content-center">
+                        <span class="tag is-danger is-light">Administrator</span>
+                    </div>
+                {% elif user.is_staff %}
+                    <div class="is-flex is-justify-content-center">
+                        <span class="tag is-warning is-light">Obsługa</span>
+                    </div>
+                {% endif %}
+
+                <span class="subtitle is-7">Twoje dane:</span>
+                <ul>
+                    <li>Id: {{ user.id }}</li>
+                    <li>Email: {{ user.email }}</li>
+                </ul>
+
+
+            </div>
+            <div class="box is-hidden tab-content" id="settings">
+                <table class="table is-fullwidth">
+                    <tbody>
+                    <tr>
+                        <td>
+                            <label for="sync-progress" class="label">Synchronizuj postępy</label>
+                        </td>
+                        <td>
+                            <div class="field">
+                                <input id="sync-progress" type="checkbox"
+                                       class="switch is-rounded is-success settings-input" data-name="sync_progress">
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <label for="initial-repetitions" class="label">Wstępna liczba powtórzeń</label>
+                        </td>
+                        <td>
+                            <div class="field">
+                                <input id="initial-repetitions" type="number" class="input settings-input" min="1" data-name="initial_repetitions">
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <label for="wrong-answer-repetitions" class="label">Liczba dodatkowych powtórzeń przy błędnej odpowiedzi</label>
+                        </td>
+                        <td>
+                            <div class="field">
+                                <input id="wrong-answer-repetitions" type="number" class="input settings-input" min="0" data-name="wrong_answer_repetitions">
+                            </div>
+                        </td>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <script src="{% static 'js/profile.js' %}"></script>
+{% endblock %}
