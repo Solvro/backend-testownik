@@ -117,7 +117,7 @@
     <br>
     <div class="container"
          style="position: relative; margin-bottom: 10vh;display: flex; flex-direction: column;width: 100%;">
-        {% if not request.user.is_authenticated %}
+        {% if not request.user.is_authenticated and not allow_anonymous %}
             <div class="columns is-centered">
                 <div class="column is-half">
                     <div class="box">
@@ -186,7 +186,7 @@
                     </footer>
                 </div>
             </div>
-        {% elif not request.user.is_active_student_and_not_staff %}
+        {% elif not request.user.is_active_student_and_not_staff and not allow_anonymous %}
             <div class="columns is-centered">
                 <div class="column is-half">
                     <div class="box">

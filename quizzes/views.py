@@ -12,7 +12,8 @@ def index(request):
 
 
 def quiz(request, quiz_id):
-    return render(request, "quizzes/quiz.html", {"quiz_id": quiz_id})
+    quiz_obj = Quiz.objects.get(id=quiz_id)
+    return render(request, "quizzes/quiz.html", {"quiz_id": quiz_id, "allow_anonymous": quiz_obj.allow_anonymous})
 
 
 def import_quiz(request):
@@ -53,6 +54,8 @@ def quiz_api(request, quiz_id):
 
 
 def quizzes(request):
+    if not request.user.is_authenticated:
+        return render(request, "quizzes/quizzes.html")
     user_quizzes = Quiz.objects.filter(maintainer=request.user)
     shared_quizzes = SharedQuiz.objects.filter(user=request.user)
     group_quizzes = SharedQuiz.objects.filter(
