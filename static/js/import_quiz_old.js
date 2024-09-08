@@ -7,22 +7,24 @@ let questions = [];
 let questionSet = new Set();
 let index = 1;
 
+let directoryFiles = [];
+
 document.addEventListener('DOMContentLoaded', () => {
     const fileInput = document.getElementById('file-input');
     const fileBox = document.getElementById('file-box');
 
     fileInput.addEventListener('change', handleFileSelect);
-    fileBox.addEventListener('dragover', handleDragOver);
-    fileBox.addEventListener('dragleave', handleDragLeave);
+    fileBox.addEventListener('dragover', handleDragOverFile);
+    fileBox.addEventListener('dragleave', handleDragLeaveFile);
     fileBox.addEventListener('drop', handleFileDrop);
 
     const directoryInput = document.getElementById('directory-input');
     const directoryBox = document.getElementById('directory-box');
 
-    directoryInput.addEventListener('change', handleFolderSelect);
-    directoryBox.addEventListener('dragover', handleDragOver);
-    directoryBox.addEventListener('dragleave', handleDragLeave);
-    directoryBox.addEventListener('drop', handleFolderDrop);
+    directoryInput.addEventListener('change', handleDirectorySelect);
+    directoryBox.addEventListener('dragover', handleDragOverDirectory);
+    directoryBox.addEventListener('dragleave', handleDragLeaveDirectory);
+    directoryBox.addEventListener('drop', handleDirectoryDrop);
 
     document.getElementById('import-button').addEventListener('click', async () => {
         let data
@@ -63,6 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
             name.textContent = file.name;
             name.style.display = 'inline';
             directoryInput.value = '';
+            directoryFiles = [];
             const directoryName = document.getElementById('directory-name');
             directoryName.textContent = '';
             directoryName.style.display = 'none';
@@ -70,15 +73,15 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('file-box').classList.remove('has-name');
             name.style.display = 'none';
         }
-        handleDragLeave();
+        handleDragLeaveFile();
     }
 
-    function handleFolderSelect(evt) {
-        const files = evt.target.files;
-        const directoryPath = files[0].webkitRelativePath;
+    function handleDirectorySelect(evt) {
+        directoryFiles = evt.target.files;
+        const directoryPath = directoryFiles[0].webkitRelativePath;
         const directoryName = directoryPath.split('/')[0];
         const name = document.getElementById('directory-name');
-        if (files) {
+        if (directoryFiles) {
             document.getElementById('directory-box').classList.add('has-name');
             name.textContent = directoryName;
             name.style.display = 'inline';
@@ -91,7 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('directory-box').classList.remove('has-name');
             name.style.display = 'none';
         }
-        handleDragLeave();
+        handleDragLeaveDirectory();
     }
 
     function handleFileDrop(evt) {
@@ -104,23 +107,50 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function handleFolderDrop(evt) {
+    function handleDirectoryDrop(evt) {
         evt.preventDefault();
         evt.stopPropagation();
-        const directory = evt.dataTransfer.files[0];
-        if (directory) {
-            directoryInput.files = evt.dataTransfer.files;
-            handleFolderSelect({target: {files: [directory]}});
+        const directory = evt.dataTransfer.items[0].webkitGetAsEntry();
+        if (directory && directory.isDirectory) {
+            const name = document.getElementById('directory-name');
+            directoryFiles = [];
+            const reader = directory.createReader();
+            const readEntries = () => {
+                reader.readEntries(entries => {
+                    if (entries.length) {
+                        directoryFiles = directoryFiles.concat(entries);
+                        readEntries();
+                    }
+                });
+            }
+            readEntries();
+            if (directoryFiles) {
+                document.getElementById('directory-box').classList.add('has-name');
+                name.textContent = directory.name;
+                name.style.display = 'inline';
+                fileInput.value = '';
+                const fileName = document.getElementById('file-name');
+                fileName.textContent = '';
+                fileName.style.display = 'none';
+                document.getElementById('file-box').classList.remove('has-name');
+            } else {
+                document.getElementById('directory-box').classList.remove('has-name');
+                name.style.display = 'none';
+            }
+        } else {
+            document.getElementById('directory-box').classList.remove('has-name');
+            name.style.display = 'none';
         }
+        handleDragLeaveDirectory();
     }
 
-    function handleDragOver(evt, uploadType) {
+    function handleDragOverFile(evt) {
         evt.preventDefault();
         evt.stopPropagation();
-        if (evt.dataTransfer.items && evt.dataTransfer.items.length === 1 && evt.dataTransfer.items[0].kind === uploadType) {
+        if (evt.dataTransfer.items && evt.dataTransfer.items.length === 1 && evt.dataTransfer.items[0].kind === 'file' && ['application/zip', 'application/zip-compressed', 'application/x-zip-compressed', 'multipart/x-zip'].includes(evt.dataTransfer.items[0].type)) {
             evt.dataTransfer.dropEffect = 'copy';
-            if (document.getElementById(`${uploadType}-name`).style.display === 'none') {
-                document.querySelector('.file-cta').classList.add('dragover');
+            if (document.getElementById('file-name').style.display === 'none') {
+                document.getElementById('file-cta').classList.add('dragover');
             } else {
                 fileBox.classList.add('dragover');
             }
@@ -129,13 +159,37 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function handleDragLeave(evt) {
+    function handleDragOverDirectory(evt) {
+        evt.preventDefault();
+        evt.stopPropagation();
+        if (evt.dataTransfer.items && evt.dataTransfer.items.length === 1) {
+            evt.dataTransfer.dropEffect = 'copy';
+            if (document.getElementById('directory-name').style.display === 'none') {
+                document.getElementById('directory-cta').classList.add('dragover');
+            } else {
+                directoryBox.classList.add('dragover');
+            }
+        } else {
+            evt.dataTransfer.dropEffect = 'none';
+        }
+    }
+
+    function handleDragLeaveFile(evt) {
         if (evt) {
             evt.preventDefault();
             evt.stopPropagation();
         }
         fileBox.classList.remove('dragover');
-        document.querySelector('.file-cta').classList.remove('dragover');
+        document.getElementById('file-cta').classList.remove('dragover');
+    }
+
+    function handleDragLeaveDirectory(evt) {
+        if (evt) {
+            evt.preventDefault();
+            evt.stopPropagation();
+        }
+        directoryBox.classList.remove('dragover');
+        document.getElementById('directory-cta').classList.remove('dragover');
     }
 
     async function importQuiz() {
@@ -162,11 +216,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function processFiles() {
-        const directoryInput = document.getElementById('directory-input');
         const zipInput = document.getElementById('file-input');
 
-        if (directoryInput.files.length > 0) {
-            await processDirectory(directoryInput.files);
+        if (directoryFiles.length > 0) {
+            await processDirectory(directoryFiles);
         } else if (zipInput.files.length > 0) {
             await processZip(zipInput.files[0]);
         } else {
@@ -200,16 +253,32 @@ document.addEventListener('DOMContentLoaded', () => {
             const reader = new FileReader();
             reader.onload = () => resolve(reader.result.split('\n').map(line => line.trim()));
             reader.onerror = reject;
-            reader.readAsText(file);
+            if (file instanceof File) {
+                reader.readAsText(file);
+            } else if (file.isFile) {
+                file.file(file => reader.readAsText(file));
+            }
         });
     }
 
     async function processQuestion(lines, path) {
         const template = lines[0].trim();
+        if (template === '') {
+            console.error(`Error in file ${path}. Template not found. Skipping.`);
+            return;
+        } else if (!["x", "y"].includes(template[0].toLowerCase())) {
+            console.error(`Error in file ${path}. Template not recognized. Skipping.`);
+            return
+        } else if ([...template.slice(1)].some(c => c !== '0' && c !== '1')) {
+            return;
+        }
         const question = lines[1].trim();
         const answers = [];
 
-        for (let s = 2; s < lines.length; s++) {
+        for (let s = 2; s < Math.min(lines.length, template.length); s++) {
+            if (lines[s] === undefined || lines[s].trim() === '') {
+                continue;
+            }
             try {
                 answers.push({
                     "answer": lines[s].trim(),
