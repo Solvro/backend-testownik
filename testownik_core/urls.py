@@ -43,4 +43,9 @@ urlpatterns = [
     path("grades/", include("grades.urls")),
     path("quizzes/", include("quizzes.urls")),
     path("api/quiz/<uuid:quiz_id>/", quizzes_views.quiz_api, name="quiz_api"),
+    path(
+        "api/quiz/<uuid:quiz_id>/progress/",
+        quizzes_views.quiz_progress_api,
+        name="progress_api",
+    ),
 ]

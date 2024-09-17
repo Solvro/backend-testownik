@@ -1,31 +1,10 @@
-const peer = new Peer({
-    config: {
-        iceServers: [
-            {'urls': 'stun:stun.l.google.com:19302'},
-            {urls: 'turns:freeturn.tel:5349', username: 'free', credential: 'free'}
-        ]
-    }
-});
-let peerConnections = [];
-
-
-peer.on('error', function (err) {
-    console.error('Peer error:', err);
-});
-
-peer.on('open', function (id) {
-    createContinuityQR();
-});
-
-
 let questions = [];
-let randomizedQuestions = [];
-let currentQuestionIndex = 0;
+let reoccurrences = [];
+let currentQuestionId = null;
 let currentQuestionData = null;
-let failedQuestions = [];
-let providedAnswers = 0;
-let masteredQuestions = 0;
-let masteredQuestionIds = [];
+let correctAnswersCount = 0;
+let wrongAnswersCount = 0;
+let isQuizFinished = false;
 let startTime = new Date();
 let studyTime = 0;
 const source = quizUrl;
@@ -37,7 +16,13 @@ const sourceProperties = {
 };
 let stopProgressSaving = false;
 
-document.addEventListener('DOMContentLoaded', () => {
+let peer
+let peerConnections = [];
+let isContinuityHost = false;
+
+
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadProgress();
     fetchQuestions().then(success => {
         if (!success) {
             document.getElementById('info').innerHTML = `
@@ -48,10 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
             return;
         }
-        loadMasteredQuestions();
-        randomizedQuestions = shuffleArray([...questions]).filter(q => !masteredQuestionIds.includes(q.id));
-        loadProgress();
-        if (randomizedQuestions.length === 0) {
+        if (isQuizFinished) {
             document.getElementById('info').innerHTML = `
                 <div class="alert alert-success alert-dismissible fade show" role="alert">
                     Gratulacje! Opanowałeś wszystkie pytania.\nZresetuj postępy aby zacząć od nowa.
@@ -59,56 +41,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `;
         } else {
-            loadQuestion(currentQuestionIndex);
+            if (!currentQuestionId) {
+                currentQuestionId = getRandomQuestionId();
+            }
+            loadQuestion(currentQuestionId);
             setInterval(updateStudyTime, 1000);
         }
         const params = new URLSearchParams(window.location.search);
-        if (params.has('import')) {
-            importExportData();
-        }
-        if (params.has('peer')) {
-            const peerId = new URLSearchParams(window.location.search).get('peer');
-            if (!confirm('Czy na pewno chcesz połączyć się z tym urządzeniem?')) {
-                params.delete('peer');
-                window.location.search = params.toString();
-            }
-            connectToPeer(peer, peerId).then(conn => {
-                console.log('Connected to peer:', conn);
-                conn.on('data', data => handlePeerData(conn, data));
-                conn.on('error', error => {
-                    console.error('Error connecting to peer:', error);
-                });
-                conn.on('close', handlePeerClose);
-                conn.on('disconnected', handlePeerClose);
-            }).catch(error => {
-                console.error('Error connecting to peer:', error);
-                alert("Nie udało się połączyć z urządzeniem. Spróbuj ponownie lub zaimportuj dane zamiast tego.");
-            });
-            params.delete('peer');
-            window.history.replaceState({}, document.title, `${window.location.pathname}?${params.toString()}`);
-        }
         if (params.has('question')) {
             const questionId = parseInt(params.get('question'), 10);
-            goToQuestion(questionId);
+            loadQuestion(questionId);
             params.delete('question');
             window.history.replaceState({}, document.title, `${window.location.pathname}?${params.toString()}`);
         }
     });
 
     document.getElementById('nextButton').addEventListener('click', handleNextButtonClick);
-    document.getElementById('reportButton').addEventListener('click', () => reportIncorrectQuestion(currentQuestionIndex));
-    document.getElementById('resetButton').addEventListener('click', () => {
+    document.getElementById('reportButton').addEventListener('click', () => reportIncorrectQuestion(currentQuestionId));
+    document.getElementById('resetButton').addEventListener('click', async () => {
         if (confirm('Czy na pewno chcesz zresetować postępy?')) {
-            resetProgress();
+            await resetProgress();
             window.location.reload();
         }
     });
 
     document.getElementById('clipboardButton').addEventListener('click', copyToClipboard);
     document.getElementById('chatGPTButton').addEventListener('click', openInChatGPT);
-    document.getElementById('qrExportButton').addEventListener('click', createQRExportModal);
 
     document.addEventListener('keydown', handleKeyPress);
+
+    initiateContinuity()
 });
 
 const fetchQuestions = async () => {
@@ -117,6 +79,9 @@ const fetchQuestions = async () => {
         const data = await response.json();
 
         questions = Array.isArray(data) ? data : data.questions || [];
+        if (reoccurrences.length === 0) {
+            reoccurrences = questions.map(q => ({id: q.id, reoccurrences: userSettings.initialRepetitions}));
+        }
         document.getElementById('totalQuestions').textContent = questions.length;
 
         if (new URLSearchParams(window.location.search).has('delulu')) {
@@ -133,11 +98,6 @@ const fetchQuestions = async () => {
             document.title = `Testownik - ${sourceProperties.title}`;
         }
 
-        gtag('event', 'page_view', {
-            page_title: document.title,
-            page_location: window.location.href,
-        });
-
         handleVersionUpdate();
         if (sourceProperties.report_email) {
             document.getElementById('reportButton').style.display = 'inline-block';
@@ -145,35 +105,26 @@ const fetchQuestions = async () => {
         return true;
     } catch (error) {
         console.error('Error fetching questions:', error);
-        gtag('event', 'exception', {
-            description: 'Error fetching questions',
-            fatal: true
-        });
-        gtag('event', 'page_view', {
-            page_title: 'Testownik - Błąd',
-            page_location: window.location.href,
-        });
         return false;
     }
 };
 
 const handleVersionUpdate = () => {
-    const cookies = document.cookie.split('; ');
-    const versionCookie = cookies.find(row => row.startsWith(`${source}_version=`));
-    const cookieVersion = versionCookie ? parseInt(versionCookie.split('=')[1]) : sourceProperties.version;
+    const storedVersion = localStorage.getItem(`${source}_version`);
+    const localStorageVersion = storedVersion ? parseInt(storedVersion) : sourceProperties.version;
 
-    if (!versionCookie) {
-        document.cookie = `${source}_version=${sourceProperties.version};path=/;max-age=31536000`;
+    if (!storedVersion) {
+        localStorage.setItem(`${source}_version`, sourceProperties.version);
     }
 
-    if (sourceProperties.version !== cookieVersion) {
+    if (sourceProperties.version !== localStorageVersion) {
         document.getElementById('info').innerHTML = `
             <div class="alert alert-success alert-dismissible fade show" role="alert">
                 Baza pytań została zaktualizowana.
                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>
         `;
-        document.cookie = `${source}_version=${sourceProperties.version};path=/;max-age=31536000`;
+        localStorage.setItem(`${source}_version`, sourceProperties.version);
     }
 };
 
@@ -185,8 +136,12 @@ const shuffleArray = array => {
     return array;
 };
 
-const loadQuestion = (index, answersOrder = []) => {
-    currentQuestionData = randomizedQuestions[index];
+const loadQuestion = (id, answersOrder = [], sendToPeers = true) => {
+    currentQuestionData = questions.find(q => q.id === id);
+    if (!currentQuestionData) {
+        alert('Nie znaleziono pytania o podanym identyfikatorze.');
+        return;
+    }
     const questionText = document.getElementById('questionText');
     const buttonContainer = document.getElementById('buttonContainer');
     const questionImage = document.getElementById('questionImage');
@@ -264,20 +219,26 @@ const loadQuestion = (index, answersOrder = []) => {
         questionImage.innerHTML = '';
     }
 
-    sendToAllPeers({
-        type: 'question_loaded',
-        questionId: currentQuestionData.id,
-        answersOrder: currentQuestionData.answers.map(answer => answer.answer)
-    });
+    if (sendToPeers) {
+        sendToAllPeers({
+            type: 'question_loaded',
+            questionId: currentQuestionData.id,
+            answersOrder: currentQuestionData.answers.map(answer => answer.answer)
+        });
+    }
 
     saveProgress();
-
-    gtag('event', 'question_loaded', {
-        'event_category': 'Question',
-        'event_label': source,
-        'value': currentQuestionData.id
-    });
 };
+
+const getRandomQuestionId = () => {
+    // Get random question id from reoccurrences that is not 0
+    const questionIds = reoccurrences.filter(q => q.reoccurrences > 0).map(q => q.id);
+    if (questionIds.length === 0) {
+        isQuizFinished = true;
+        return null;
+    }
+    return questionIds[Math.floor(Math.random() * questionIds.length)];
+}
 
 const handleCheckboxClick = (clickedCheckbox, isMultiple, remote = false) => {
     if (!isMultiple) {
@@ -336,10 +297,10 @@ const checkAnswer = (remote = false) => {
     });
 
     if (allCorrect && hasSelectedCorrect) {
-        masteredQuestions++;
-        masteredQuestionIds.push(currentQuestionData.id);
         feedback.textContent = 'Poprawna odpowiedź!';
         feedback.className = 'text-success';
+        correctAnswersCount++;
+        reoccurrences.find(q => q.id === currentQuestionData.id).reoccurrences--;
     } else {
         feedback.innerHTML = selectedCheckboxes.length === 0 ? 'Brak odpowiedzi!' : 'Zła odpowiedź!';
 
@@ -355,14 +316,12 @@ const checkAnswer = (remote = false) => {
         buttonContainer.querySelectorAll('input[value="true"]').forEach(correctCheckbox => {
             correctCheckbox.nextSibling.classList.replace('btn-outline-secondary', 'btn-success');
         });
-        failedQuestions.push(currentQuestionData);
+        wrongAnswersCount++;
+        reoccurrences.find(q => q.id === currentQuestionData.id).reoccurrences += userSettings.wrongAnswerRepetitions;
     }
 
-    if (selectedCheckboxes.length > 0) {
-        providedAnswers++;
-    }
-    document.getElementById('providedAnswers').textContent = providedAnswers;
-    document.getElementById('masteredQuestions').textContent = masteredQuestions;
+    document.getElementById('providedAnswers').textContent = wrongAnswersCount + correctAnswersCount;
+    document.getElementById('masteredQuestions').textContent = reoccurrences.filter(q => q.reoccurrences === 0).length;
     nextButton.textContent = 'Następne';
     saveProgress();
     if (!remote) {
@@ -373,14 +332,9 @@ const checkAnswer = (remote = false) => {
 };
 
 const nextQuestion = () => {
-    if (currentQuestionIndex < randomizedQuestions.length - 1) {
-        currentQuestionIndex++;
-        loadQuestion(currentQuestionIndex);
-    } else if (failedQuestions.length > 0) {
-        randomizedQuestions = shuffleArray(failedQuestions);
-        failedQuestions = [];
-        currentQuestionIndex = 0;
-        loadQuestion(currentQuestionIndex);
+    currentQuestionId = getRandomQuestionId();
+    if (currentQuestionId) {
+        loadQuestion(currentQuestionId);
     } else {
         alert('Wszystkie pytania zostały opanowane, zresetuj postępy aby zacząć od nowa.');
     }
@@ -394,61 +348,88 @@ const updateStudyTime = () => {
     const minutes = String(Math.floor((timeDiff % 3600) / 60)).padStart(2, '0');
     const seconds = String(timeDiff % 60).padStart(2, '0');
     document.getElementById('studyTime').textContent = `${hours}:${minutes}:${seconds}`;
-    saveProgress();
+    saveProgress(false);
 };
 
-const saveProgress = () => {
-    if (stopProgressSaving || randomizedQuestions.length === 0 || document.hidden) return;
+const saveProgress = async (cloudSync = true) => {
+    if (stopProgressSaving || isQuizFinished || document.hidden) return;
     const progress = {
-        currentQuestionId: currentQuestionData.id,
-        providedAnswers,
-        masteredQuestions,
-        studyTime
+        currentQuestionId,
+        wrongAnswersCount,
+        correctAnswersCount,
+        studyTime,
+        reoccurrences,
     };
-    document.cookie = `${source}_progress=${JSON.stringify(progress)};path=/;max-age=31536000`;
-    document.cookie = `${source}_mastered=${JSON.stringify(masteredQuestionIds)};path=/;max-age=31536000`;
+    localStorage.setItem(`${source}_progress`, JSON.stringify(progress));
+
+    if (cloudSync && userSettings.syncProgress && userAuthenticated) {
+        await fetch(`${source}progress/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({
+                current_question: currentQuestionId,
+                correct_answers_count: correctAnswersCount,
+                wrong_answers_count: wrongAnswersCount,
+                study_time: studyTime,
+                reoccurrences,
+            })
+        });
+    }
 };
 
-const loadProgress = () => {
-    const cookies = document.cookie.split('; ');
-    const progressCookie = cookies.find(row => row.startsWith(`${source}_progress=`));
-
-    if (progressCookie) {
-        const progress = JSON.parse(progressCookie.split('=')[1]);
-        providedAnswers = progress.providedAnswers;
-        masteredQuestions = progress.masteredQuestions;
+// first load progress from localstorage and after that try to load from server if sync is enabled
+const loadProgress = async () => {
+    const progress = JSON.parse(localStorage.getItem(`${source}_progress`));
+    if (progress) {
+        currentQuestionId = progress.currentQuestionId;
+        correctAnswersCount = progress.correctAnswersCount;
+        wrongAnswersCount = progress.wrongAnswersCount;
         studyTime = progress.studyTime || 0;
         startTime = new Date(new Date() - studyTime * 1000);
-        let foundIndex = randomizedQuestions.findIndex(q => q.id === progress.currentQuestionId);
-        if (foundIndex !== -1) {
-            let foundQuestion = randomizedQuestions.splice(foundIndex, 1)[0];
-            randomizedQuestions.unshift(foundQuestion);
+        reoccurrences = progress.reoccurrences;
+        updateStudyTime()
+    }
+
+    document.getElementById('providedAnswers').textContent = wrongAnswersCount + correctAnswersCount || 0;
+    document.getElementById('masteredQuestions').textContent = reoccurrences.filter(q => q.reoccurrences === 0).length || 0;
+
+    if (userSettings.syncProgress && userAuthenticated) {
+        const response = await fetch(`${source}progress/`);
+        if (response.ok) {
+            const data = await response.json();
+            if (data) {
+                currentQuestionId = data.current_question;
+                correctAnswersCount = data.correct_answers_count;
+                wrongAnswersCount = data.wrong_answers_count;
+                studyTime = data.study_time || 0;
+                startTime = new Date(new Date() - studyTime * 1000);
+                reoccurrences = data.reoccurrences;
+                updateStudyTime();
+            }
         }
     }
-
-    document.getElementById('providedAnswers').textContent = providedAnswers;
-    document.getElementById('masteredQuestions').textContent = masteredQuestions;
 };
 
-const loadMasteredQuestions = () => {
-    const cookies = document.cookie.split('; ');
-    const masteredCookie = cookies.find(row => row.startsWith(`${source}_mastered=`));
-    if (masteredCookie) {
-        masteredQuestionIds = JSON.parse(masteredCookie.split('=')[1]);
+const resetProgress = async () => {
+    stopProgressSaving = true;
+    localStorage.removeItem(`${source}_progress`);
+    localStorage.removeItem(`${source}_version`);
+    if (userSettings.syncProgress && userAuthenticated) {
+        await fetch(`${source}progress/`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRFToken': csrfToken
+            }
+        });
     }
 };
 
-const resetProgress = () => {
-    stopProgressSaving = true;
-    document.cookie = `${source}_progress=;path=/;max-age=0`;
-    document.cookie = `${source}_mastered=;path=/;max-age=0`;
-    document.cookie = `${source}_version=;path=/;max-age=0`;
-    masteredQuestionIds = [];
-};
 
-
-const reportIncorrectQuestion = questionIndex => {
-    const questionData = randomizedQuestions[questionIndex];
+const reportIncorrectQuestion = questionId => {
+    const questionData = questions.find(q => q.id === questionId);
     const subject = encodeURIComponent(`Testownik ${source} - zgłoszenie błędu`);
     const body = encodeURIComponent(`Pytanie nr ${questionData.id}:\n${questionData.question}\n\nOdpowiedzi:\n${questionData.answers.map(answer => answer.answer + (answer.correct ? ' (poprawna)' : '')).join('\n')}\n\n\nNapisz tutaj swoje uwagi lub poprawną odpowiedź:\n`);
     const email = sourceProperties.report_email;
@@ -466,7 +447,6 @@ const handleKeyPress = event => {
 
     const key = event.key.toLowerCase();
     if (key === 's') {
-        failedQuestions.push(currentQuestionData);
         nextQuestion();
     } else if (key === 'enter') {
         if (activeElement.tagName.toLowerCase() === 'button') {
@@ -515,133 +495,79 @@ const openInChatGPT = () => {
     }
 };
 
-const generateExportURL = () => {
-    try {
-        const maxQuestionId = Math.max(...masteredQuestionIds);
-        const minQuestionId = Math.min(...masteredQuestionIds);
 
-        if (maxQuestionId - minQuestionId > 999) {
-            alert('Obecnie nie można eksportować pytań z tego testownka. Skontaktuj się z autorem.');
-            return;
-        }
+// Continuity feature
 
-        const currentUrl = new URL(window.location.href);
-        const binaryMasteredQuestions = Array.from({length: maxQuestionId - minQuestionId + 1}, (_, i) => masteredQuestionIds.includes(minQuestionId + i) ? '1' : '0').join('');
-
-        const data = {
-            min: minQuestionId,
-            max: maxQuestionId,
-            current: currentQuestionData.id,
-            studyTime: studyTime,
-            providedAnswers: providedAnswers,
-            mastered: binaryMasteredQuestions
-        }
-
-        return `${currentUrl.origin}${currentUrl.pathname}?import=${LZString.compressToEncodedURIComponent(JSON.stringify(data))}`;
-    } catch (error) {
-        console.error('Error generating export URL:', error);
-        return currentUrl.href;
-    }
-};
-
-const importExportData = () => {
-    const params = new URLSearchParams(window.location.search);
-    if (!confirm('Czy na pewno chcesz zaimportować dane? Obecne postępy na tym urządzeniu zostaną utracone.')) {
-        params.delete('import');
-        window.location.search = params.toString();
+const initiateContinuity = () => {
+    // Only initiate continuity if the user is authenticated and sync is enabled
+    if (!userAuthenticated || !userSettings.syncProgress) {
         return;
     }
-
-    resetProgress();
-
-    const importedData = JSON.parse(LZString.decompressFromEncodedURIComponent(params.get('import')));
-
-    const minQuestionId = importedData.min;
-    const maxQuestionId = importedData.max;
-    const currentQuestionId = importedData.current;
-    studyTime = importedData.studyTime;
-    providedAnswers = importedData.providedAnswers;
-    const binaryMasteredQuestions = importedData.mastered;
-    masteredQuestionIds = Array.from({length: maxQuestionId - minQuestionId + 1}, (_, i) => binaryMasteredQuestions[i] === '1' ? minQuestionId + i : null).filter(id => id !== null);
-
-    const progress = {
-        currentQuestionId,
-        providedAnswers,
-        masteredQuestions: masteredQuestionIds.length,
-        studyTime
-    };
-    document.cookie = `${source}_progress=${JSON.stringify(progress)};path=/;max-age=31536000`;
-    document.cookie = `${source}_mastered=${JSON.stringify(masteredQuestionIds)};path=/;max-age=31536000`;
-
-    params.delete('import');
-    window.location.search = params.toString();
-};
-
-const createQRExportModal = () => {
-    const modal = new bootstrap.Modal(document.getElementById('qrExportModal'));
-    const qrCodeElement = document.getElementById('exportQRCode');
-    qrCodeElement.innerHTML = '';
-    new QRCode(qrCodeElement, {
-        text: generateExportURL(),
-        width: 512,
-        height: 512,
-        colorDark: '#000000',
-        colorLight: '#ffffff',
-        correctLevel: QRCode.CorrectLevel.H
-    });
-
-    modal.show();
-};
-
-const goToQuestion = (questionId, answersOrder = []) => {
-    const foundIndex = randomizedQuestions.findIndex(q => q.id === questionId);
-    if (foundIndex !== -1) {
-        randomizedQuestions.splice(foundIndex, 1);
-        randomizedQuestions.unshift(questions.find(q => q.id === questionId));
-        currentQuestionIndex = 0;
-        loadQuestion(currentQuestionIndex, answersOrder);
-        if (masteredQuestionIds.includes(questionId)) {
-            masteredQuestions--;
-            document.getElementById('masteredQuestions').textContent = masteredQuestions;
-            masteredQuestionIds = masteredQuestionIds.filter(q => q !== questionId);
-        }
-    } else {
-        if (masteredQuestionIds.includes(questionId)) {
-            randomizedQuestions.splice(currentQuestionIndex + 1, 0, questions.find(q => q.id === questionId));
-            masteredQuestionIds = masteredQuestionIds.filter(q => q.id !== questionId);
-            masteredQuestions--;
-            document.getElementById('masteredQuestions').textContent = masteredQuestions;
-            saveProgress();
-            goToQuestion(questionId, answersOrder);
-        } else {
-            console.error(`Question with ID ${questionId} not found.`);
-        }
-    }
-}
-
-
-// Continuity
-
-const createContinuityQR = () => {
-    const qrCodeElement = document.getElementById('continuityQRCode');
-    const currentUrl = new URL(window.location.href);
-    getPeerId().then(peerId => {
-        qrCodeElement.innerHTML = '';
-        new QRCode(qrCodeElement, {
-            text: `${currentUrl.origin}${currentUrl.pathname}?peer=${peerId}`,
-            colorDark: '#000000',
-            colorLight: '#ffffff',
-            correctLevel: QRCode.CorrectLevel.H
+    // First, create a new Peer with ID from userId and quizUrl, if already exists then try to connect to it
+    peer = new peerjs.Peer(
+        `${source.replaceAll('/', '')}_${userId}`,
+        {
+            config: {
+                iceServers: [
+                    {'urls': 'stun:stun.l.google.com:19302'},
+                    {urls: 'turns:freeturn.tel:5349', username: 'free', credential: 'free'}
+                ]
+            }
         });
 
-    });
-};
+    peer.on('error', function (err) {
+        if (err.type === 'unavailable-id') {
+            isContinuityHost = false;
+            peer = new peerjs.Peer(
+                {
+                    config: {
+                        iceServers: [
+                            {'urls': 'stun:stun.l.google.com:19302'},
+                            {urls: 'turns:freeturn.tel:5349', username: 'free', credential: 'free'}
+                        ]
+                    }
+                });
 
+            peer.on('error', function (err) {
+                console.error('Peer error:', err);
+            });
+
+            peer.on('open', function (id) {
+                // If the Peer ID is already taken, try to connect to the existing one
+                connectToPeer(`${source.replaceAll('/', '')}_${userId}`).then(conn => {
+                    console.log('Connected to peer:', conn);
+                    conn.on('data', data => handlePeerData(conn, data));
+                    conn.on('error', error => {
+                        console.error('Error connecting to peer:', error);
+                    });
+                    conn.on('close', handlePeerClose);
+                    conn.on('disconnected', handlePeerClose);
+                    bootstrap.Toast.getOrCreateInstance(document.getElementById('continuityConnectedToast')).show();
+                }).catch(error => {
+                    console.error('Error connecting to peer:', error);
+                    alert("Nie udało się połączyć z urządzeniem. Spróbuj ponownie lub zaimportuj dane zamiast tego.");
+                });
+                updateContinuityModal();
+            });
+
+            peer.on('connection', handlePeerConnection);
+        } else {
+            console.error('Peer error:', err);
+        }
+    });
+
+    peer.on('open', function (id) {
+        isContinuityHost = true;
+        updateContinuityModal();
+    });
+
+    peer.on('connection', handlePeerConnection);
+}
 
 const handlePeerConnection = (conn) => {
     console.log('Connection established:', conn);
     peerConnections.push(conn);
-    updateContinuityModal(false, true);
+    updateContinuityModal(true);
     conn.on('data', data => handlePeerData(conn, data));
     conn.on('error', function (err) {
         console.error('Connection error:', err);
@@ -649,11 +575,13 @@ const handlePeerConnection = (conn) => {
     conn.on('close', handlePeerClose);
     conn.on('disconnected', handlePeerClose);
     conn.on('open', function () {
+        bootstrap.Toast.getOrCreateInstance(document.getElementById('continuityConnectedToast')).show();
         sendToPeer(conn, {
             type: 'progress_sync',
             studyTime,
-            providedAnswers,
-            mastered: masteredQuestionIds
+            wrongAnswersCount,
+            correctAnswersCount,
+            reoccurrences,
         });
         sendToPeer(conn, {
             type: 'question_loaded',
@@ -670,12 +598,14 @@ const handlePeerConnection = (conn) => {
     });
 };
 
-peer.on('connection', handlePeerConnection);
-
 const handlePeerClose = (conn) => {
     console.log('Connection closed:', conn);
     peerConnections = peerConnections.filter(c => c.open);
     updateContinuityModal();
+    // If the host connection is closed, try to become the host and wait for other devices to connect, otherwise try to connect to the host
+    if (!isContinuityHost) {
+        initiateContinuity();
+    }
     bootstrap.Toast.getOrCreateInstance(document.getElementById('continuityDisconnectedToast')).show();
 }
 
@@ -686,23 +616,23 @@ const handlePeerData = (conn, data) => {
         case 'progress_sync':
             studyTime = data.studyTime;
             startTime = new Date(new Date() - studyTime * 1000);
-            providedAnswers = data.providedAnswers;
-            masteredQuestionIds = data.mastered;
-            masteredQuestions = masteredQuestionIds.length;
-            document.getElementById('masteredQuestions').textContent = masteredQuestions;
-            document.getElementById('providedAnswers').textContent = providedAnswers;
+            wrongAnswersCount = data.wrongAnswersCount;
+            correctAnswersCount = data.correctAnswersCount;
+            reoccurrences = data.reoccurrences;
+            document.getElementById('masteredQuestions').textContent = reoccurrences.filter(q => q.reoccurrences === 0).length;
+            document.getElementById('providedAnswers').textContent = wrongAnswersCount + correctAnswersCount;
             saveProgress();
             break;
         case 'question_loaded':
             if (currentQuestionData && currentQuestionData.id === data.questionId) {
                 if (data.answersOrder.length > 0) {
                     if (currentQuestionData.answers.map(answer => answer.answer).join(',') !== data.answersOrder.join(',')) {
-                        loadQuestion(currentQuestionIndex, data.answersOrder);
+                        loadQuestion(currentQuestionData.id, data.answersOrder);
                     }
                 }
                 return;
             }
-            goToQuestion(data.questionId, data.answersOrder);
+            loadQuestion(data.questionId, data.answersOrder, false);
             break;
         case 'answer_selected':
             const checkbox = document.querySelector(`input[data-key="${data.answer}"]`);
@@ -731,7 +661,7 @@ const getPeerId = () => {
     });
 }
 
-const connectToPeer = (peer, peerId) => {
+const connectToPeer = (peerId) => {
     return new Promise((resolve, reject) => {
         // Wait for the Peer instance to be open
         if (peer.open) {
@@ -810,21 +740,20 @@ const getDeviceType = () => {
     return 'desktop';
 }
 
-const updateContinuityModal = (forceQR = false, autoClose = false) => {
-    const continuityQRDiv = document.getElementById('continuityQRDiv');
+const updateContinuityModal = (autoClose = false) => {
+    const continuityNotConnectedDiv = document.getElementById('continuityNotConnectedDiv');
     const continuityConnectedDiv = document.getElementById('continuityConnectedDiv');
     const continuityConnectedName = document.getElementById('continuityConnectedName');
     const continuityIcon = document.getElementById('continuityIcon');
 
-    if (peerConnections.length === 0 || forceQR) {
-        createContinuityQR();
-        continuityQRDiv.classList.remove('d-none');
+    if (peerConnections.length === 0) {
+        continuityNotConnectedDiv.classList.remove('d-none');
         continuityConnectedDiv.classList.add('d-none');
         if (peerConnections.length === 0) {
             continuityIcon.icon = 'flat-color-icons:multiple-devices';
         }
     } else {
-        continuityQRDiv.classList.add('d-none');
+        continuityNotConnectedDiv.classList.add('d-none');
         continuityConnectedDiv.classList.remove('d-none');
 
         const deviceNames = peerConnections.map(conn => conn.metadata.device);
@@ -855,9 +784,5 @@ const updateContinuityModal = (forceQR = false, autoClose = false) => {
 
         }
     }
+    document.getElementById('continuityHostBadge').classList.toggle('d-none', !isContinuityHost);
 }
-
-document.getElementById('continuityConnectMoreButton').addEventListener('click', () => {
-    createContinuityQR();
-    updateContinuityModal(true);
-});

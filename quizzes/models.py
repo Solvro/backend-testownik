@@ -1,8 +1,16 @@
 import uuid
+from datetime import timedelta
 
 from django.db import models
 
 from users.models import StudyGroup, User
+
+QUIZ_VISIBILITY_CHOICES = [
+    (0, "Prywatny"),
+    (1, "Dla udostępnionych"),
+    (2, "Niepubliczny (z linkiem)"),
+    (3, "Publiczny"),
+]
 
 
 class Quiz(models.Model):
@@ -10,10 +18,7 @@ class Quiz(models.Model):
     title = models.CharField(max_length=255)
     description = models.TextField(null=True, blank=True)
     maintainer = models.ForeignKey(User, on_delete=models.CASCADE)
-    is_public = models.BooleanField(
-        default=True,
-        help_text="Każdy zalogowany użytkownik będzie mógł zobaczyć tę bazę",
-    )
+    visibility = models.PositiveIntegerField(choices=QUIZ_VISIBILITY_CHOICES, default=0)
     allow_anonymous = models.BooleanField(
         default=False,
         help_text="Każdy, nawet niezalogowany użytkownik będzie mógł wyświetlić tę bazę wchodząc na link",
@@ -37,7 +42,8 @@ class Quiz(models.Model):
             "maintainer": (
                 self.maintainer.full_name if not self.is_anonymous else "Anonimowy"
             ),
-            "is_public": self.is_public,
+            "visibility": self.visibility,
+            "visibility_name": dict(QUIZ_VISIBILITY_CHOICES)[self.visibility],
             "is_anonymous": self.is_anonymous,
             "version": self.version,
             "questions": self.questions,
@@ -69,11 +75,18 @@ class QuizProgress(models.Model):
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     current_question = models.PositiveIntegerField(default=0)
-    mastered_questions = models.JSONField(
-        default=list, blank=True
-    )  # list of question ids that were answered correctly and won't be repeated
-    failed_questions = models.JSONField(
-        default=list, blank=True
-    )  # list of question ids that will be repeated until answered correctly enough times
-    study_time = models.DurationField(default=0)
+    reoccurrences = models.JSONField(default=list, blank=True)
+    correct_answers_count = models.PositiveIntegerField(default=0)
+    wrong_answers_count = models.PositiveIntegerField(default=0)
+    study_time = models.DurationField(default=timedelta)
     last_activity = models.DateTimeField(auto_now=True)
+
+    def to_dict(self):
+        return {
+            "current_question": self.current_question,
+            "correct_answers_count": self.correct_answers_count,
+            "wrong_answers_count": self.wrong_answers_count,
+            "study_time": self.study_time.total_seconds(),
+            "last_activity": self.last_activity,
+            "reoccurrences": self.reoccurrences,
+        }
