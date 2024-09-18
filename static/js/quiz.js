@@ -501,8 +501,8 @@ const openInChatGPT = () => {
 
 // Continuity feature
 
-const pingInterval = 10000; // 10 seconds
-const pingTimeout = 10000; // 10 seconds
+const pingInterval = 5000; // 5 seconds
+const pingTimeout = 15000; // 15 seconds
 
 const initiateContinuity = () => {
     // Only initiate continuity if the user is authenticated and sync is enabled
