@@ -71,6 +71,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.addEventListener('keydown', handleKeyPress);
 
     initiateContinuity()
+    setInterval(pingPeers, pingInterval);
 });
 
 const fetchQuestions = async () => {
@@ -500,6 +501,9 @@ const openInChatGPT = () => {
 
 // Continuity feature
 
+const pingInterval = 10000; // 10 seconds
+const pingTimeout = 10000; // 10 seconds
+
 const initiateContinuity = () => {
     // Only initiate continuity if the user is authenticated and sync is enabled
     if (!userAuthenticated || !userSettings.syncProgress) {
@@ -624,6 +628,12 @@ const handlePeerData = (conn, data) => {
     console.log('Received data from peer:', data);
     sendToAllPeersExcept(conn, data);
     switch (data.type) {
+        case 'ping':
+            sendToPeer(conn, {type: 'pong'});
+            break;
+        case 'pong':
+            clearTimeout(conn.pingTimeout);
+            break;
         case 'device_info':
             conn.metadata = data.metadata;
             updateContinuityModal();
@@ -722,6 +732,18 @@ const sendToAllPeersExcept = (exceptConn, data) => {
     });
 }
 
+const pingPeers = () => {
+    peerConnections.forEach(conn => {
+        if (conn.open) {
+            sendToPeer(conn, {type: 'ping'});
+            conn.pingTimeout = setTimeout(() => {
+                console.log('Ping timeout, closing connection:', conn);
+                conn.close();
+            }, pingTimeout);
+        }
+    });
+};
+
 const getDeviceFriendlyName = () => {
     const parser = new UAParser();
     const ua = parser.getResult();
@@ -805,8 +827,18 @@ const updateContinuityModal = (autoClose = false) => {
     document.getElementById('continuityHostBadge').classList.toggle('d-none', !isContinuityHost);
 }
 
-window.addEventListener('beforeunload', () => {
-    if (peer && !peer.destroyed) {
-        peer.destroy(); // Gracefully close PeerJS connection
+
+function gracefullyClosePeerConnection() {
+    try {
+        if (peer && !peer.destroyed) {
+            peer.destroy(); // Gracefully close PeerJS connection
+        }
+    } catch (error) {
+        console.error('Error closing peer connection:', error);
     }
-});
+}
+
+window.addEventListener('beforeunload', gracefullyClosePeerConnection);
+window.addEventListener('unload', gracefullyClosePeerConnection);
+window.addEventListener('pagehide', gracefullyClosePeerConnection);
+
