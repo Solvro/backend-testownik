@@ -459,6 +459,8 @@ const handleKeyPress = event => {
         if (checkboxes[index]) {
             checkboxes[index].click();
         }
+    } else if (key === 'c' && !event.ctrlKey) {
+        document.getElementById('continuityButton').classList.remove('d-none');
     }
 };
 
@@ -590,6 +592,13 @@ const handlePeerConnection = (conn) => {
             questionId: currentQuestionData.id,
             answersOrder: currentQuestionData.answers.map(answer => answer.answer)
         });
+        sendToPeer(conn, {
+            type: 'device_info',
+            metadata: {
+                device: getDeviceFriendlyName(),
+                type: getDeviceType()
+            }
+        });
         const selectedCheckboxes = document.querySelectorAll('input[name="answer"]:checked');
         selectedCheckboxes.forEach(checkbox => {
             sendToPeer(conn, {
@@ -615,6 +624,10 @@ const handlePeerData = (conn, data) => {
     console.log('Received data from peer:', data);
     sendToAllPeersExcept(conn, data);
     switch (data.type) {
+        case 'device_info':
+            conn.metadata = data.metadata;
+            updateContinuityModal();
+            break;
         case 'progress_sync':
             studyTime = data.studyTime;
             startTime = new Date(new Date() - studyTime * 1000);
@@ -746,15 +759,18 @@ const updateContinuityModal = (autoClose = false) => {
     const continuityNotConnectedDiv = document.getElementById('continuityNotConnectedDiv');
     const continuityConnectedDiv = document.getElementById('continuityConnectedDiv');
     const continuityConnectedName = document.getElementById('continuityConnectedName');
+    const continuityButton = document.getElementById('continuityButton');
     const continuityIcon = document.getElementById('continuityIcon');
 
     if (peerConnections.length === 0) {
+        continuityButton.classList.add('d-none');
         continuityNotConnectedDiv.classList.remove('d-none');
         continuityConnectedDiv.classList.add('d-none');
         if (peerConnections.length === 0) {
             continuityIcon.icon = 'flat-color-icons:multiple-devices';
         }
     } else {
+        continuityButton.classList.remove('d-none');
         continuityNotConnectedDiv.classList.add('d-none');
         continuityConnectedDiv.classList.remove('d-none');
 
@@ -788,3 +804,9 @@ const updateContinuityModal = (autoClose = false) => {
     }
     document.getElementById('continuityHostBadge').classList.toggle('d-none', !isContinuityHost);
 }
+
+window.addEventListener('beforeunload', () => {
+    if (peer && !peer.destroyed) {
+        peer.destroy(); // Gracefully close PeerJS connection
+    }
+});
