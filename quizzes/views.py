@@ -1,11 +1,14 @@
 import json
+import random
 from datetime import timedelta
 
 import requests
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
+from django.utils import timezone
 
 from quizzes.models import Quiz, QuizProgress, SharedQuiz
+from users.models import UserSettings
 
 
 def index(request):
@@ -19,23 +22,27 @@ def quiz(request, quiz_id):
     if not quiz_obj.allow_anonymous and not request.user.is_authenticated:
         return render(request, "base.html", status=401)
     if request.user.is_authenticated:
-        user_settings = {
-            "syncProgress": request.user.settings.sync_progress,
-            "initialRepetitions": request.user.settings.initial_repetitions,
-            "wrongAnswerRepetitions": request.user.settings.wrong_answer_repetitions,
+        user_settings, created = UserSettings.objects.get_or_create(user=request.user)
+        user_settings_data = {
+            "syncProgress": user_settings.sync_progress,
+            "initialRepetitions": user_settings.initial_repetitions,
+            "wrongAnswerRepetitions": user_settings.wrong_answer_repetitions,
         }
     else:
-        user_settings = {
+        user_settings_data = {
             "syncProgress": False,
             "initialRepetitions": 1,
             "wrongAnswerRepetitions": 1,
         }
+    QuizProgress.objects.get_or_create(quiz_id=quiz_id, user=request.user)[
+        0
+    ].save()  # update last_activity
     return render(
         request,
         "quizzes/quiz.html",
         {
             "quiz_id": quiz_id,
-            "user_settings": json.dumps(user_settings),
+            "user_settings": json.dumps(user_settings_data),
             "allow_anonymous": quiz_obj.allow_anonymous,
         },
     )
@@ -112,6 +119,24 @@ def quiz_progress_api(request, quiz_id):
         return JsonResponse({"status": "deleted"})
     else:
         return JsonResponse({"error": "Method not allowed"}, status=405)
+
+
+def random_question_for_user(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
+    quizzes_progress = QuizProgress.objects.filter(
+        user=request.user, last_activity__gt=timezone.now() - timedelta(days=90)
+    ).order_by("?")
+
+    for quiz_progress in quizzes_progress:
+        if quiz_progress.quiz.questions:
+            random_question = random.choice(quiz_progress.quiz.questions)
+            random_question["quiz_id"] = quiz_progress.quiz.id
+            random_question["quiz_title"] = quiz_progress.quiz.title
+            return JsonResponse(random_question)
+
+    return JsonResponse({"error": "No quizzes found"}, status=404)
 
 
 def quizzes(request):

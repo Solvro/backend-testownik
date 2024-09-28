@@ -13,3 +13,7 @@
 .is-fullheight {
     height: 100%;
 }
+
+button.answer {
+    text-wrap: initial;
+}

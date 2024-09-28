@@ -33,6 +33,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             `;
             return;
         }
+        if (questions.length === 0) {
+            document.getElementById('info').innerHTML = `
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    Ta baza nie zawiera żadnych pytań. Skontaktuj się z autorem bazy.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            `;
+            return;
+        }
         if (isQuizFinished) {
             document.getElementById('info').innerHTML = `
                 <div class="alert alert-success alert-dismissible fade show" role="alert">

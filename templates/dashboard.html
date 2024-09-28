@@ -7,38 +7,69 @@
 {#{% block title %}Dashboard{% endblock %}#}
 {% block content %}
     <div class="columns">
-        <div class="column">
+        <div class="column is-one-third is-hidden-mobile">
             <div class="box h-1">
                 <p class="is-7">Powtórz to jeszcze raz:</p>
-                <h1 class="subtitle is-5" id="question">159. Różne barwy baniek mydlanych obserwujemy w wyniku</h1>
-                <div class="buttons is-flex-direction-column" id="answers">
-                    <button class="button answer is-small is-fullwidth" data-correct="false">Występowania barwników w
-                        detergencie.
-                    </button>
-                    <button class="button answer is-small is-fullwidth" data-correct="false">Różnych grubości ścianek
-                        baniek.
-                    </button>
-                    <button class="button answer is-small is-fullwidth" data-correct="true">Interferencji światła.
-                    </button>
-                    <button class="button answer is-small is-fullwidth" data-correct="false">Zjawiska dyfrakcji.
-                    </button>
+                <div id="pop-quiz">
+                    <h1 class="subtitle is-5 mb-0" id="question">
+                        <progress class="progress mb-2"></progress>
+                        <progress class="progress" style="width: 75%"></progress>
+                    </h1>
+                    <a href="#" class="is-size-7 has-text-grey" id="quiz-title">
+                        <progress class="progress is-small mt-2" style="width: 25%"></progress>
+                    </a>
+                    <div class="buttons is-flex-direction-column mt-3" id="answers">
+                        <button class="button answer is-small is-soft is-fullwidth" data-correct="false">
+                            <progress class="progress"></progress>
+                        </button>
+                        <button class="button answer is-small is-soft is-fullwidth" data-correct="false">
+                            <progress class="progress"></progress>
+                        </button>
+                        <button class="button answer is-small is-soft is-fullwidth" data-correct="true">
+                            <progress class="progress"></progress>
+                        </button>
+                        <button class="button answer is-small is-soft is-fullwidth" data-correct="false">
+                            <progress class="progress"></progress>
+                        </button>
+                    </div>
+                    <h1 class="subtitle is-5" id="result"></h1>
+                    <div class="is-flex is-justify-content-end">
+                        <button class="button is-small is-inverted" id="check-answers-button">Sprawdź odpowiedź</button>
+                        <button class="button is-small is-inverted is-hidden" id="next-question-button">Następne
+                            pytanie
+                        </button>
+                    </div>
                 </div>
-                <div class="is-flex is-justify-content-end">
-                    <button class="button is-small is-inverted" id="next">Sprawdź odpowiedź</button>
+                <div id="pop-quiz-not-available" class="is-hidden">
+                    <h1 class="subtitle is-5">Nie ma żadnych pytań do powtórzenia.</h1>
+                    <p class="is-7">Po użyciu twojej pierwszej bazy pojawią się tutaj pytania.</p>
                 </div>
             </div>
         </div>
         <div class="column">
             <div class="box h-05">
-                <h1 class="subtitle">Ostatnio używane</h1>
-                <table class="table is-fullwidth">
-                    <tbody id="recommendations-body">
-                    <tr>
-                        <td class="has-text-weight-light">Po pierwszym użyciu pojawią się tutaj ostatnio używane bazy.
-                        </td>
-                    </tr>
-                    </tbody>
-                </table>
+                <h1 class="subtitle mb-3">Ostatnio używane</h1>
+                <div style="overflow: auto; max-height: 11rem;">
+                    <table class="table is-fullwidth">
+                        <tbody id="recommendations-body">
+                        {% if not last_used_quizzes %}
+                            <tr>
+                                <td class="has-text-weight-light">Po pierwszym użyciu pojawią się tutaj ostatnio używane
+                                    bazy.
+                                </td>
+                            </tr>
+                        {% else %}
+                            {% for quiz in last_used_quizzes %}
+                                <tr>
+                                    <td class="has-text-weight-light">
+                                        <a href="{% url 'quizzes:quiz' quiz.id %}">{{ quiz.title }}</a>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        {% endif %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
             <div class="box h-05">
                 <div class="buttons is-flex is-justify-content-center is-align-content-center is-fullheight">
@@ -76,7 +107,7 @@
                 </div>
             </div>
             <div class="box h-05">
-                <h1 class="subtitle">Rekomendacje</h1>
+                <h1 class="subtitle mb-3">Rekomendacje</h1>
                 <table class="table is-fullwidth">
                     <tbody id="recommendations-body">
                     <tr>

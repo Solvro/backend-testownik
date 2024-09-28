@@ -241,8 +241,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const zip = await JSZip.loadAsync(file);
         for (const file in zip.files) {
             if (file.endsWith('.txt')) {
-                const content = await zip.file(file).async('string');
-                const lines = content.split('\n').map(line => line.trim());
+                const content = await zip.file(file).async('uint8array');
+                let lines;
+                try {
+                    const decoder = new TextDecoder('utf-8', {fatal: true});
+                    lines = decoder.decode(content).split('\n').map(line => line.trim());
+                } catch (e) {
+                    const decoder = new TextDecoder('windows-1250');
+                    lines = decoder.decode(content).split('\n').map(line => line.trim());
+                }
                 await processQuestion(lines, file);
             }
         }
@@ -254,14 +261,31 @@ document.addEventListener('DOMContentLoaded', () => {
             reader.onload = () => resolve(reader.result.split('\n').map(line => line.trim()));
             reader.onerror = reject;
             if (file instanceof File) {
-                reader.readAsText(file);
+                detectEncodingAndReadFile(file, reader);
             } else if (file.isFile) {
-                file.file(file => reader.readAsText(file));
+                file.file(file => {
+                    detectEncodingAndReadFile(file, reader);
+                });
             }
         });
     }
 
+    function detectEncodingAndReadFile(file, reader) {
+        const reader2 = new FileReader();
+        reader2.onload = () => {
+            const decoder = new TextDecoder('utf-8');
+            const utf8 = decoder.decode(reader2.result);
+            if (utf8 !== reader2.result) {
+                reader.readAsText(file, 'windows-1250');
+            } else {
+                reader.readAsText(file);
+            }
+        };
+        reader2.readAsArrayBuffer(file);
+    }
+
     async function processQuestion(lines, path) {
+        let filename = path.replace(/^.*[\\/]/, '')
         const template = lines[0].trim();
         if (template === '') {
             console.error(`Error in file ${path}. Template not found. Skipping.`);
@@ -272,10 +296,23 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if ([...template.slice(1)].some(c => c !== '0' && c !== '1')) {
             return;
         }
-        const question = lines[1].trim();
+
+        let question = lines[1].trim();
+
+        // Extract number from filename
+        const filenameNumberMatch = filename.match(/^0*(\d+)/);
+        if (filenameNumberMatch) {
+            const filenameNumber = filenameNumberMatch[1];
+            // Remove the number from the beginning of the question if it matches the filename number
+            const questionNumberMatch = question.match(/^0*(\d+)\.\s*(0*\d+\.\s*)?(.*)/);
+            if (questionNumberMatch && questionNumberMatch[1] === filenameNumber) {
+                question = questionNumberMatch[3];
+            }
+        }
+
         const answers = [];
 
-        for (let s = 2; s < Math.min(lines.length, template.length); s++) {
+        for (let s = 2; s < Math.min(lines.length, template.length + 1); s++) {
             if (lines[s] === undefined || lines[s].trim() === '') {
                 continue;
             }

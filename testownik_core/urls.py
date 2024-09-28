@@ -48,4 +48,9 @@ urlpatterns = [
         quizzes_views.quiz_progress_api,
         name="progress_api",
     ),
+    path(
+        "api/random-question-for-user/",
+        quizzes_views.random_question_for_user,
+        name="random_question_for_user",
+    ),
 ]

@@ -9,6 +9,7 @@ from django.http import HttpResponse, HttpResponseForbidden, HttpResponseNotAllo
 from django.shortcuts import redirect, render
 from usos_api import USOSClient
 
+from quizzes.models import QuizProgress
 from users.models import StudyGroup, Term, User, UserSettings
 
 dotenv.load_dotenv()
@@ -158,7 +159,13 @@ async def update_user_data_from_usos(
 
 
 def index(request):
-    return render(request, "dashboard.html")
+    last_used_quizzes = [
+        qp.quiz
+        for qp in QuizProgress.objects.filter(user=request.user).order_by(
+            "-last_activity"
+        )[:4]
+    ]
+    return render(request, "dashboard.html", {"last_used_quizzes": last_used_quizzes})
 
 
 def api_settings(request):
