@@ -159,6 +159,8 @@ async def update_user_data_from_usos(
 
 
 def index(request):
+    if not request.user.is_authenticated:
+        return render(request, "dashboard.html")
     last_used_quizzes = [
         qp.quiz
         for qp in QuizProgress.objects.filter(user=request.user).order_by(
