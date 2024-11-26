@@ -18,17 +18,6 @@ def index(request):
 
 
 async def get_grades(request):
-    request_user = await aget_user(request)
-    async with USOSClient(USOS_BASE_URL, CONSUMER_KEY, CONSUMER_SECRET) as client:
-        client.load_access_token(
-            request_user.access_token, request_user.access_token_secret
-        )
-        grades = await client.helper.get_user_end_grades_with_weights()
-
-    return JsonResponse([grade.dict() for grade in grades], safe=False)
-
-
-async def get_courses(request):
     term_id = request.GET.get("term_id")
     request_user = await aget_user(request)
 
@@ -37,30 +26,12 @@ async def get_courses(request):
             request_user.access_token, request_user.access_token_secret
         )
         ects = await client.course_service.get_user_courses_ects()
+        terms = await client.term_service.get_terms(ects.keys())
 
-        courses = (
-            ects.get(term_id, {}).keys()
-            if term_id
-            else [
-                course
-                for term_courses in ects.values()
-                for course in term_courses.keys()
-            ]
+        course_editions = await client.course_service.get_user_course_editions()
+        grades = await client.grade_service.get_grades_by_terms(
+            term_id or [term.id for term in terms]
         )
-
-        course_objects = await client.course_service.get_courses(
-            courses, fields=["id", "name", "terms"]
-        )
-        term_objects = await client.term_service.get_terms(ects.keys())
-
-        terms_dict = {term.id: term for term in term_objects}
-
-    for course in course_objects:
-        course.terms = [
-            terms_dict.get(_term.id)
-            for _term in course.terms
-            if terms_dict.get(_term.id)
-        ]
 
     courses_ects = {
         course: ects_points
@@ -68,7 +39,42 @@ async def get_courses(request):
         for course, ects_points in term_courses.items()
     }
 
-    for course in course_objects:
-        course.ects_credits_simplified = courses_ects.get(course.id, 0)
-
-    return JsonResponse([course.dict() for course in course_objects], safe=False)
+    return JsonResponse(
+        {
+            "terms": sorted(
+                [
+                    {
+                        "id": term.id,
+                        "name": term.name.pl,
+                        "start_date": term.start_date,
+                        "end_date": term.end_date,
+                        "is_current": term.is_ongoing,
+                    }
+                    for term in terms
+                ],
+                key=lambda term: term["start_date"],
+                reverse=True,
+            ),
+            "courses": [
+                {
+                    "course_id": course_edition.course_id,
+                    "course_name": course_edition.course_name.pl,
+                    "term_id": course_edition.term_id,
+                    "ects": courses_ects.get(course_edition.course_id, 0),
+                    "grades": [
+                        {
+                            "value": grade.value,
+                            "value_symbol": grade.value_symbol,
+                            "value_description": grade.value_description.pl,
+                            "counts_into_average": grade.counts_into_average,
+                        }
+                        for grade in grades[course_edition.term_id][
+                            course_edition.course_id
+                        ]["course_grades"]
+                    ],
+                    "passing_status": course_edition.passing_status,
+                }
+                for course_edition in course_editions
+            ],
+        }
+    )

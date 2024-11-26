@@ -39,7 +39,6 @@ urlpatterns = [
         name="refresh_user_data",
     ),
     path("api/get-grades/", grades_views.get_grades, name="get_grades"),
-    path("api/get-courses/", grades_views.get_courses, name="get_all_courses"),
     path("grades/", include("grades.urls")),
     path("quizzes/", include("quizzes.urls")),
     path("api/quiz/<uuid:quiz_id>/", quizzes_views.quiz_api, name="quiz_api"),
