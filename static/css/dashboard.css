@@ -1,9 +1,5 @@
-.h-05 {
-    height: 16rem;
-}
-
-.h-1 {
-    height: 33.5rem;
+.mh-1 {
+    min-height: 33.5rem;
 }
 
 .box {

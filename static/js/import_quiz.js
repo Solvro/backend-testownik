@@ -5,10 +5,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const fileBox = document.getElementById('file-box');
     let uploadType = 'link';
 
-    document.querySelectorAll('.buttons button').forEach(button => {
+    fileBox.addEventListener('click', () => fileInput.click());
+
+    document.querySelectorAll('.btn-group .btn').forEach(button => {
         button.addEventListener('click', () => {
-            document.querySelectorAll('.buttons button').forEach(b => b.classList.remove('is-selected', 'is-inverted'));
-            button.classList.add('is-selected', 'is-inverted');
+            document.querySelectorAll('.btn-group .btn').forEach(b => b.classList.remove('active'));
+            button.classList.add('active');
             uploadType = button.dataset.uploadType;
             document.getElementById('file').style.display = uploadType === 'file' ? 'block' : 'none';
             document.getElementById('link').style.display = uploadType === 'link' ? 'block' : 'none';
@@ -23,25 +25,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('import-button').addEventListener('click', () => {
         importQuiz((data) => {
-            fetch('/quizzes/import/',
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': csrfToken
-                    },
-                    body: JSON.stringify(data)
-                }
-            ).then(response => {
+            fetch('/quizzes/import/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify(data)
+            }).then(response => {
                 if (response.ok) {
-                    response.json().then(data =>
-                    window.location.href = `/quizzes/${data.id}/`
-                    );
+                    response.json().then(data => {
+                        window.location.href = `/quizzes/${data.id}/`;
+                    });
                 } else {
                     response.json().then(data => {
                         const error = document.getElementById('import-error');
                         error.textContent = data.error || 'Wystąpił błąd podczas importowania quizu. Odśwież stronę i spróbuj ponownie.';
-                        error.style.display = 'block';
+                        error.classList.remove('d-none');
                     });
                 }
             });
@@ -52,12 +52,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const file = evt.target.files[0];
         const name = document.getElementById('file-name');
         if (file) {
-            document.getElementById('file-box').classList.add('has-name');
             name.textContent = file.name;
-            name.style.display = 'inline';
+            name.classList.remove('d-none');
         } else {
-            document.getElementById('file-box').classList.remove('has-name');
-            name.style.display = 'none';
+            name.classList.add('d-none');
         }
         handleDragLeave();
     }
@@ -67,21 +65,22 @@ document.addEventListener('DOMContentLoaded', () => {
         evt.stopPropagation();
         const file = evt.dataTransfer.files[0];
         if (file) {
+            if (file.type !== 'application/json') {
+                showError('file-help', 'Wybrany plik nie jest plikiem JSON.');
+                return;
+            }
             fileInput.files = evt.dataTransfer.files;
             handleFileSelect({target: {files: [file]}});
+            hideError('file-help');
         }
     }
 
     function handleDragOver(evt) {
         evt.preventDefault();
         evt.stopPropagation();
-        if (evt.dataTransfer.items && evt.dataTransfer.items.length === 1 && evt.dataTransfer.items[0].kind === 'file') {
+        if (evt.dataTransfer.items && evt.dataTransfer.items.length === 1 && evt.dataTransfer.items[0].kind === 'file' && evt.dataTransfer.items[0].type === 'application/json') {
             evt.dataTransfer.dropEffect = 'copy';
-            if (document.getElementById('file-name').style.display === 'none') {
-                document.querySelector('.file-cta').classList.add('dragover');
-            } else {
-                fileBox.classList.add('dragover');
-            }
+            fileBox.classList.add('border-primary');
         } else {
             evt.dataTransfer.dropEffect = 'none';
         }
@@ -92,8 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
             evt.preventDefault();
             evt.stopPropagation();
         }
-        fileBox.classList.remove('dragover');
-        document.querySelector('.file-cta').classList.remove('dragover');
+        fileBox.classList.remove('border-primary');
     }
 
     function importQuiz(callback) {
@@ -125,8 +123,15 @@ document.addEventListener('DOMContentLoaded', () => {
     function showError(id, message) {
         const help = document.getElementById(id);
         help.textContent = message;
-        help.style.display = 'block';
-        help.classList.add('is-danger');
+        help.classList.remove('d-none');
+        help.classList.add('text-danger');
+    }
+
+    function hideError(id) {
+        const help = document.getElementById(id);
+        help.textContent = '';
+        help.classList.add('d-none');
+        help.classList.remove('text-danger');
     }
 
     function validateLink(link) {

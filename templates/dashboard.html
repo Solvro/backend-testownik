@@ -6,115 +6,114 @@
 {% endblock %}
 {#{% block title %}Dashboard{% endblock %}#}
 {% block content %}
-    <div class="columns">
-        <div class="column is-one-third is-hidden-mobile">
-            <div class="box h-1">
-                <p class="is-7">Powtórz to jeszcze raz:</p>
-                <div id="pop-quiz">
-                    <h1 class="subtitle is-5 mb-0" id="question">
-                        <progress class="progress mb-2"></progress>
-                        <progress class="progress" style="width: 75%"></progress>
-                    </h1>
-                    <a href="#" class="is-size-7 has-text-grey" id="quiz-title">
-                        <progress class="progress is-small mt-2" style="width: 25%"></progress>
-                    </a>
-                    <div class="buttons is-flex-direction-column mt-3" id="answers">
-                        <button class="button answer is-small is-soft is-fullwidth" data-correct="false">
-                            <progress class="progress"></progress>
-                        </button>
-                        <button class="button answer is-small is-soft is-fullwidth" data-correct="false">
-                            <progress class="progress"></progress>
-                        </button>
-                        <button class="button answer is-small is-soft is-fullwidth" data-correct="true">
-                            <progress class="progress"></progress>
-                        </button>
-                        <button class="button answer is-small is-soft is-fullwidth" data-correct="false">
-                            <progress class="progress"></progress>
-                        </button>
-                    </div>
-                    <h1 class="subtitle is-5" id="result"></h1>
-                    <div class="is-flex is-justify-content-end">
-                        <button class="button is-small is-inverted" id="check-answers-button">Sprawdź odpowiedź</button>
-                        <button class="button is-small is-inverted is-hidden" id="next-question-button">Następne
-                            pytanie
-                        </button>
-                    </div>
-                </div>
-                <div id="pop-quiz-not-available" class="is-hidden">
-                    <h1 class="subtitle is-5">Nie ma żadnych pytań do powtórzenia.</h1>
-                    <p class="is-7">Po użyciu twojej pierwszej bazy pojawią się tutaj pytania.</p>
-                </div>
-            </div>
-        </div>
-        <div class="column">
-            <div class="box h-05">
-                <h1 class="subtitle mb-3">Ostatnio używane</h1>
-                <div style="overflow: auto; max-height: 11rem;">
-                    <table class="table is-fullwidth">
-                        <tbody id="recommendations-body">
-                        {% if not last_used_quizzes %}
-                            <tr>
-                                <td class="has-text-weight-light">Po pierwszym użyciu pojawią się tutaj ostatnio używane
-                                    bazy.
-                                </td>
-                            </tr>
-                        {% else %}
-                            {% for quiz in last_used_quizzes %}
-                                <tr>
-                                    <td class="has-text-weight-light">
-                                        <a href="{% url 'quizzes:quiz' quiz.id %}">{{ quiz.title }}</a>
-                                    </td>
-                                </tr>
-                            {% endfor %}
-                        {% endif %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            <div class="box h-05">
-                <div class="buttons is-flex is-justify-content-center is-align-content-center is-fullheight">
-                    <a class="button" id="create-new">Dodaj nową bazę</a>
-                    <a class="button" id="import" href="{% url 'quizzes:import_quiz' %}">Importuj bazę</a>
-                    <a class="button" id="import-old" href="{% url 'quizzes:import_quiz_old' %}">Importuj bazę (stara
-                        wersja)</a>
-                </div>
-            </div>
-        </div>
-        <div class="column">
-            <div class="box h-05">
-                <div class="is-flex is-justify-content-center">
-                    <div class="field has-addons">
-                        <div class="control">
-                            <input class="input" type="text" placeholder="Wyszukaj bazę" id="search-input">
+    <div class="row mh-1 row-gap-3">
+        <!-- Left column -->
+        <div class="col-md-4 d-flex flex-column">
+            <div class="card border-0 shadow h-100">
+                <div class="card-body">
+                    <span class="small text-muted">Powtórz to jeszcze raz:</span>
+                    <div id="pop-quiz">
+                        <h5 class="card-title mb-0 text-secondary" id="question"></h5>
+                        <a href="#" class="small text-secondary" id="quiz-title">
+                            <progress id="progress" class="circular-progress"></progress>
+                        </a>
+                        <div class="d-grid gap-2 mt-3" id="answers">
+                            <button class="btn btn-light btn-sm w-100" data-correct="false"></button>
+                            <button class="btn btn-light btn-sm w-100" data-correct="false"></button>
+                            <button class="btn btn-light btn-sm w-100" data-correct="true"></button>
+                            <button class="btn btn-light btn-sm w-100" data-correct="false"></button>
                         </div>
-                        <div class="control">
-                            <button class="button">
-                            <span class="icon">
-                                <iconify-icon icon="bi:search"></iconify-icon>
-                            </span>
+                        <h5 class="card-title mt-3" id="result"></h5>
+                        <div class="d-flex justify-content-end mt-2">
+                            <button class="btn btn-outline-secondary btn-sm" id="check-answers-button">Sprawdź
+                                odpowiedź
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm ms-2 d-none" id="next-question-button">
+                                Następne pytanie
                             </button>
                         </div>
                     </div>
+                    <div id="pop-quiz-not-available" class="d-none">
+                        <h5 class="card-title">Nie ma żadnych pytań do powtórzenia.</h5>
+                        <p class="small text-muted">Po użyciu twojej pierwszej bazy pojawią się tutaj pytania.</p>
+                    </div>
                 </div>
-                <div id="search-results">
-                    <table class="table is-fullwidth">
-                        <tbody id="search-results-body">
+            </div>
+        </div>
+
+        <!-- Middle column -->
+        <div class="col-md-4 d-flex flex-column gap-3">
+            <div class="card border-0 shadow h-50">
+                <div class="card-body">
+                    <h5 class="card-title mb-3">Ostatnio używane</h5>
+                    <div style="overflow-y: auto; max-height: 11rem;">
+                        <table class="table">
+                            <tbody id="recommendations-body">
+                            {% if not last_used_quizzes %}
+                                <tr>
+                                    <td class="text-muted">Po pierwszym użyciu pojawią się tutaj ostatnio używane
+                                        bazy.
+                                    </td>
+                                </tr>
+                            {% else %}
+                                {% for quiz in last_used_quizzes %}
+                                    <tr>
+                                        <td>
+                                            <a href="{% url 'quizzes:quiz' quiz.id %}">{{ quiz.title }}</a>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="card border-0 shadow h-50">
+                <div class="card-body d-flex align-items-center">
+                    <div class="row gap-3 p-2 justify-content-center">
+                        <a class="btn btn-outline-secondary w-auto" id="create-new">Dodaj nową bazę</a>
+                        <a class="btn btn-outline-secondary w-auto" id="import" href="{% url 'quizzes:import_quiz' %}">Importuj
+                            bazę</a>
+                        <a class="btn btn-outline-secondary w-auto" id="import-old"
+                           href="{% url 'quizzes:import_quiz_old' %}">Importuj bazę (stara wersja)</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right column -->
+        <div class="col-md-4 d-flex flex-column gap-3">
+            <div class="card border-0 shadow h-50">
+                <div class="card-body">
+                    <div class="input-group">
+                        <input type="text" class="form-control" placeholder="Wyszukaj bazę" id="search-input">
+                        <button class="btn btn-outline-secondary" type="button">
+                            <iconify-icon icon="bi:search"></iconify-icon>
+                        </button>
+                    </div>
+                    <div id="search-results" class="mt-3">
+                        <table class="table">
+                            <tbody id="search-results-body">
+                            <tr>
+                                <td class="text-muted"></td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="card border-0 shadow h-50">
+                <div class="card-body">
+                    <h5 class="card-title">Rekomendacje</h5>
+                    <table class="table">
+                        <tbody id="recommendations-body">
                         <tr>
-                            <td class="has-text-weight-light"></td>
+                            <td class="text-muted">Brak rekomendacji w tej chwili.</td>
                         </tr>
                         </tbody>
                     </table>
                 </div>
-            </div>
-            <div class="box h-05">
-                <h1 class="subtitle mb-3">Rekomendacje</h1>
-                <table class="table is-fullwidth">
-                    <tbody id="recommendations-body">
-                    <tr>
-                        <td class="has-text-weight-light">Brak rekomendacji w tej chwili.</td>
-                    </tr>
-                    </tbody>
-                </table>
             </div>
         </div>
     </div>

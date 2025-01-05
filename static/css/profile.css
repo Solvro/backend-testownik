@@ -1,5 +1,5 @@
 @media (prefers-color-scheme: dark) {
-  .menu-item.is-active {
-    background-color: #4f86ff5c;
+  .table {
+    --bs-table-bg: #0d1117;
   }
 }

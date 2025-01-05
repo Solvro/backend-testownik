@@ -6,20 +6,20 @@
 {% block title %}Twoje bazy{% endblock %}
 {% block content %}
     {% if user_quizzes %}
-        <h1 class="title has-text-weight-semibold">Stworzone przez Ciebie</h1>
-        <div class="columns is-multiline">
+        <h1 class="fw-bold">Stworzone przez Ciebie</h1>
+        <div class="row g-3">
             {% for quiz in user_quizzes %}
-                <div class="column is-one-third">
-                    <div class="box">
-                        <h1 class="subtitle is-5">{{ quiz.title }}</h1>
-                        {% if quiz.description %}
-                            <p class="is-7">{{ quiz.description }}</p>
-                        {% endif %}
-                        <div class="is-flex is-justify-content-space-between">
-                            <a class="button is-small is-inverted"
-                               href="{% url 'quizzes:quiz' quiz.id %}">Rozpocznij</a>
-                            <a class="button is-small is-inverted"
-                               href="{% url 'quizzes:edit_quiz' quiz.id %}">Edytuj</a>
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">{{ quiz.title }}</h5>
+                            {% if quiz.description %}
+                                <p class="card-text small text-muted">{{ quiz.description }}</p>
+                            {% endif %}
+                            <div class="d-flex justify-content-between">
+                                <a href="{% url 'quizzes:quiz' quiz.id %}" class="btn btn-outline-primary btn-sm">Rozpocznij</a>
+                                <a href="{% url 'quizzes:edit_quiz' quiz.id %}" class="btn btn-outline-secondary btn-sm">Edytuj</a>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -27,20 +27,20 @@
         </div>
     {% endif %}
     {% if shared_quizzes %}
-        <h1 class="title has-text-weight-semibold">Udostępnione dla Ciebie</h1>
-        <div class="columns is-multiline">
+        <h1 class="fw-bold mt-4">Udostępnione dla Ciebie</h1>
+        <div class="row g-3">
             {% for quiz in shared_quizzes %}
-                <div class="column is-one-third">
-                    <div class="box">
-                        <h1 class="subtitle is-5">{{ quiz.title }}</h1>
-                        {% if quiz.description %}
-                            <p class="is-7">{{ quiz.description }}</p>
-                        {% endif %}
-                        <div class="is-flex is-justify-content-space-between">
-                            <a class="button is-small is-inverted"
-                               href="{% url 'quizzes:quiz' quiz.id %}">Rozpocznij</a>
-                            <a class="button is-small is-inverted unshare" data-quiz-id="{{ quiz.id }}">Usuń z
-                                udostępnionych</a>
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">{{ quiz.title }}</h5>
+                            {% if quiz.description %}
+                                <p class="card-text small text-muted">{{ quiz.description }}</p>
+                            {% endif %}
+                            <div class="d-flex justify-content-between">
+                                <a href="{% url 'quizzes:quiz' quiz.id %}" class="btn btn-outline-primary btn-sm">Rozpocznij</a>
+                                <button class="btn btn-outline-danger btn-sm unshare" data-quiz-id="{{ quiz.id }}">Usuń z udostępnionych</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -48,18 +48,19 @@
         </div>
     {% endif %}
     {% if group_quizzes %}
-        <h1 class="title has-text-weight-semibold">Udostępnione dla twoich grup</h1>
-        <div class="columns is-multiline">
+        <h1 class="fw-bold mt-4">Udostępnione dla twoich grup</h1>
+        <div class="row g-3">
             {% for quiz in group_quizzes %}
-                <div class="column is-one-third">
-                    <div class="box">
-                        <h1 class="subtitle is-5">{{ quiz.title }}</h1>
-                        {% if quiz.description %}
-                            <p class="is-7">{{ quiz.description }}</p>
-                        {% endif %}
-                        <div class="is-flex is-justify-content-space-between">
-                            <a class="button is-small is-inverted"
-                               href="{% url 'quizzes:quiz' quiz.id %}">Rozpocznij</a>
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">{{ quiz.title }}</h5>
+                            {% if quiz.description %}
+                                <p class="card-text small text-muted">{{ quiz.description }}</p>
+                            {% endif %}
+                            <div class="d-flex justify-content-between">
+                                <a href="{% url 'quizzes:quiz' quiz.id %}" class="btn btn-outline-primary btn-sm">Rozpocznij</a>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -67,6 +68,6 @@
         </div>
     {% endif %}
     {% if not user_quizzes and not shared_quizzes and not group_quizzes %}
-        <h1 class="title has-text-weight-semibold">Nie masz jeszcze żadnych baz</h1>
+        <h1 class="fw-bold">Nie masz jeszcze żadnych baz</h1>
     {% endif %}
 {% endblock %}

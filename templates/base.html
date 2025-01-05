@@ -1,13 +1,16 @@
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en" data-bs-theme="auto">
 {% load static %}
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
     <title>{% block title %}Testownik core{% endblock %}</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script async src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+            crossorigin="anonymous"></script>
     <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
-    <script src="{% static 'js/modal.js' %}"></script>
     <script>
         const csrfToken = '{{ csrf_token }}';
     </script>
@@ -17,22 +20,31 @@
 <style>
     @media (prefers-color-scheme: dark) {
         :root {
-            color-scheme: dark;
-            --bulma-scheme-main: #06090f;
+            --bs-body-bg: #06090f;
         }
 
-        .box {
-            --bulma-scheme-main: #0d1117;
-            --bulma-box-shadow: none;
+        .card {
+            background-color: #0d1117;
         }
     }
 </style>
+<script>
+    const htmlElement = document.querySelector("html")
+    if (htmlElement.getAttribute("data-bs-theme") === 'auto') {
+        function updateTheme() {
+            document.querySelector("html").setAttribute("data-bs-theme",
+                window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+        }
+
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateTheme)
+        updateTheme()
+    }
+</script>
 <body>
 <div class="container" id="container" style="display: flex; flex-direction: column;">
-    <nav class="navbar" role="navigation" aria-label="main navigation">
-        {% load static %}
-        <div class="navbar-brand">
-            <a class="navbar-item" href="/">
+    <nav class="navbar navbar-expand-lg">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
                 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"
                      stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                      class="feather feather-home">
@@ -43,166 +55,133 @@
                     <line x1="18" y1="6" x2="18" y2="11"></line>
                 </svg>
             </a>
-
-            <a role="button" class="navbar-burger" data-target="navMenu" aria-label="menu" aria-expanded="false">
-                <span aria-hidden="true"></span>
-                <span aria-hidden="true"></span>
-                <span aria-hidden="true"></span>
-                <span aria-hidden="true"></span>
-            </a>
-        </div>
-
-        <div id="navMenu" class="navbar-menu">
-            <div class="navbar-start">
-                <a class="navbar-item" href="{% url 'quizzes:quizzes' %}">
-                    Twoje bazy
-                </a>
-                <a class="navbar-item" href="{% url 'grades:index' %}">
-                    Oceny
-                </a>
-                {% if request.user.is_superuser %}
-                    <a class="navbar-item" href="/admin">
-                        Panel administratora
-                    </a>
-                {% endif %}
-            </div>
-
-            <div class="navbar-end">
-                <div class="navbar-item">
-                    <div class="buttons">
-                        {% if request.user.is_authenticated %}
-                            <a href="{% url 'profile' %}" class="button is-inverted">
-                                <span class="icon">
-                                    {% if request.user.photo_url %}
-                                        <img src="{{ request.user.photo_url }}" alt="Profilowe" id="profile-pic"
-                                             style="border-radius: 50%; width: 1.5em; height: 1.5em; object-fit: cover;">
-                                    {% else %}
-                                        <iconify-icon icon="bi:person-circle"></iconify-icon>
-                                    {% endif %}
-                                </span>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+                    aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'quizzes:quizzes' %}">Twoje bazy</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'grades:index' %}">Oceny</a>
+                    </li>
+                    {% if request.user.is_superuser %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="/admin">Panel administratora</a>
+                        </li>
+                    {% endif %}
+                </ul>
+                <ul class="navbar-nav gap-2">
+                    {% if request.user.is_authenticated %}
+                        <li class="nav-item">
+                            <a href="{% url 'profile' %}" class="btn btn-inverted d-inline-flex gap-1">
+                                {% if request.user.photo_url %}
+                                    <img src="{{ request.user.photo_url }}" alt="Profilowe" id="profile-pic"
+                                         style="border-radius: 50%; width: 1.5em; height: 1.5em; object-fit: cover;">
+                                {% else %}
+                                    <iconify-icon icon="bi:person-circle"></iconify-icon>
+                                {% endif %}
                                 <span>Profil</span>
                             </a>
+                        </li>
+                        <li class="nav-item">
                             <form method="post" action="{% url 'logout' %}">
                                 {% csrf_token %}
-                                <button type="submit" class="button is-danger">
-                                <span class="icon">
-                                  <iconify-icon icon="bi:box-arrow-right"></iconify-icon>
-                                </span>
+                                <button type="submit"
+                                        class="btn btn-danger d-flex align-items-center justify-content-center p-2 fs-5">
+                                    <iconify-icon icon="bi:box-arrow-right"></iconify-icon>
                                 </button>
                             </form>
-                        {% else %}
-                            <a href="{% url 'login_usos' %}" class="button is-inverted">
-                                <span class="icon">
-                                  <iconify-icon icon="bi:box-arrow-in-right"></iconify-icon>
-                                </span>
-                                <span>Zaloguj się</span>
+                        </li>
+                    {% else %}
+                        <li class="nav-item">
+                            <a href="{% url 'login_usos' %}" class="btn btn-inverted">
+                                <iconify-icon icon="bi:box-arrow-in-right"></iconify-icon>
+                                Zaloguj się
                             </a>
-                        {% endif %}
-                    </div>
-                </div>
+                        </li>
+                    {% endif %}
+                </ul>
             </div>
         </div>
     </nav>
     {% if messages %}
-        <br>
-        <div class="notification is-info" style="position: relative">
+        <div class="alert alert-info mt-3" role="alert">
             {% for message in messages %}
-                <p {% if message.tags %} class="{{ message.tags }}"{% endif %}>
+                <p class="{{ message.tags }}">
                     {% if message.level == DEFAULT_MESSAGE_LEVELS.ERROR %}Błąd: {% endif %}
                     {{ message }}
                 </p>
             {% endfor %}
         </div>
     {% endif %}
-    <br>
-    <div class="container"
-         style="position: relative; margin-bottom: 10vh;display: flex; flex-direction: column;width: 100%;">
+    <div class="container mt-3">
         {% if not request.user.is_authenticated and not allow_anonymous %}
-            <div class="columns is-centered">
-                <div class="column is-half">
-                    <div class="box">
-                        <h1 class="title is-4">Witaj w Testowniku!</h1>
-                        <p>Testownik to narzędzie do tworzenia i rozwiązywania testów. Możesz korzystać z niego, logując
-                            się za pomocą swojego konta USOS.</p>
-                        <p>Obecnie dostęp do Testownika mają tylko studenci Politechniki Wrocławskiej.</p>
-                        <br>
-                        <a href="{% url 'login_usos' %}" class="button is-primary is-fullwidth">
-                        <span class="icon">
-                            <iconify-icon icon="bi:box-arrow-in-right"></iconify-icon>
-                        </span>
-                            <span>Zaloguj się</span>
-                        </a>
-                        <div class="has-text-centered">
-                            <p class="has-text-gray js-modal-trigger is-underlined is-clickable is-size-7"
-                               data-target="privacy-modal">
-                                Jak przetwarzamy Twoje dane?
-                            </p>
+            <div class="d-flex justify-content-center">
+                <div class="card border-0 shadow">
+                    <div class="card-body">
+                        <h5 class="card-title">Witaj w Testowniku!</h5>
+                        <p class="card-text">Testownik to narzędzie do tworzenia i rozwiązywania testów. Możesz
+                            korzystać z niego, logując się za pomocą swojego konta USOS.</p>
+                        <p class="card-text">Obecnie dostęp do Testownika mają tylko studenci Politechniki
+                            Wrocławskiej.</p>
+                        <a href="{% url 'login_usos' %}" class="btn btn-primary w-100">Zaloguj się</a>
+                        <div class="text-center mt-2">
+                            <a href="#" class="fs-6 link-secondary" data-bs-toggle="modal"
+                               data-bs-target="#privacyModal">Jak przetwarzamy Twoje dane?</a>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="modal" id="privacy-modal">
-                <div class="modal-background"></div>
-                <div class="modal-card">
-                    <header class="modal-card-head">
-                        <p class="modal-card-title">Jak przetwarzamy Twoje dane</p>
-                        <button class="delete" aria-label="close"></button>
-                    </header>
-                    <section class="modal-card-body">
-                        <p>Testownik korzysta z Twoich danych z USOS, aby móc zidentyfikować Cię jako studenta PWr i
-                            zapewnić Ci dostęp do odpowiednich funkcji.</p>
-                        <br>
-                        <p>Lista danych, które otrzymujemy od USOS oraz w jaki sposób je przetwarzamy:</p>
-                        <ul>
-                            <li>
-                                <code>default</code> - Twoje podstawowe dane, takie jak imię, nazwisko oraz status
-                                studenta.
-                            </li>
-                            <li>
-                                <code>offline_access</code> - Uprawnienie pozwalające na odświeżanie Twoich danych bez
-                                konieczności logowania się do USOS za każdym razem.
-                            </li>
-                            <li>
-                                <code>studies</code> - Informacje o Twoich studiach, takie jak numer indeksu, kierunek
-                                studiów oraz twoje grupy zajęciowe.
-                            </li>
-                            <li>
-                                <code>email</code> - Twój adres email (najczęściej [nr_indeksu]@student.pwr.edu.pl),
-                                który jest używany do kontaktu przy zgłaszaniu błędów w bazach danych.
-                            </li>
-                            <li>
-                                <code>photo</code> - Twoje zdjęcie profilowe, które jest wyświetlane w górnym prawym
-                                rogu strony.
-                            </li>
-                            <li>
-                                <code>grades</code> - Twoje oceny końcowe z USOS, które są wyświetlane w zakładce
-                                "Oceny" wraz z wyliczoną średnią. Nie są one zapisywane w bazie danych Testownika, a
-                                jedynie pobierane z USOS w momencie wyświetlania strony.
-                            </li>
-                        </ul>
-                    </section>
-                    <footer class="modal-card-foot is-justify-content-end p-3">
-                        <button class="button">Zamknij</button>
-                    </footer>
-                </div>
-            </div>
-        {% elif not request.user.is_active_student_and_not_staff and not allow_anonymous %}
-            <div class="columns is-centered">
-                <div class="column is-half">
-                    <div class="box">
-                        <h1 class="title is-4">Nie masz dostępu do Testownika</h1>
-                        <p>Testownik jest obecnie dostępny tylko dla studentów Politechniki Wrocławskiej.</p>
-                        <p>Jeśli jesteś studentem PWr, upewnij się, że Twoje dane w USOS są aktualne i odśwież je
-                            korzystając z przycisku poniżej.</p>
-                        <p>Jeśli nadal nie możesz się zalogować, skontaktuj się z administratorem.</p>
-                        <br>
-                        <a href="{% url 'refresh_user_data' %}?next={{ request.path }}"
-                           class="button is-primary is-fullwidth">
-                        <span class="icon">
-                            <iconify-icon icon="bi:arrow-clockwise"></iconify-icon>
-                        </span>
-                            <span>Odśwież dane</span>
-                        </a>
+            <!-- Modal -->
+            <div class="modal fade" id="privacyModal" tabindex="-1" aria-labelledby="privacyModalLabel"
+                 aria-hidden="true">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="privacyModalLabel">Jak przetwarzamy Twoje dane</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p>Testownik korzysta z Twoich danych z USOS, aby móc zidentyfikować Cię jako studenta PWr i
+                                zapewnić Ci dostęp do odpowiednich funkcji.</p>
+                            <br>
+                            <p>Lista danych, które otrzymujemy od USOS oraz w jaki sposób je przetwarzamy:</p>
+                            <ul>
+                                <li>
+                                    <code>default</code> - Twoje podstawowe dane, takie jak imię, nazwisko oraz status
+                                    studenta.
+                                </li>
+                                <li>
+                                    <code>offline_access</code> - Uprawnienie pozwalające na odświeżanie Twoich danych
+                                    bez
+                                    konieczności logowania się do USOS za każdym razem.
+                                </li>
+                                <li>
+                                    <code>studies</code> - Informacje o Twoich studiach, takie jak numer indeksu,
+                                    kierunek
+                                    studiów oraz twoje grupy zajęciowe.
+                                </li>
+                                <li>
+                                    <code>email</code> - Twój adres email (najczęściej [nr_indeksu]@student.pwr.edu.pl),
+                                    który jest używany do kontaktu przy zgłaszaniu błędów w bazach danych.
+                                </li>
+                                <li>
+                                    <code>photo</code> - Twoje zdjęcie profilowe, które jest wyświetlane w górnym prawym
+                                    rogu strony.
+                                </li>
+                                <li>
+                                    <code>grades</code> - Twoje oceny końcowe z USOS, które są wyświetlane w zakładce
+                                    "Oceny" wraz z wyliczoną średnią. Nie są one zapisywane w bazie danych Testownika, a
+                                    jedynie pobierane z USOS w momencie wyświetlania strony.
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zamknij</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -212,28 +191,18 @@
         {% endif %}
     </div>
 </div>
-</body>
 <script>
-    document.addEventListener('DOMContentLoaded', () => {
+    const htmlElements = document.querySelectorAll(".btn-inverted, .btn-outline-inverted")
+    htmlElements.forEach((element) => {
+        function updateTheme() {
+            const baseClass = element.classList.contains("btn-outline-inverted") ? "btn-outline" : "btn"
+            element.classList.toggle(`${baseClass}-light`, window.matchMedia("(prefers-color-scheme: dark)").matches)
+            element.classList.toggle(`${baseClass}-dark`, !window.matchMedia("(prefers-color-scheme: dark)").matches)
+        }
 
-        // Get all "navbar-burger" elements
-        const $navbarBurgers = Array.prototype.slice.call(document.querySelectorAll('.navbar-burger'), 0);
-
-        // Add a click event on each of them
-        $navbarBurgers.forEach(el => {
-            el.addEventListener('click', () => {
-
-                // Get the target from the "data-target" attribute
-                const target = el.dataset.target;
-                const $target = document.getElementById(target);
-
-                // Toggle the "is-active" class on both the "navbar-burger" and the "navbar-menu"
-                el.classList.toggle('is-active');
-                $target.classList.toggle('is-active');
-
-            });
-        });
-
-    });
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateTheme)
+        updateTheme()
+    })
 </script>
+</body>
 </html>

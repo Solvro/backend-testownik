@@ -30,6 +30,7 @@ async def login_usos(request):
         "https://apps.usos.pwr.edu.pl/",
         os.getenv("USOS_CONSUMER_KEY"),
         os.getenv("USOS_CONSUMER_SECRET"),
+        trust_env=True,
     ) as client:
         client.set_scopes(["offline_access", "studies", "email", "photo", "grades"])
         authorization_url = await client.get_authorization_url(
@@ -63,6 +64,7 @@ async def authorize(request):
         "https://apps.usos.pwr.edu.pl/",
         os.getenv("USOS_CONSUMER_KEY"),
         os.getenv("USOS_CONSUMER_SECRET"),
+        trust_env=True,
     ) as client:
         verifier = request.GET.get("oauth_verifier")
         request_token = request.GET.get("oauth_token")
@@ -98,6 +100,7 @@ async def update_user_data_from_usos(
             "https://apps.usos.pwr.edu.pl/",
             os.getenv("USOS_CONSUMER_KEY"),
             os.getenv("USOS_CONSUMER_SECRET"),
+            trust_env=True,
         ) as client:
             client.load_access_token(access_token, access_token_secret)
             user_data = await client.user_service.get_user()

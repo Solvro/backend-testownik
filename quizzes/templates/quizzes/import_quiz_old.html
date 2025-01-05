@@ -9,71 +9,55 @@
 {% endblock %}
 {% block title %}Importuj quiz{% endblock %}
 {% block content %}
-    <div class="box h-1">
-        <h1 class="subtitle is-5">Zaimportuj quiz ze starej wersji</h1>
-        <div class="notification is-danger p-4" id="import-error" style="display: none;"></div>
-        <div class="columns">
-            <div class="column">
-                <div class="field" id="file">
-                    <label class="label" for="file-input">Plik zip z pytaniami</label>
-                    <div class="control">
-                        <div class="file is-boxed is-fullwidth" id="file-box">
-                            <label class="file-label has-text-centered" id="file-label">
-                                <input class="file-input" type="file" accept=".zip" id="file-input">
-                                <span class="file-cta" id="file-cta">
-                                    <span class="file-icon">
-                                        <iconify-icon icon="bi:file-earmark-arrow-up"></iconify-icon>
-                                    </span>
-                                    <span class="file-label">Wybierz plik…</span>
-                                </span>
-                                <span class="file-name" id="file-name" style="display: none;"></span>
-                            </label>
+    <div class="card p-4 border-0 shadow">
+        <h1 class="h5">Zaimportuj quiz ze starej wersji</h1>
+        <div class="alert alert-danger d-none" id="import-error"></div>
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <div class="mb-3" id="file">
+                    <label class="form-label" for="file-input">Plik zip z pytaniami</label>
+                    <div class="position-relative border rounded p-3 text-center" id="file-box"
+                         style="border-style: dashed; cursor: pointer;">
+                        <input class="form-control d-none" type="file" accept=".zip" id="file-input">
+                        <div id="file-placeholder">
+                            <iconify-icon icon="bi:file-earmark-arrow-up" style="font-size: 2rem;"></iconify-icon>
+                            <p class="mt-2">Wybierz plik…</p>
                         </div>
+                        <span class="d-none" id="file-name"></span>
                     </div>
-                    <p class="help" id="file-help" style="display: none;"></p>
+                    <div id="file-help" class="form-text text-danger d-none"></div>
                 </div>
             </div>
-            <div class="column is-hidden-touch is-narrow p-0 is-flex is-justify-content-center is-align-items-center">
+            <div class="col-md-1 d-flex justify-content-center align-items-center text-muted">
                 /
             </div>
-            <div class="column is-hidden-touch">
-                <div class="field" id="directory">
-                    <label class="label" for="directory-input">Folder z pytaniami</label>
-                    <div class="control">
-                        <div class="file is-boxed is-fullwidth" id="directory-box">
-                            <label class="file-label has-text-centered" id="directory-label">
-                                <input class="file-input" type="file" id="directory-input" webkitdirectory mozdirectory
-                                       directory multiple>
-                                <span class="file-cta" id="directory-cta">
-                                    <span class="file-icon">
-                                        <iconify-icon icon="bi:folder"></iconify-icon>
-                                    </span>
-                                    <span class="file-label">Wybierz folder…</span>
-                                </span>
-                                <span class="file-name" id="directory-name" style="display: none;"></span>
-                            </label>
+            <div class="col-md-5">
+                <div class="mb-3" id="directory">
+                    <label class="form-label" for="directory-input">Folder z pytaniami</label>
+                    <div class="position-relative border rounded p-3 text-center" id="directory-box"
+                         style="border-style: dashed; cursor: pointer;">
+                        <input class="form-control d-none" type="file" id="directory-input" webkitdirectory mozdirectory
+                               directory multiple>
+                        <div id="directory-placeholder">
+                            <iconify-icon icon="bi:folder" style="font-size: 2rem;"></iconify-icon>
+                            <p class="mt-2">Wybierz folder…</p>
                         </div>
+                        <span class="d-none" id="directory-name"></span>
                     </div>
-                    <p class="help" id="directory-help" style="display: none;"></p>
+                    <div id="directory-help" class="form-text text-danger d-none"></div>
                 </div>
             </div>
         </div>
-        <div class="field">
-            <label class="label" for="title">Nazwa</label>
-            <div class="control">
-                <input class="input" type="text" id="title" placeholder="Nazwa bazy">
-            </div>
+        <div class="mb-3">
+            <label class="form-label" for="title">Nazwa</label>
+            <input class="form-control" type="text" id="title" placeholder="Nazwa bazy">
         </div>
-        <div class="field">
-            <label class="label" for="description">Opis</label>
-            <div class="control">
-                <textarea class="textarea" id="description" placeholder="Dodatkowy opis" rows="3"></textarea>
-            </div>
+        <div class="mb-3">
+            <label class="form-label" for="description">Opis</label>
+            <textarea class="form-control" id="description" placeholder="Dodatkowy opis" rows="3"></textarea>
         </div>
-        <div class="field">
-            <div class="control has-text-centered">
-                <button class="button is-inverted" id="import-button">Importuj</button>
-            </div>
+        <div class="text-center">
+            <button class="btn btn-outline-primary" id="import-button">Importuj</button>
         </div>
     </div>
 {% endblock %}

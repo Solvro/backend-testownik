@@ -2,18 +2,6 @@
     touch-action: manipulation;
 }
 
-.navbar {
-    background-color: RGBA(var(--bs-dark-rgb), var(--bs-bg-opacity, 1));
-    --bs-navbar-padding-y: 0;
-}
-
-:root {
-    --bulma-scheme-main: RGBA(var(--bs-dark-rgb), var(--bs-bg-opacity, 1)) !important;
-}
-
-a {
-    text-decoration: none;
-}
 
 .button-container {
     display: flex;

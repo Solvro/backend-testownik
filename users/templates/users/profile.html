@@ -5,83 +5,79 @@
     <link rel="stylesheet" href="{% static 'css/profile.css' %}">
 {% endblock %}
 {% block content %}
-    <div class="columns">
-        <div class="column is-one-third">
-            <div class="box" id="menu">
-                <aside class="menu">
-                    <p class="menu-label">Ogólne</p>
-                    <ul class="menu-list">
-                        <li><a id="account-link" class="menu-item is-active" data-target="account">Konto</a></li>
-                        <li><a id="settings-link" class="menu-item" data-target="settings">Ustawienia</a></li>
-                    </ul>
-                </aside>
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card border-0 shadow" id="menu">
+                <div class="card-body">
+                    <h6 class="card-title">Ogólne</h6>
+                    <div class="list-group list-group-flush nav nav-pills">
+                        <button id="account-link" class="nav-link text-start active" data-bs-toggle="pill"
+                                data-bs-target="account">Konto
+                        </button>
+                        <button id="settings-link" class="nav-link text-start" data-bs-toggle="pill"
+                                data-bs-target="settings">Ustawienia
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
-        <div class="column">
-            <div class="box tab-content" id="account">
-                <div class="is-flex is-justify-content-center mb-4">
+        <div class="col-md-8">
+            <div class="card tab-content border-0 shadow" id="account">
+                <div class="card-body text-center">
                     <img src="{{ user.photo_url }}" alt="Profilowe" id="profile-pic"
-                         style="border-radius: 50%; width: 6em; height: 6em; object-fit: cover;">
+                         class="rounded-circle mb-4" style="width: 6em; height: 6em; object-fit: cover;">
+                    <h1 class="h3">{{ user.full_name }}</h1>
+                    <h2 class="h5 text-muted">{{ user.student_number }}</h2>
+                    {% if user.is_superuser %}
+                        <span class="badge bg-danger bg-opacity-25 text-danger">Administrator</span>
+                    {% elif user.is_staff %}
+                        <span class="badge bg-warning bg-opacity-25 text-warning">Obsługa</span>
+                    {% endif %}
+                    <hr>
+                    <h6>Twoje dane:</h6>
+                    <ul class="list-unstyled">
+                        <li>Id: {{ user.id }}</li>
+                        <li>Email: {{ user.email }}</li>
+                    </ul>
                 </div>
-                <div class="is-flex is-justify-content-center">
-                    <h1 class="title is-3">{{ user.full_name }}</h1>
-                </div>
-                <div class="is-flex is-justify-content-center">
-                    <h2 class="subtitle is-4">{{ user.student_number }}</h2>
-                </div>
-                {% if user.is_superuser %}
-                    <div class="is-flex is-justify-content-center">
-                        <span class="tag is-danger is-light">Administrator</span>
-                    </div>
-                {% elif user.is_staff %}
-                    <div class="is-flex is-justify-content-center">
-                        <span class="tag is-warning is-light">Obsługa</span>
-                    </div>
-                {% endif %}
-
-                <span class="subtitle is-7">Twoje dane:</span>
-                <ul>
-                    <li>Id: {{ user.id }}</li>
-                    <li>Email: {{ user.email }}</li>
-                </ul>
-
-
             </div>
-            <div class="box is-hidden tab-content" id="settings">
-                <table class="table is-fullwidth">
-                    <tbody>
-                    <tr>
-                        <td>
-                            <label for="sync-progress" class="label">Synchronizuj postępy</label>
-                        </td>
-                        <td>
-                            <div class="field">
-                                <input id="sync-progress" type="checkbox"
-                                       class="switch is-rounded is-success settings-input" data-name="sync_progress">
-                            </div>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td>
-                            <label for="initial-repetitions" class="label">Wstępna liczba powtórzeń</label>
-                        </td>
-                        <td>
-                            <div class="field">
-                                <input id="initial-repetitions" type="number" class="input settings-input" min="1" data-name="initial_repetitions">
-                            </div>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td>
-                            <label for="wrong-answer-repetitions" class="label">Liczba dodatkowych powtórzeń przy błędnej odpowiedzi</label>
-                        </td>
-                        <td>
-                            <div class="field">
-                                <input id="wrong-answer-repetitions" type="number" class="input settings-input" min="0" data-name="wrong_answer_repetitions">
-                            </div>
-                        </td>
-                    </tbody>
-                </table>
+            <div class="card tab-content d-none border-0 shadow" id="settings">
+                <div class="card-body">
+                    <table class="table">
+                        <tbody>
+                        <tr>
+                            <td>
+                                <label for="sync-progress" class="form-label">Synchronizuj postępy</label>
+                            </td>
+                            <td>
+                                <div class="form-check form-switch">
+                                    <input id="sync-progress" type="checkbox" class="form-check-input settings-input"
+                                           name="sync_progress">
+                                </div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <label for="initial-repetitions" class="form-label">Wstępna liczba powtórzeń</label>
+                            </td>
+                            <td>
+                                <input id="initial-repetitions" type="number" class="settings-input form-control"
+                                       min="1" name="initial_repetitions">
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <label for="wrong-answer-repetitions" class="form-label">Liczba dodatkowych powtórzeń
+                                    przy błędnej odpowiedzi</label>
+                            </td>
+                            <td>
+                                <input id="wrong-answer-repetitions" type="number" class="settings-input form-control"
+                                       min="0" name="wrong_answer_repetitions">
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>

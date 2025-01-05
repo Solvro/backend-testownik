@@ -184,7 +184,8 @@ const loadQuestion = (id, answersOrder = [], sendToPeers = true) => {
         checkbox.dataset.key = answer.answer + answer.image;
 
         const label = document.createElement('label');
-        label.className = 'btn btn-outline-secondary btn-block text-light';
+        label.className = 'btn btn-outline-secondary btn-block';
+        label.style.color = 'var(--bs-body-color)';
         label.setAttribute('for', `btn-check-${idx}`);
 
         // Check if the answer contains an image
@@ -266,6 +267,7 @@ const handleCheckboxClick = (clickedCheckbox, isMultiple, remote = false) => {
     } else {
         clickedCheckbox.checked = !clickedCheckbox.checked;
     }
+    clickedCheckbox.labels[0].style.color = clickedCheckbox.checked ? 'var(--bs-light)' : 'var(--bs-body-color)';
 };
 
 const handleNextButtonClick = () => {

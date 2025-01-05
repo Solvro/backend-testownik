@@ -18,6 +18,8 @@ document.addEventListener('DOMContentLoaded', () => {
     fileBox.addEventListener('dragleave', handleDragLeaveFile);
     fileBox.addEventListener('drop', handleFileDrop);
 
+    fileBox.addEventListener('click', () => fileInput.click())
+
     const directoryInput = document.getElementById('directory-input');
     const directoryBox = document.getElementById('directory-box');
 
@@ -26,12 +28,15 @@ document.addEventListener('DOMContentLoaded', () => {
     directoryBox.addEventListener('dragleave', handleDragLeaveDirectory);
     directoryBox.addEventListener('drop', handleDirectoryDrop);
 
+    directoryBox.addEventListener('click', () => directoryInput.click())
+
     document.getElementById('import-button').addEventListener('click', async () => {
         let data
         try {
             data = await importQuiz()
         } catch (error) {
             showError('import-error', error.message);
+            throw error;
             return;
         }
         fetch('/quizzes/import/',
@@ -63,15 +68,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (file) {
             document.getElementById('file-box').classList.add('has-name');
             name.textContent = file.name;
-            name.style.display = 'inline';
+            name.classList.remove('d-none');
             directoryInput.value = '';
             directoryFiles = [];
             const directoryName = document.getElementById('directory-name');
             directoryName.textContent = '';
-            directoryName.style.display = 'none';
+            directoryName.classList.add('d-none');
         } else {
             document.getElementById('file-box').classList.remove('has-name');
-            name.style.display = 'none';
+            name.classList.add('d-none');
         }
         handleDragLeaveFile();
     }
@@ -84,15 +89,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (directoryFiles) {
             document.getElementById('directory-box').classList.add('has-name');
             name.textContent = directoryName;
-            name.style.display = 'inline';
+            name.classList.remove('d-none');
             fileInput.value = '';
             const fileName = document.getElementById('file-name');
             fileName.textContent = '';
-            fileName.style.display = 'none';
+            fileName.classList.add('d-none');
             document.getElementById('file-box').classList.remove('has-name');
         } else {
             document.getElementById('directory-box').classList.remove('has-name');
-            name.style.display = 'none';
+            name.classList.add('d-none');
         }
         handleDragLeaveDirectory();
     }
@@ -111,8 +116,8 @@ document.addEventListener('DOMContentLoaded', () => {
         evt.preventDefault();
         evt.stopPropagation();
         const directory = evt.dataTransfer.items[0].webkitGetAsEntry();
+        const name = document.getElementById('directory-name');
         if (directory && directory.isDirectory) {
-            const name = document.getElementById('directory-name');
             directoryFiles = [];
             const reader = directory.createReader();
             const readEntries = () => {
@@ -127,19 +132,19 @@ document.addEventListener('DOMContentLoaded', () => {
             if (directoryFiles) {
                 document.getElementById('directory-box').classList.add('has-name');
                 name.textContent = directory.name;
-                name.style.display = 'inline';
+                name.classList.remove('d-none');
                 fileInput.value = '';
                 const fileName = document.getElementById('file-name');
                 fileName.textContent = '';
-                fileName.style.display = 'none';
+                fileName.classList.add('d-none');
                 document.getElementById('file-box').classList.remove('has-name');
             } else {
                 document.getElementById('directory-box').classList.remove('has-name');
-                name.style.display = 'none';
+                name.classList.add('d-none');
             }
         } else {
             document.getElementById('directory-box').classList.remove('has-name');
-            name.style.display = 'none';
+            name.classList.add('d-none');
         }
         handleDragLeaveDirectory();
     }
@@ -149,11 +154,7 @@ document.addEventListener('DOMContentLoaded', () => {
         evt.stopPropagation();
         if (evt.dataTransfer.items && evt.dataTransfer.items.length === 1 && evt.dataTransfer.items[0].kind === 'file' && ['application/zip', 'application/zip-compressed', 'application/x-zip-compressed', 'multipart/x-zip'].includes(evt.dataTransfer.items[0].type)) {
             evt.dataTransfer.dropEffect = 'copy';
-            if (document.getElementById('file-name').style.display === 'none') {
-                document.getElementById('file-cta').classList.add('dragover');
-            } else {
-                fileBox.classList.add('dragover');
-            }
+            fileBox.classList.add('border-primary');
         } else {
             evt.dataTransfer.dropEffect = 'none';
         }
@@ -162,13 +163,9 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleDragOverDirectory(evt) {
         evt.preventDefault();
         evt.stopPropagation();
-        if (evt.dataTransfer.items && evt.dataTransfer.items.length === 1) {
+        if (evt.dataTransfer.items && evt.dataTransfer.items.length === 1 && evt.dataTransfer.items[0].kind === 'file') {
             evt.dataTransfer.dropEffect = 'copy';
-            if (document.getElementById('directory-name').style.display === 'none') {
-                document.getElementById('directory-cta').classList.add('dragover');
-            } else {
-                directoryBox.classList.add('dragover');
-            }
+            directoryBox.classList.add('border-primary');
         } else {
             evt.dataTransfer.dropEffect = 'none';
         }
@@ -179,8 +176,7 @@ document.addEventListener('DOMContentLoaded', () => {
             evt.preventDefault();
             evt.stopPropagation();
         }
-        fileBox.classList.remove('dragover');
-        document.getElementById('file-cta').classList.remove('dragover');
+        fileBox.classList.remove('border-primary');
     }
 
     function handleDragLeaveDirectory(evt) {
@@ -188,8 +184,7 @@ document.addEventListener('DOMContentLoaded', () => {
             evt.preventDefault();
             evt.stopPropagation();
         }
-        directoryBox.classList.remove('dragover');
-        document.getElementById('directory-cta').classList.remove('dragover');
+        directoryBox.classList.remove('border-primary');
     }
 
     async function importQuiz() {
@@ -211,8 +206,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function showError(id, message) {
         const help = document.getElementById(id);
         help.textContent = message;
-        help.style.display = 'block';
-        help.classList.add('is-danger');
+        help.classList.remove('d-none');
+        help.classList.add('text-danger');
     }
 
     async function processFiles() {
@@ -256,32 +251,39 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function readFile(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result.split('\n').map(line => line.trim()));
-            reader.onerror = reject;
-            if (file instanceof File) {
-                detectEncodingAndReadFile(file, reader);
-            } else if (file.isFile) {
-                file.file(file => {
-                    detectEncodingAndReadFile(file, reader);
+        if (file instanceof File) {
+            return await detectEncodingAndReadFile(file);
+        } else if (file.isFile) {
+            return new Promise((resolve, reject) => {
+                file.file(async file => {
+                    try {
+                        const result = await detectEncodingAndReadFile(file);
+                        resolve(result);
+                    } catch (error) {
+                        reject(error);
+                    }
                 });
-            }
-        });
+            });
+        }
     }
 
-    function detectEncodingAndReadFile(file, reader) {
-        const reader2 = new FileReader();
-        reader2.onload = () => {
-            const decoder = new TextDecoder('utf-8');
-            const utf8 = decoder.decode(reader2.result);
-            if (utf8 !== reader2.result) {
-                reader.readAsText(file, 'windows-1250');
-            } else {
-                reader.readAsText(file);
-            }
-        };
-        reader2.readAsArrayBuffer(file);
+    async function detectEncodingAndReadFile(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const decoder = new TextDecoder('utf-8', {fatal: true});
+                    const content = decoder.decode(reader.result);
+                    resolve(content.split('\n').map(line => line.trim()));
+                } catch (e) {
+                    const decoder = new TextDecoder('windows-1250');
+                    const content = decoder.decode(reader.result);
+                    resolve(content.split('\n').map(line => line.trim()));
+                }
+            };
+            reader.onerror = () => reject(reader.error);
+            reader.readAsArrayBuffer(file);
+        });
     }
 
     async function processQuestion(lines, path) {

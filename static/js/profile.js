@@ -1,18 +1,18 @@
-document.querySelectorAll('.menu-item').forEach(item => {
+document.querySelectorAll('.nav-link').forEach(item => {
     item.addEventListener('click', () => {
-        let target = item.getAttribute('data-target');
+        let target = item.getAttribute('data-bs-target');
         if (target === 'settings') {
             getSettings();
         }
         document.querySelectorAll('.tab-content').forEach(content => {
             if (content.id === target) {
-                content.classList.remove('is-hidden');
+                content.classList.remove('d-none');
             } else {
-                content.classList.add('is-hidden');
+                content.classList.add('d-none');
             }
         });
-        document.querySelector('.menu-item.is-active').classList.remove('is-active');
-        item.classList.add('is-active');
+        document.querySelector('.nav-link.active').classList.remove('active');
+        item.classList.add('active');
     });
 });
 
@@ -28,7 +28,7 @@ function updateSetting(setting, value) {
         }
     }).then(response => {
         if (!response.ok) {
-            console.log('Failed to update setting');
+            console.error('Failed to update setting');
         }
     });
 }
@@ -37,30 +37,35 @@ function getSettings() {
     fetch('/api/settings/').then(response => {
         if (response.ok) {
             return response.json();
+        } else {
+            console.error('Failed to fetch settings');
         }
     }).then(data => {
         for (let setting in data) {
-            if (document.querySelector(`[data-name="${setting}"]`).type === 'checkbox') {
-                document.querySelector(`[data-name="${setting}"]`).checked = data[setting];
-            } else {
-                document.querySelector(`[data-name="${setting}"]`).value = data[setting];
+            const inputElement = document.querySelector(`[name="${setting}"]`);
+            if (inputElement) {
+                if (inputElement.type === 'checkbox') {
+                    inputElement.checked = data[setting];
+                } else {
+                    inputElement.value = data[setting];
+                }
             }
         }
     });
-
 }
 
 document.querySelectorAll('.settings-input').forEach(input => {
     input.addEventListener('change', e => {
-        if (e.target.type === 'checkbox') {
-            updateSetting(e.target.dataset.name, e.target.checked);
-        } else if (e.target.type === 'number' || e.target.type === 'range') {
-            if (e.target.value < parseInt(e.target.min, 10)) {
-                e.target.value = e.target.min;
+        const target = e.target;
+        if (target.type === 'checkbox') {
+            updateSetting(target.name, target.checked);
+        } else if (target.type === 'number' || target.type === 'range') {
+            if (target.value < parseInt(target.min, 10)) {
+                target.value = target.min;
             }
-            updateSetting(e.target.dataset.name, parseInt(e.target.value, 10))
+            updateSetting(target.name, parseInt(target.value, 10));
         } else {
-            updateSetting(e.target.dataset.name, e.target.value);
+            updateSetting(target.name, target.value);
         }
     });
 });
