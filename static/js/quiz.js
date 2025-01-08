@@ -528,7 +528,7 @@ const initiateContinuity = () => {
                 iceServers: [
                     {urls: 'stun:stun.l.google.com:19302'},
                     {urls: 'stun:stun1.l.google.com:19302'},
-                    {urls: 'turn:freeturn.net:3478', username: 'free', credential: 'free'}
+                    {urls: 'turn:freestun.net:3478', username: 'free', credential: 'free'}
                 ]
             }
         });
@@ -542,7 +542,7 @@ const initiateContinuity = () => {
                         iceServers: [
                             {urls: 'stun:stun.l.google.com:19302'},
                             {urls: 'stun:stun1.l.google.com:19302'},
-                            {urls: 'turn:freeturn.net:3478', username: 'free', credential: 'free'}
+                            {urls: 'turn:freestun.net:3478', username: 'free', credential: 'free'}
                         ]
                     }
                 });
