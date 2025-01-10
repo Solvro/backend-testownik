@@ -6,6 +6,8 @@ import requests
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
 
 from quizzes.models import Quiz, QuizProgress, SharedQuiz
 from users.models import UserSettings
@@ -137,6 +139,25 @@ def random_question_for_user(request):
             return JsonResponse(random_question)
 
     return JsonResponse({"error": "No quizzes found"}, status=404)
+
+
+@api_view(["GET"])
+def api_random_question_for_user(request):
+    if not request.user.is_authenticated:
+        return Response({"error": "Unauthorized"}, status=401)
+
+    quizzes_progress = QuizProgress.objects.filter(
+        user=request.user, last_activity__gt=timezone.now() - timedelta(days=90)
+    ).order_by("?")
+
+    for quiz_progress in quizzes_progress:
+        if quiz_progress.quiz.questions:
+            random_question = random.choice(quiz_progress.quiz.questions)
+            random_question["quiz_id"] = quiz_progress.quiz.id
+            random_question["quiz_title"] = quiz_progress.quiz.title
+            return Response(random_question)
+
+    return Response({"error": "No quizzes found"}, status=404)
 
 
 def quizzes(request):

@@ -21,7 +21,9 @@ async def get_grades(request):
     term_id = request.GET.get("term_id")
     request_user = await aget_user(request)
 
-    async with USOSClient(USOS_BASE_URL, CONSUMER_KEY, CONSUMER_SECRET, trust_env=True) as client:
+    async with USOSClient(
+        USOS_BASE_URL, CONSUMER_KEY, CONSUMER_SECRET, trust_env=True
+    ) as client:
         client.load_access_token(
             request_user.access_token, request_user.access_token_secret
         )

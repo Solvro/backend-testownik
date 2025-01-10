@@ -2,15 +2,25 @@ import json
 import os
 
 import dotenv
+from asgiref.sync import sync_to_async
 from django.contrib import messages
 from django.contrib.auth import aget_user
 from django.contrib.auth import alogin as auth_login
-from django.http import HttpResponse, HttpResponseForbidden, HttpResponseNotAllowed
+from django.http import (
+    HttpResponse,
+    HttpResponseBadRequest,
+    HttpResponseForbidden,
+    HttpResponseNotAllowed,
+)
 from django.shortcuts import redirect, render
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework_simplejwt.tokens import RefreshToken
 from usos_api import USOSClient
 
 from quizzes.models import QuizProgress
 from users.models import StudyGroup, Term, User, UserSettings
+from users.serializers import UserSerializer
 
 dotenv.load_dotenv()
 
@@ -19,11 +29,14 @@ request_token_secrets = {}
 
 async def login_usos(request):
     confirm_user = request.GET.get("confirm_user", "false") == "true"
-    next_url = request.GET.get("next", "")
-    callback_url = (
-        request.build_absolute_uri(f"/authorize/?next={next_url}")
-        if next_url
-        else request.build_absolute_uri("/authorize/")
+    jwt = request.GET.get("jwt", "false") == "true"
+    redirect_url = request.GET.get("redirect", "")
+
+    if jwt and not redirect_url:
+        return HttpResponseForbidden("Redirect URL must be provided when using JWT")
+
+    callback_url = request.build_absolute_uri(
+        f"/authorize/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
     )
 
     async with USOSClient(
@@ -58,7 +71,7 @@ def admin_login(request):
 
 
 async def authorize(request):
-    next_url = request.GET.get("next", "index")
+    redirect_url = request.GET.get("redirect", "index")
 
     async with USOSClient(
         "https://apps.usos.pwr.edu.pl/",
@@ -80,8 +93,14 @@ async def authorize(request):
             client, access_token, access_token_secret
         )
 
+    if request.GET.get("jwt", "false") == "true":
+        refresh = await sync_to_async(RefreshToken.for_user)(user)
+        return redirect(
+            f"{redirect_url}?access_token={refresh.access_token}&refresh_token={refresh}"
+        )
+
     await auth_login(request, user)
-    return redirect(next_url)
+    return redirect(redirect_url)
 
 
 def profile(request):
@@ -173,18 +192,19 @@ def index(request):
     return render(request, "dashboard.html", {"last_used_quizzes": last_used_quizzes})
 
 
+@api_view(["GET", "PUT"])
 def api_settings(request):
     if request.method == "GET":
         return get_user_settings(request)
     elif request.method == "PUT":
         return update_user_settings(request)
     else:
-        return HttpResponseNotAllowed(["GET", "PUT"])
+        return Response(status=HttpResponseNotAllowed.status_code)
 
 
 def get_user_settings(request):
     if not request.user.is_authenticated:
-        return HttpResponseForbidden()
+        return Response(status=HttpResponseForbidden.status_code)
 
     try:
         user_settings = request.user.settings
@@ -197,12 +217,12 @@ def get_user_settings(request):
         "wrong_answer_repetitions": user_settings.wrong_answer_repetitions,
     }
 
-    return HttpResponse(json.dumps(settings_data), content_type="application/json")
+    return Response(settings_data)
 
 
 def update_user_settings(request):
     if not request.user.is_authenticated:
-        return HttpResponseForbidden()
+        return Response(status=HttpResponseForbidden.status_code)
 
     data = json.loads(request.body)
 
@@ -222,21 +242,22 @@ def update_user_settings(request):
         if initial_repetitions >= 1:
             user_settings.initial_repetitions = initial_repetitions
         else:
-            return HttpResponse(
-                status=400, content="Initial repetitions must be greater or equal to 1"
+            return Response(
+                "Initial repetitions must be greater or equal to 1",
+                status=HttpResponseBadRequest.status_code,
             )
 
     if wrong_answer_repetitions is not None:
         if wrong_answer_repetitions >= 0:
             user_settings.wrong_answer_repetitions = wrong_answer_repetitions
         else:
-            return HttpResponse(
-                status=400,
-                content="Wrong answer repetitions must be greater or equal to 0",
+            return Response(
+                "Wrong answer repetitions must be greater or equal to 0",
+                status=HttpResponseBadRequest.status_code,
             )
 
     user_settings.save()
-    return HttpResponse(status=200)
+    return Response(status=200)
 
 
 async def refresh_user_data(request):
@@ -251,3 +272,9 @@ async def refresh_user_data(request):
             request, f"Wystąpił błąd podczas odświeżania danych użytkownika: {e}"
         )
     return redirect(request.GET.get("next", "index"))
+
+
+@api_view(["GET"])
+def api_current_user(request):
+    serializer = UserSerializer(request.user)
+    return Response(serializer.data)

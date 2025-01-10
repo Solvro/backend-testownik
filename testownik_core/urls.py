@@ -18,11 +18,15 @@ Including another URLconf
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import include, path
+from rest_framework import routers
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from grades import views as grades_views
 from quizzes import views as quizzes_views
 from users import views as users_views
+from users.views import api_current_user
 
+router = routers.DefaultRouter()
 urlpatterns = [
     path("", users_views.index, name="index"),
     path("admin/login/", users_views.admin_login, name="admin_login"),
@@ -32,7 +36,6 @@ urlpatterns = [
     path("login/usos/", users_views.login_usos, name="login_usos"),
     path("authorize/", users_views.authorize, name="authorize"),
     path("profile/", users_views.profile, name="profile"),
-    path("api/settings/", users_views.api_settings, name="api_settings"),
     path(
         "api/refresh-user-data/",
         users_views.refresh_user_data,
@@ -52,4 +55,14 @@ urlpatterns = [
         quizzes_views.random_question_for_user,
         name="random_question_for_user",
     ),
+    path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("api/", include(router.urls)),
+    path("api/user/", api_current_user, name="api_current_user"),
+    path(
+        "api/random-question/",
+        quizzes_views.api_random_question_for_user,
+        name="api_random_question_for_user",
+    ),
+    path("api/settings/", users_views.api_settings, name="api_settings"),
 ]

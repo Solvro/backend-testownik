@@ -39,9 +39,9 @@
 
         <div class="submit-row">
             {% if not user.is_authenticated %}
-                <a class="button" href="{% url 'login_usos' %}?next={{ next }}">Log in with USOS</a>
+                <a class="button" href="{% url 'login_usos' %}?redirect={{ next }}">Log in with USOS</a>
             {% else %}
-                <a class="button" href="{% url 'login_usos' %}?confirm_user=true&next={{ next }}">Log in with a
+                <a class="button" href="{% url 'login_usos' %}?confirm_user=true&redirect={{ next }}">Log in with a
                     different account</a>
             {% endif %}
         </div>
