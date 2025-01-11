@@ -65,4 +65,6 @@ urlpatterns = [
         name="api_random_question_for_user",
     ),
     path("api/settings/", users_views.api_settings, name="api_settings"),
+    path("api/last-used-quizzes/", quizzes_views.api_last_used_quizzes, name="api_last_used_quizzes"),
+    path("api/search-quizzes/", quizzes_views.api_search_quizzes, name="api_search_quizzes"),
 ]

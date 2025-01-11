@@ -49,6 +49,16 @@ class Quiz(models.Model):
             "questions": self.questions,
         }
 
+    def to_search_result(self):
+        return {
+            "id": self.id,
+            "title": self.title,
+            "maintainer": (
+                self.maintainer.full_name if not self.is_anonymous else "Anonimowy"
+            ),
+            "is_anonymous": self.is_anonymous,
+        }
+
 
 class SharedQuiz(models.Model):
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE)
