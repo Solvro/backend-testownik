@@ -210,16 +210,24 @@ def api_search_quizzes(request):
         return Response({"error": "Query parameter is required"}, status=400)
 
     user_quizzes = Quiz.objects.filter(maintainer=request.user, title__icontains=query)
-    shared_quizzes = SharedQuiz.objects.filter(user=request.user, quiz__title__icontains=query, quiz__visibility__gte=1)
+    shared_quizzes = SharedQuiz.objects.filter(
+        user=request.user, quiz__title__icontains=query, quiz__visibility__gte=1
+    )
     group_quizzes = SharedQuiz.objects.filter(
-        study_group__in=request.user.study_groups.all(), quiz__title__icontains=query, quiz__visibility__gte=1
+        study_group__in=request.user.study_groups.all(),
+        quiz__title__icontains=query,
+        quiz__visibility__gte=1,
     )
     public_quizzes = Quiz.objects.filter(title__icontains=query, visibility__gte=3)
     return Response(
         {
             "user_quizzes": [quiz.to_search_result() for quiz in user_quizzes],
-            "shared_quizzes": [shared_quiz.quiz.to_search_result() for shared_quiz in shared_quizzes],
-            "group_quizzes": [shared_quiz.quiz.to_search_result() for shared_quiz in group_quizzes],
+            "shared_quizzes": [
+                shared_quiz.quiz.to_search_result() for shared_quiz in shared_quizzes
+            ],
+            "group_quizzes": [
+                shared_quiz.quiz.to_search_result() for shared_quiz in group_quizzes
+            ],
             "public_quizzes": [quiz.to_search_result() for quiz in public_quizzes],
         }
     )

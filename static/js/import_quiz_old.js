@@ -289,17 +289,19 @@ document.addEventListener('DOMContentLoaded', () => {
     async function processQuestion(lines, path) {
         let filename = path.replace(/^.*[\\/]/, '')
         const template = lines[0].trim();
+        const questionLinesCount = template.split('').filter(c => c.toLowerCase() === 'x').length;
         if (template === '') {
             console.error(`Error in file ${path}. Template not found. Skipping.`);
             return;
         } else if (!["x", "y"].includes(template[0].toLowerCase())) {
             console.error(`Error in file ${path}. Template not recognized. Skipping.`);
             return
-        } else if ([...template.slice(1)].some(c => c !== '0' && c !== '1')) {
+        } else if ([...template.slice(questionLinesCount)].some(c => c !== '0' && c !== '1')) {
+            console.error(`Error in file ${path}. Template not recognized. Skipping.`);
             return;
         }
 
-        let question = lines[1].trim();
+        let question = lines.slice(1, questionLinesCount + 1).join('\n');
 
         // Extract number from filename
         const filenameNumberMatch = filename.match(/^0*(\d+)/);
@@ -314,7 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const answers = [];
 
-        for (let s = 2; s < Math.min(lines.length, template.length + 1); s++) {
+        for (let s = questionLinesCount + 1; s < Math.min(lines.length, template.length + 1); s++) {
             if (lines[s] === undefined || lines[s].trim() === '') {
                 continue;
             }
@@ -332,7 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        const isTrueFalse = (template === "X01" || template === "X10") &&
+        const isTrueFalse = (template.endsWith("X01" )|| template.endsWith("X10")) &&
             trueFalseStrings[answers[0].answer.toLowerCase()] !== undefined &&
             trueFalseStrings[answers[1].answer.toLowerCase()] !== undefined;
 

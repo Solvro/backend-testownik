@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from users.models import StudyGroup, User, UserSettings
+from users.models import StudyGroup, Term, User, UserSettings
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -17,7 +17,27 @@ class UserSerializer(serializers.ModelSerializer):
         ]
 
 
+class PublicUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "full_name", "student_number", "photo_url"]
+
+
 class UserSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserSettings
         fields = ["sync_progress", "initial_repetitions", "wrong_answer_repetitions"]
+
+
+class TermSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Term
+        fields = ["id", "name", "start_date", "end_date", "is_current"]
+
+
+class StudyGroupSerializer(serializers.ModelSerializer):
+    term = TermSerializer()
+
+    class Meta:
+        model = StudyGroup
+        fields = ["id", "name", "term"]

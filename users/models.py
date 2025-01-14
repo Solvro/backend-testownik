@@ -85,8 +85,8 @@ class Term(models.Model):
     @property
     def is_current(self):
         return (
-            self.start_date <= date.today() <= self.finish_date
-            if self.start_date and self.finish_date
+            self.start_date <= date.today() <= self.end_date
+            if self.start_date and self.end_date
             else None
         )
 

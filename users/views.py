@@ -6,13 +6,14 @@ from asgiref.sync import sync_to_async
 from django.contrib import messages
 from django.contrib.auth import aget_user
 from django.contrib.auth import alogin as auth_login
+from django.db.models import Q
 from django.http import (
-    HttpResponse,
     HttpResponseBadRequest,
     HttpResponseForbidden,
     HttpResponseNotAllowed,
 )
 from django.shortcuts import redirect, render
+from rest_framework import mixins, permissions, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -20,7 +21,7 @@ from usos_api import USOSClient
 
 from quizzes.models import QuizProgress
 from users.models import StudyGroup, Term, User, UserSettings
-from users.serializers import UserSerializer
+from users.serializers import PublicUserSerializer, StudyGroupSerializer, UserSerializer
 
 dotenv.load_dotenv()
 
@@ -165,9 +166,19 @@ async def update_user_data_from_usos(
     )
 
     for group in user_groups:
-        term, _ = await Term.objects.aget_or_create(
-            id=group.term_id,
-        )
+        try:
+            term = await Term.objects.aget(
+                id=group.term_id,
+            )
+        except Term.DoesNotExist:
+            term_response = await client.term_service.get_term(group.term_id)
+            term = await Term.objects.acreate(
+                id=term_response.id,
+                name=term_response.name.pl,
+                start_date=term_response.start_date,
+                end_date=term_response.end_date,
+                finish_date=term_response.finish_date,
+            )
         group_obj, _ = await StudyGroup.objects.aupdate_or_create(
             id=f"{group.course_unit_id}-{group.group_number}",
             defaults={
@@ -278,3 +289,85 @@ async def refresh_user_data(request):
 def api_current_user(request):
     serializer = UserSerializer(request.user)
     return Response(serializer.data)
+
+
+class UserViewSet(
+    mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet
+):
+    queryset = User.objects.all()
+    serializer_class = PublicUserSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        search = self.request.query_params.get("search", "").strip()
+        if search and len(search) >= 3:
+            search_terms = search.split(" ")
+            filters = Q()
+            if len(search_terms) == 1:
+                filters |= Q(first_name__icontains=search_terms[0])
+                filters |= Q(last_name__icontains=search_terms[0])
+                filters |= Q(student_number=search_terms[0])
+            elif len(search_terms) == 2:
+                filters |= Q(
+                    first_name__icontains=search_terms[0],
+                    last_name__icontains=search_terms[1],
+                )
+                filters |= Q(
+                    first_name__icontains=search_terms[1],
+                    last_name__icontains=search_terms[0],
+                )
+                filters |= Q(
+                    first_name__icontains=search_terms[0],
+                    student_number__icontains=search_terms[1],
+                )
+                filters |= Q(
+                    first_name__icontains=search_terms[1],
+                    student_number__icontains=search_terms[0],
+                )
+            elif len(search_terms) == 3:
+                filters |= Q(
+                    first_name__icontains=search_terms[0],
+                    last_name__icontains=search_terms[1],
+                    student_number__icontains=search_terms[2],
+                )
+                filters |= Q(
+                    first_name__icontains=search_terms[0],
+                    last_name__icontains=search_terms[2],
+                    student_number__icontains=search_terms[1],
+                )
+                filters |= Q(
+                    first_name__icontains=search_terms[1],
+                    last_name__icontains=search_terms[0],
+                    student_number__icontains=search_terms[2],
+                )
+                filters |= Q(
+                    first_name__icontains=search_terms[1],
+                    last_name__icontains=search_terms[2],
+                    student_number__icontains=search_terms[0],
+                )
+                filters |= Q(
+                    first_name__icontains=search_terms[2],
+                    last_name__icontains=search_terms[0],
+                    student_number__icontains=search_terms[1],
+                )
+                filters |= Q(
+                    first_name__icontains=search_terms[2],
+                    last_name__icontains=search_terms[1],
+                    student_number__icontains=search_terms[0],
+                )
+            else:
+                return User.objects.none()
+            return User.objects.filter(filters)
+        else:
+            return User.objects.none()
+
+
+class StudyGroupViewSet(viewsets.ModelViewSet):
+    queryset = StudyGroup.objects.all()
+    serializer_class = StudyGroupSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = StudyGroup.objects.filter(members=self.request.user)
+
+        return queryset

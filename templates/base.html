@@ -17,6 +17,19 @@
     {% block extra_head %}
     {% endblock %}
 </head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-NMRNEL34BT"></script>
+<script>
+    window.dataLayer = window.dataLayer || [];
+
+    function gtag() {
+        dataLayer.push(arguments);
+    }
+
+    gtag('js', new Date());
+
+    gtag('config', 'G-NMRNEL34BT');
+</script>
 <style>
     @media (prefers-color-scheme: dark) {
         :root {
