@@ -3,7 +3,7 @@
 {% block title %}Testownik{% endblock %}
 {% block extra_head %}
     <script>
-        const quizUrl = "{% url 'quiz_api' quiz_id %}";
+        const quizUrl = "{% url 'quiz_legacy_api' quiz_id %}";
 
         const userSettings = {{ user_settings|safe }};
         const userAuthenticated = {{ request.user.is_authenticated|yesno:"true,false" }};

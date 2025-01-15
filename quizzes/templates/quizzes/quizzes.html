@@ -29,17 +29,17 @@
     {% if shared_quizzes %}
         <h1 class="fw-bold mt-4">Udostępnione dla Ciebie</h1>
         <div class="row g-3">
-            {% for quiz in shared_quizzes %}
+            {% for shared_quiz in shared_quizzes %}
                 <div class="col-md-4">
                     <div class="card">
                         <div class="card-body">
-                            <h5 class="card-title">{{ quiz.title }}</h5>
-                            {% if quiz.description %}
-                                <p class="card-text small text-muted">{{ quiz.description }}</p>
+                            <h5 class="card-title">{{ shared_quiz.quiz.title }}</h5>
+                            {% if shared_quiz.quiz.description %}
+                                <p class="card-text small text-muted">{{ shared_quiz.quiz.description }}</p>
                             {% endif %}
                             <div class="d-flex justify-content-between">
-                                <a href="{% url 'quizzes:quiz' quiz.id %}" class="btn btn-outline-primary btn-sm">Rozpocznij</a>
-                                <button class="btn btn-outline-danger btn-sm unshare" data-quiz-id="{{ quiz.id }}">Usuń z udostępnionych</button>
+                                <a href="{% url 'quizzes:quiz' shared_quiz.quiz.id %}" class="btn btn-outline-primary btn-sm">Rozpocznij</a>
+                                <button class="btn btn-outline-danger btn-sm unshare" data-quiz-id="{{ shared_quiz.quiz.id }}">Usuń z udostępnionych</button>
                             </div>
                         </div>
                     </div>
@@ -50,16 +50,16 @@
     {% if group_quizzes %}
         <h1 class="fw-bold mt-4">Udostępnione dla twoich grup</h1>
         <div class="row g-3">
-            {% for quiz in group_quizzes %}
+            {% for shared_quiz in group_quizzes %}
                 <div class="col-md-4">
                     <div class="card">
                         <div class="card-body">
-                            <h5 class="card-title">{{ quiz.title }}</h5>
-                            {% if quiz.description %}
-                                <p class="card-text small text-muted">{{ quiz.description }}</p>
+                            <h5 class="card-title">{{ shared_quiz.quiz.title }}</h5>
+                            {% if shared_quiz.quiz.description %}
+                                <p class="card-text small text-muted">{{ shared_quiz.quiz.description }}</p>
                             {% endif %}
                             <div class="d-flex justify-content-between">
-                                <a href="{% url 'quizzes:quiz' quiz.id %}" class="btn btn-outline-primary btn-sm">Rozpocznij</a>
+                                <a href="{% url 'quizzes:quiz' shared_quiz.quiz.id %}" class="btn btn-outline-primary btn-sm">Rozpocznij</a>
                             </div>
                         </div>
                     </div>

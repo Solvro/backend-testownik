@@ -29,6 +29,8 @@ from users.views import api_current_user
 router = routers.DefaultRouter()
 router.register(r"users", users_views.UserViewSet)
 router.register(r"study-groups", users_views.StudyGroupViewSet)
+router.register(r"quizzes", quizzes_views.QuizViewSet)
+router.register(r"shared-quizzes", quizzes_views.SharedQuizViewSet)
 
 
 urlpatterns = [
@@ -48,11 +50,11 @@ urlpatterns = [
     path("api/get-grades/", grades_views.get_grades, name="get_grades"),
     path("grades/", include("grades.urls")),
     path("quizzes/", include("quizzes.urls")),
-    path("api/quiz/<uuid:quiz_id>/", quizzes_views.quiz_api, name="quiz_api"),
+    path("api/legacy/quiz/<uuid:quiz_id>/", quizzes_views.quiz_legacy_api, name="quiz_legacy_api"),
     path(
-        "api/quiz/<uuid:quiz_id>/progress/",
-        quizzes_views.quiz_progress_api,
-        name="progress_api",
+        "api/legacy/quiz/<uuid:quiz_id>/progress/",
+        quizzes_views.quiz_progress_legacy_api,
+        name="progress_legacy_api",
     ),
     path(
         "api/random-question-for-user/",
@@ -78,5 +80,10 @@ urlpatterns = [
         "api/search-quizzes/",
         quizzes_views.api_search_quizzes,
         name="api_search_quizzes",
+    ),
+    path(
+        "api/quiz-metadata/<uuid:quiz_id>/",
+        quizzes_views.quiz_metadata_api,
+        name="api_quiz_metadata",
     ),
 ]
