@@ -50,7 +50,11 @@ urlpatterns = [
     path("api/get-grades/", grades_views.get_grades, name="get_grades"),
     path("grades/", include("grades.urls")),
     path("quizzes/", include("quizzes.urls")),
-    path("api/legacy/quiz/<uuid:quiz_id>/", quizzes_views.quiz_legacy_api, name="quiz_legacy_api"),
+    path(
+        "api/legacy/quiz/<uuid:quiz_id>/",
+        quizzes_views.quiz_legacy_api,
+        name="quiz_legacy_api",
+    ),
     path(
         "api/legacy/quiz/<uuid:quiz_id>/progress/",
         quizzes_views.quiz_progress_legacy_api,

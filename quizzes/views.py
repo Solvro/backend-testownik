@@ -8,14 +8,18 @@ from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
-from rest_framework import viewsets, permissions
+from rest_framework import permissions, viewsets
 from rest_framework.decorators import api_view
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from quizzes.models import Quiz, QuizProgress, SharedQuiz
 from quizzes.permissions import IsSharedQuizMaintainerOrReadOnly
-from quizzes.serializers import SharedQuizSerializer, QuizSerializer, QuizMetaDataSerializer
+from quizzes.serializers import (
+    QuizMetaDataSerializer,
+    QuizSerializer,
+    SharedQuizSerializer,
+)
 from users.models import UserSettings
 
 
@@ -239,6 +243,7 @@ def api_search_quizzes(request):
         }
     )
 
+
 # This viewset will only return user's quizzes when listing, but will allow to view all quizzes when retrieving a single quiz.
 # This is by design, if the user wants to view shared quizzes, they should use the SharedQuizViewSet and for public quizzes they should use the api_search_quizzes view.
 # It will also allow to create, update and delete quizzes only if the user is the maintainer of the quiz.
@@ -249,20 +254,27 @@ class QuizViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         if not self.request.user.is_authenticated:
+            if self.action == "list":
+                return Quiz.objects.none()
             return Quiz.objects.filter(visibility__gte=3, allow_anonymous=True)
         _filter = Q(maintainer=self.request.user)
         if self.action == "retrieve":
             _filter |= Q(visibility__gte=3)
             _filter |= Q(visibility__gte=2)
             _filter |= Q(visibility__gte=1, sharedquiz__user=self.request.user)
-            _filter |= Q(visibility__gte=1, sharedquiz__study_group__in=self.request.user.study_groups.all())
-        return Quiz.objects.filter(_filter)
+            _filter |= Q(
+                visibility__gte=1,
+                sharedquiz__study_group__in=self.request.user.study_groups.all(),
+            )
+        return Quiz.objects.filter(_filter).distinct()
 
     def perform_create(self, serializer):
         serializer.save(maintainer=self.request.user)
 
     def perform_update(self, serializer):
-        serializer.save(maintainer=self.request.user, version=serializer.instance.version + 1)
+        serializer.save(
+            maintainer=self.request.user, version=serializer.instance.version + 1
+        )
 
     def perform_destroy(self, instance):
         if instance.maintainer == self.request.user:
@@ -275,9 +287,17 @@ class QuizViewSet(viewsets.ModelViewSet):
             return QuizMetaDataSerializer
         return QuizSerializer
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        if self.action == "list":
+            context.update({"user": self.request.user})
+        return context
+
     def update(self, request, *args, **kwargs):
         if request.user != self.get_object().maintainer:
-            return Response({"error": "You are not the maintainer of this quiz"}, status=403)
+            return Response(
+                {"error": "You are not the maintainer of this quiz"}, status=403
+            )
         return super().update(request, *args, **kwargs)
 
 
@@ -286,7 +306,8 @@ def quiz_metadata_api(request, quiz_id):
     if not request.user.is_authenticated:
         return Response({"error": "Unauthorized"}, status=401)
     quiz = Quiz.objects.get(id=quiz_id)
-    return Response(QuizMetaDataSerializer(quiz).data)
+    return Response(QuizMetaDataSerializer(quiz, context={"user": request.user}).data)
+
 
 class SharedQuizViewSet(viewsets.ModelViewSet):
     queryset = SharedQuiz.objects.all()
@@ -294,7 +315,18 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsSharedQuizMaintainerOrReadOnly]
 
     def get_queryset(self):
-        _filter = Q(quiz__maintainer=self.request.user) | Q(user=self.request.user) | Q(study_group__in=self.request.user.study_groups.all()) | Q(quiz__visibility__gte=2)
+        _filter = (
+            Q(quiz__maintainer=self.request.user)
+            | Q(user=self.request.user)
+            | Q(study_group__in=self.request.user.study_groups.all())
+            | Q(quiz__visibility__gte=2)
+        )
         if self.request.query_params.get("quiz"):
             _filter &= Q(quiz_id=self.request.query_params.get("quiz"))
         return SharedQuiz.objects.filter(_filter)
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        instance.delete()
