@@ -18,7 +18,7 @@ class Quiz(models.Model):
     title = models.CharField(max_length=255)
     description = models.TextField(null=True, blank=True)
     maintainer = models.ForeignKey(User, on_delete=models.CASCADE)
-    visibility = models.PositiveIntegerField(choices=QUIZ_VISIBILITY_CHOICES, default=1)
+    visibility = models.PositiveIntegerField(choices=QUIZ_VISIBILITY_CHOICES, default=2)
     allow_anonymous = models.BooleanField(
         default=False,
         help_text="Każdy, nawet niezalogowany użytkownik będzie mógł wyświetlić tę bazę wchodząc na link",
