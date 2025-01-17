@@ -60,8 +60,12 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
 
 
 class SharedQuizSerializer(serializers.ModelSerializer):
+    quiz = QuizMetaDataSerializer(read_only=True)
     user = PublicUserSerializer(read_only=True)
     group = StudyGroupSerializer(source="study_group", read_only=True)
+    quiz_id = serializers.PrimaryKeyRelatedField(
+        queryset=Quiz.objects.all(), source="quiz", write_only=True
+    )
     user_id = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), source="user", write_only=True, required=False
     )
@@ -74,7 +78,7 @@ class SharedQuizSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SharedQuiz
-        fields = ["id", "quiz", "user", "user_id", "group", "study_group_id"]
+        fields = ["id", "quiz", "quiz_id", "user", "user_id", "group", "study_group_id"]
         optional_fields = ["user_id", "study_group_id"]
 
     def validate(self, attrs):

@@ -316,12 +316,12 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         _filter = (
-            Q(quiz__maintainer=self.request.user)
-            | Q(user=self.request.user)
+            Q(user=self.request.user)
             | Q(study_group__in=self.request.user.study_groups.all())
             | Q(quiz__visibility__gte=2)
         )
         if self.request.query_params.get("quiz"):
+            _filter |= Q(quiz__maintainer=self.request.user)
             _filter &= Q(quiz_id=self.request.query_params.get("quiz"))
         return SharedQuiz.objects.filter(_filter)
 
