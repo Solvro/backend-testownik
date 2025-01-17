@@ -90,4 +90,9 @@ urlpatterns = [
         quizzes_views.quiz_metadata_api,
         name="api_quiz_metadata",
     ),
+    path(
+        "api/import-quiz-from-link/",
+        quizzes_views.import_quiz_from_link_api,
+        name="import_quiz_from_link_api",
+    ),
 ]

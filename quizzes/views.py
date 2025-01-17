@@ -330,3 +330,24 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         instance.delete()
+
+
+@api_view(["POST"])
+def import_quiz_from_link_api(request):
+    if not request.user.is_authenticated:
+        return Response({"error": "Unauthorized"}, status=401)
+    data = json.loads(request.body)
+    try:
+        r = requests.get(data.get("link"))
+        r.raise_for_status()
+        _quiz = r.json()
+    except requests.exceptions.RequestException as e:
+        return Response({"error": str(e)}, status=400)
+
+    quiz_obj = Quiz.objects.create(
+        title=_quiz.get("title", ""),
+        description=_quiz.get("description", ""),
+        maintainer=request.user,
+        questions=_quiz.get("questions", []),
+    )
+    return Response(quiz_obj.to_dict(), status=201)
