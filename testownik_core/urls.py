@@ -95,4 +95,9 @@ urlpatterns = [
         quizzes_views.import_quiz_from_link_api,
         name="import_quiz_from_link_api",
     ),
+    path(
+        "api/report-quiz-error/",
+        quizzes_views.report_question_issue_api,
+        name="report_question_issue_api",
+    ),
 ]

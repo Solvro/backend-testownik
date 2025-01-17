@@ -4,6 +4,7 @@ import urllib.parse
 from datetime import timedelta
 
 import requests
+from django.core.mail import send_mail
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
@@ -351,3 +352,29 @@ def import_quiz_from_link_api(request):
         questions=_quiz.get("questions", []),
     )
     return Response(quiz_obj.to_dict(), status=201)
+
+
+@api_view(["POST"])
+def report_question_issue_api(request):
+    if not request.user.is_authenticated:
+        return Response({"error": "Unauthorized"}, status=401)
+    data = request.data
+    if not data.get("quiz_id") or not data.get("question_id") or not data.get("issue"):
+        return Response({"error": "Missing data"}, status=400)
+
+    quiz = Quiz.objects.get(id=data.get("quiz_id"))
+    if not quiz:
+        return Response({"error": "Quiz not found"}, status=404)
+
+    try:
+        send_mail(
+            "Zgłoszenie błędu w pytaniu",
+            f"{request.user.full_name} zgłosił błąd w pytaniu {data.get('question_id')} bazy {quiz.title}.\n\n{data.get('issue')}.\n\nKliknij w link, aby przejść do pytania: https://testownik.live/edit-quiz/{quiz.id}/#question-{data.get('question_id')}",
+            "Testownik <info@testownik.live>",
+            [quiz.maintainer.email],
+            fail_silently=False,
+        )
+    except Exception as e:
+        return Response({"error": str(e)}, status=500)
+
+    return Response({"status": "ok"}, status=201)
