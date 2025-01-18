@@ -90,9 +90,20 @@ async def authorize(request):
         access_token, access_token_secret = await client.authorize(
             verifier, request_token, request_token_secret
         )
-        user = await update_user_data_from_usos(
+        user, created = await update_user_data_from_usos(
             client, access_token, access_token_secret
         )
+
+        if not user.is_active_student_and_not_staff:
+            messages.error(
+                request,
+                "Aby korzystać z Testownika, musisz być aktywnym studentem Politechniki Wrocławskiej.",
+            )
+            if created:
+                await user.adelete()
+            if request.GET.get("jwt", "false") == "true":
+                return redirect(f"{redirect_url}?error=not_student")
+            return redirect("index")
 
     if request.GET.get("jwt", "false") == "true":
         refresh = await sync_to_async(RefreshToken.for_user)(user)
@@ -188,7 +199,7 @@ async def update_user_data_from_usos(
         )
         await user_obj.study_groups.aadd(group_obj)
 
-    return user_obj
+    return user_obj, created
 
 
 def index(request):
