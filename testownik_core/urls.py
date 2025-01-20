@@ -100,4 +100,9 @@ urlpatterns = [
         quizzes_views.report_question_issue_api,
         name="report_question_issue_api",
     ),
+    path(
+        "api/quiz-progress/<uuid:quiz_id>/",
+        quizzes_views.quiz_progress_api,
+        name="quiz_progress_api",
+    ),
 ]

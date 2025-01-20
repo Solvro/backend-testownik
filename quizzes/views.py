@@ -38,8 +38,8 @@ def quiz(request, quiz_id):
         user_settings, created = UserSettings.objects.get_or_create(user=request.user)
         user_settings_data = {
             "syncProgress": user_settings.sync_progress,
-            "initialRepetitions": user_settings.initial_repetitions,
-            "wrongAnswerRepetitions": user_settings.wrong_answer_repetitions,
+            "initialRepetitions": user_settings.initial_reoccurrences,
+            "wrongAnswerRepetitions": user_settings.wrong_answer_reoccurrences,
         }
     else:
         user_settings_data = {
@@ -378,3 +378,40 @@ def report_question_issue_api(request):
         return Response({"error": str(e)}, status=500)
 
     return Response({"status": "ok"}, status=201)
+
+
+@api_view(["GET", "POST", "DELETE"])
+def quiz_progress_api(request, quiz_id):
+    if not request.user.is_authenticated:
+        return Response({"error": "Unauthorized"}, status=401)
+    if request.method == "GET":
+        quiz_progress, _ = QuizProgress.objects.get_or_create(
+            quiz_id=quiz_id, user=request.user
+        )
+        return Response(quiz_progress.to_dict())
+    elif request.method == "POST":
+        data = json.loads(request.body)
+        quiz_progress, _ = QuizProgress.objects.get_or_create(
+            quiz_id=quiz_id, user=request.user
+        )
+
+        for field in [
+            "current_question",
+            "reoccurrences",
+            "correct_answers_count",
+            "wrong_answers_count",
+        ]:
+            if field in data:
+                setattr(quiz_progress, field, data[field])
+
+        if "study_time" in data:
+            quiz_progress.study_time = timedelta(seconds=data["study_time"])
+
+        quiz_progress.save()
+        return Response({"status": "updated"})
+    elif request.method == "DELETE":
+        quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
+        quiz_progress.delete()
+        return Response({"status": "deleted"})
+    else:
+        return Response({"error": "Method not allowed"}, status=405)

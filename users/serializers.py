@@ -26,7 +26,11 @@ class PublicUserSerializer(serializers.ModelSerializer):
 class UserSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserSettings
-        fields = ["sync_progress", "initial_repetitions", "wrong_answer_repetitions"]
+        fields = [
+            "sync_progress",
+            "initial_reoccurrences",
+            "wrong_answer_reoccurrences",
+        ]
 
 
 class TermSerializer(serializers.ModelSerializer):

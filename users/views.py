@@ -235,8 +235,8 @@ def get_user_settings(request):
 
     settings_data = {
         "sync_progress": user_settings.sync_progress,
-        "initial_repetitions": user_settings.initial_repetitions,
-        "wrong_answer_repetitions": user_settings.wrong_answer_repetitions,
+        "initial_reoccurrences": user_settings.initial_reoccurrences,
+        "wrong_answer_reoccurrences": user_settings.wrong_answer_reoccurrences,
     }
 
     return Response(settings_data)
@@ -254,24 +254,24 @@ def update_user_settings(request):
         user_settings = UserSettings(user=request.user)
 
     sync_progress = data.get("sync_progress")
-    initial_repetitions = data.get("initial_repetitions")
-    wrong_answer_repetitions = data.get("wrong_answer_repetitions")
+    initial_reoccurrences = data.get("initial_reoccurrences")
+    wrong_answer_reoccurrences = data.get("wrong_answer_reoccurrences")
 
     if sync_progress is not None:
         user_settings.sync_progress = sync_progress
 
-    if initial_repetitions is not None:
-        if initial_repetitions >= 1:
-            user_settings.initial_repetitions = initial_repetitions
+    if initial_reoccurrences is not None:
+        if initial_reoccurrences >= 1:
+            user_settings.initial_reoccurrences = initial_reoccurrences
         else:
             return Response(
                 "Initial repetitions must be greater or equal to 1",
                 status=HttpResponseBadRequest.status_code,
             )
 
-    if wrong_answer_repetitions is not None:
-        if wrong_answer_repetitions >= 0:
-            user_settings.wrong_answer_repetitions = wrong_answer_repetitions
+    if wrong_answer_reoccurrences is not None:
+        if wrong_answer_reoccurrences >= 0:
+            user_settings.wrong_answer_reoccurrences = wrong_answer_reoccurrences
         else:
             return Response(
                 "Wrong answer repetitions must be greater or equal to 0",

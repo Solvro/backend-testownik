@@ -68,8 +68,8 @@ class UserSettings(models.Model):
     sync_progress = models.BooleanField(default=True)
 
     # quiz settings
-    initial_repetitions = models.IntegerField(default=1)
-    wrong_answer_repetitions = models.IntegerField(default=1)
+    initial_reoccurrences = models.IntegerField(default=1)
+    wrong_answer_reoccurrences = models.IntegerField(default=1)
 
     def __str__(self):
         return f"Settings for {self.user}"
