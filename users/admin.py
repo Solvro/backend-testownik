@@ -21,6 +21,7 @@ class UserAdmin(admin.ModelAdmin):
         "is_staff",
         "is_superuser",
     ]
+    list_filter = ["is_staff", "is_superuser", "student_status", "staff_status"]
 
     fieldsets = (
         (None, {"fields": ("id", "email", "student_number")}),
@@ -36,7 +37,19 @@ class UserAdmin(admin.ModelAdmin):
         return False
 
 
+class StudyGroupAdmin(admin.ModelAdmin):
+    list_display = ["name", "term"]
+    list_filter = ["term"]
+    search_fields = ["name"]
+
+
+class TermAdmin(admin.ModelAdmin):
+    list_display = ["name", "start_date", "end_date"]
+    list_filter = ["start_date", "end_date"]
+    search_fields = ["name"]
+
+
 admin.site.register(User, UserAdmin)
 admin.site.unregister(Group)
-admin.site.register(StudyGroup)
-admin.site.register(Term)
+admin.site.register(StudyGroup, StudyGroupAdmin)
+admin.site.register(Term, TermAdmin)

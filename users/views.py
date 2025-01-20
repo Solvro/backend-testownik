@@ -58,10 +58,6 @@ async def login_usos(request):
     return redirect(authorization_url)
 
 
-async def login_view(request):
-    return render(request, "users/login.html")
-
-
 def admin_login(request):
     next_url = request.GET.get("next", "/admin")
     if request.user.is_authenticated and request.user.is_superuser:
@@ -113,10 +109,6 @@ async def authorize(request):
 
     await auth_login(request, user)
     return redirect(redirect_url)
-
-
-def profile(request):
-    return render(request, "users/profile.html", {"user": request.user})
 
 
 async def update_user_data_from_usos(
