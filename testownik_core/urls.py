@@ -47,8 +47,7 @@ urlpatterns = [
     #     users_views.refresh_user_data,
     #     name="refresh_user_data",
     # ),
-    path("api/get-grades/", grades_views.get_grades, name="get_grades"),
-    path("grades/", include("grades.urls")),
+    path("api/grades/", grades_views.get_grades, name="get_grades"),
     path("quizzes/", include("quizzes.urls")),
     path(
         "api/legacy/quiz/<uuid:quiz_id>/",
