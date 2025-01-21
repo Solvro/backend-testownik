@@ -18,7 +18,7 @@ CONSUMER_SECRET = os.getenv("USOS_CONSUMER_SECRET")
 @async_api_view(["GET"])
 async def get_grades(request):
     term_id = request.GET.get("term_id")
-    request_user = await aget_user(request)
+    request_user = request.user
 
     async with USOSClient(
         USOS_BASE_URL, CONSUMER_KEY, CONSUMER_SECRET, trust_env=True
