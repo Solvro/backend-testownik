@@ -2,7 +2,6 @@ import os
 
 import dotenv
 from adrf.decorators import api_view as async_api_view
-from django.contrib.auth import aget_user
 from rest_framework.response import Response
 from usos_api import USOSClient
 

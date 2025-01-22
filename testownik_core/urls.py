@@ -16,7 +16,6 @@ Including another URLconf
 """
 
 from django.contrib import admin
-from django.contrib.auth import views as auth_views
 from django.urls import include, path
 from rest_framework import routers
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
@@ -37,16 +36,8 @@ urlpatterns = [
     path("", users_views.index, name="index"),
     path("admin/login/", users_views.admin_login, name="admin_login"),
     path("admin/", admin.site.urls, name="admin"),
-    # path("login/", users_views.login_view, name="login_view"),
-    # path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("login/usos/", users_views.login_usos, name="login_usos"),
     path("authorize/", users_views.authorize, name="authorize"),
-    # path("profile/", users_views.profile, name="profile"),
-    # path(
-    #     "api/refresh-user-data/",
-    #     users_views.refresh_user_data,
-    #     name="refresh_user_data",
-    # ),
     path("api/grades/", grades_views.get_grades, name="get_grades"),
     path("quizzes/", include("quizzes.urls")),
     path(
@@ -54,16 +45,11 @@ urlpatterns = [
         quizzes_views.quiz_legacy_api,
         name="quiz_legacy_api",
     ),
-    # path(
-    #     "api/legacy/quiz/<uuid:quiz_id>/progress/",
-    #     quizzes_views.quiz_progress_legacy_api,
-    #     name="progress_legacy_api",
-    # ),
-    # path(
-    #     "api/random-question-for-user/",
-    #     quizzes_views.random_question_for_user,
-    #     name="random_question_for_user",
-    # ),
+    path(
+        "api/legacy/quiz/<uuid:quiz_id>/progress/",
+        quizzes_views.quiz_progress_legacy_api,
+        name="progress_legacy_api",
+    ),
     path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/", include(router.urls)),

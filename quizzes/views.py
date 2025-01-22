@@ -4,11 +4,11 @@ import urllib.parse
 from datetime import timedelta
 
 import requests
-from django.core.mail import send_mail
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
+from mailersend import emails
 from rest_framework import permissions, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import PermissionDenied
@@ -22,10 +22,6 @@ from quizzes.serializers import (
     SharedQuizSerializer,
 )
 from users.models import UserSettings
-
-
-def index(request):
-    return render(request, "quizzes/index.html")
 
 
 def quiz(request, quiz_id):
@@ -59,38 +55,6 @@ def quiz(request, quiz_id):
             "allow_anonymous": quiz_obj.allow_anonymous,
         },
     )
-
-
-def import_quiz(request):
-    if request.method == "POST":
-        if not request.user.is_authenticated:
-            return JsonResponse({"error": "Unauthorized"}, status=401)
-        data = json.loads(request.body)
-        if data.get("type") == "link":
-            try:
-                r = requests.get(data.get("data"))
-                r.raise_for_status()
-                _quiz = r.json()
-            except requests.exceptions.RequestException as e:
-                return JsonResponse({"error": str(e)}, status=400)
-        elif data.get("type") == "json":
-            _quiz = data.get("data")
-        else:
-            return JsonResponse({"error": "Invalid type"}, status=400)
-
-        quiz_obj = Quiz.objects.create(
-            title=_quiz.get("title", ""),
-            description=_quiz.get("description", ""),
-            maintainer=request.user,
-            questions=_quiz.get("questions", []),
-        )
-        return JsonResponse({"id": quiz_obj.id})
-
-    return render(request, "quizzes/import_quiz.html")
-
-
-def import_quiz_old(request):
-    return render(request, "quizzes/import_quiz_old.html")
 
 
 def quiz_legacy_api(request, quiz_id):
@@ -186,29 +150,6 @@ def api_last_used_quizzes(request):
     ]
 
     return Response([quiz.to_dict() for quiz in last_used_quizzes])
-
-
-def quizzes(request):
-    if not request.user.is_authenticated:
-        return render(request, "quizzes/quizzes.html")
-    user_quizzes = Quiz.objects.filter(maintainer=request.user)
-    shared_quizzes = SharedQuiz.objects.filter(user=request.user)
-    group_quizzes = SharedQuiz.objects.filter(
-        study_group__in=request.user.study_groups.all()
-    )
-    return render(
-        request,
-        "quizzes/quizzes.html",
-        {
-            "user_quizzes": user_quizzes,
-            "shared_quizzes": shared_quizzes,
-            "group_quizzes": group_quizzes,
-        },
-    )
-
-
-def edit_quiz(request, quiz_id):
-    return HttpResponse("Not implemented", status=501)
 
 
 @api_view(["GET"])
@@ -366,14 +307,42 @@ def report_question_issue_api(request):
     if not quiz:
         return Response({"error": "Quiz not found"}, status=404)
 
-    try:
-        send_mail(
-            "Zgłoszenie błędu w pytaniu",
-            f"{request.user.full_name} zgłosił błąd w pytaniu {data.get('question_id')} bazy {quiz.title}.\n\n{data.get('issue')}.\n\nKliknij w link, aby przejść do pytania: https://testownik.live/edit-quiz/{quiz.id}/#question-{data.get('question_id')}",
-            "Testownik <info@testownik.live>",
-            [quiz.maintainer.email],
-            fail_silently=False,
+    if request.user == quiz.maintainer:
+        return Response(
+            {"error": "You cannot report issues with your own questions"}, status=400
         )
+
+    mailer = emails.NewEmail()
+    mail_body = {}
+
+    mail_from = {
+        "name": "Testownik",
+        "email": "report@testownik.live",
+    }
+
+    recipients = [
+        {
+            "name": quiz.maintainer.full_name,
+            "email": quiz.maintainer.email,
+        }
+    ]
+
+    reply_to = {
+        "name": request.user.full_name,
+        "email": request.user.email,
+    }
+
+    mailer.set_mail_from(mail_from, mail_body)
+    mailer.set_mail_to(recipients, mail_body)
+    mailer.set_subject("Zgłoszenie błędu w pytaniu", mail_body)
+    mailer.set_plaintext_content(
+        f"{request.user.full_name} zgłosił błąd w pytaniu {data.get('question_id')} bazy {quiz.title}.\n\n{data.get('issue')}\n\nKliknij w link, aby przejść do edycji bazy: https://testownik.live/edit-quiz/{quiz.id}/#question-{data.get('question_id')}",
+        mail_body,
+    )
+    mailer.set_reply_to(reply_to, mail_body)
+
+    try:
+        mailer.send(mail_body)
     except Exception as e:
         return Response({"error": str(e)}, status=500)
 
