@@ -24,6 +24,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         choices=[(x.value, x.name) for x in StaffStatus], null=True, blank=True
     )
     photo_url = models.URLField(null=True, blank=True)
+    overriden_photo_url = models.URLField(null=True, blank=True)
 
     access_token = models.CharField(max_length=100, null=True, blank=True)
     access_token_secret = models.CharField(max_length=100, null=True, blank=True)
@@ -47,6 +48,10 @@ class User(AbstractBaseUser, PermissionsMixin):
             self.student_status is StudentStatus.ACTIVE_STUDENT.value
             and self.staff_status is StaffStatus.NOT_STAFF.value
         )
+
+    @property
+    def photo(self):
+        return self.overriden_photo_url or self.photo_url
 
     def get_sex(self):
         return Sex(self.sex)

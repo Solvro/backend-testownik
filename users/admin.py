@@ -25,7 +25,18 @@ class UserAdmin(admin.ModelAdmin):
 
     fieldsets = (
         (None, {"fields": ("id", "email", "student_number")}),
-        ("Personal info", {"fields": ("first_name", "last_name", "sex", "photo_url")}),
+        (
+            "Personal info",
+            {
+                "fields": (
+                    "first_name",
+                    "last_name",
+                    "sex",
+                    "photo_url",
+                    "overriden_photo_url",
+                )
+            },
+        ),
         ("Status", {"fields": ("student_status", "staff_status")}),
         ("Permissions", {"fields": ("is_staff", "is_superuser")}),
     )

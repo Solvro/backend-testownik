@@ -288,8 +288,25 @@ async def refresh_user_data(request):
     return redirect(request.GET.get("next", "index"))
 
 
-@api_view(["GET"])
+@api_view(["GET", "PATCH"])
 def api_current_user(request):
+    allowed_fields_patch = [
+        "overriden_photo_url",
+    ]
+    if request.method == "PATCH":
+        data = json.loads(request.body)
+        for key in data.keys():  # Check if all fields are allowed
+            if key not in allowed_fields_patch:
+                return Response(
+                    f"Field '{key}' is not allowed to be updated",
+                    status=HttpResponseBadRequest.status_code,
+                )
+        serializer = UserSerializer(request.user, data=data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        print(serializer.errors)
+        return Response(serializer.errors, status=HttpResponseBadRequest.status_code)
     serializer = UserSerializer(request.user)
     return Response(serializer.data)
 

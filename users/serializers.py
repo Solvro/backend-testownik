@@ -14,13 +14,15 @@ class UserSerializer(serializers.ModelSerializer):
             "is_staff",
             "student_number",
             "photo_url",
+            "overriden_photo_url",
+            "photo",
         ]
 
 
 class PublicUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "full_name", "student_number", "photo_url"]
+        fields = ["id", "full_name", "student_number", "photo"]
 
 
 class UserSettingsSerializer(serializers.ModelSerializer):
