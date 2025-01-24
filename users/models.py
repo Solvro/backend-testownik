@@ -98,7 +98,7 @@ class Term(models.Model):
 
 class StudyGroup(models.Model):
     id = models.CharField(max_length=100, primary_key=True)
-    name = models.CharField(max_length=100)
+    name = models.CharField(max_length=255)
     members = models.ManyToManyField(User, related_name="study_groups")
     term = models.ForeignKey(
         Term,
