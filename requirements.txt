@@ -7,3 +7,4 @@ djangorestframework-simplejwt==5.4.0
 django-cors-headers==4.6.0
 adrf==0.1.9
 mailersend==0.5.8
+gunicorn==23.0.0
