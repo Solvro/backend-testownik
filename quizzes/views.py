@@ -97,13 +97,13 @@ def search_quizzes(request):
 class QuizViewSet(viewsets.ModelViewSet):
     queryset = Quiz.objects.all()
     serializer_class = QuizSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
         if not self.request.user.is_authenticated:
             if self.action == "list":
                 return Quiz.objects.none()
-            return Quiz.objects.filter(visibility__gte=3, allow_anonymous=True)
+            return Quiz.objects.filter(visibility__gte=2, allow_anonymous=True)
         _filter = Q(maintainer=self.request.user)
         if self.action == "retrieve":
             _filter |= Q(visibility__gte=3)
