@@ -10,40 +10,60 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('quizzes', '0001_initial'),
-        ('users', '0001_initial'),
+        ("quizzes", "0001_initial"),
+        ("users", "0001_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='quiz',
-            name='maintainer',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL),
+            model_name="quiz",
+            name="maintainer",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
+            ),
         ),
         migrations.AddField(
-            model_name='quizprogress',
-            name='quiz',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='quizzes.quiz'),
+            model_name="quizprogress",
+            name="quiz",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE, to="quizzes.quiz"
+            ),
         ),
         migrations.AddField(
-            model_name='quizprogress',
-            name='user',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL),
+            model_name="quizprogress",
+            name="user",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL
+            ),
         ),
         migrations.AddField(
-            model_name='sharedquiz',
-            name='quiz',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='quizzes.quiz'),
+            model_name="sharedquiz",
+            name="quiz",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE, to="quizzes.quiz"
+            ),
         ),
         migrations.AddField(
-            model_name='sharedquiz',
-            name='study_group',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='shared_quizzes', to='users.studygroup'),
+            model_name="sharedquiz",
+            name="study_group",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="shared_quizzes",
+                to="users.studygroup",
+            ),
         ),
         migrations.AddField(
-            model_name='sharedquiz',
-            name='user',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='shared_quizzes', to=settings.AUTH_USER_MODEL),
+            model_name="sharedquiz",
+            name="user",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="shared_quizzes",
+                to=settings.AUTH_USER_MODEL,
+            ),
         ),
     ]

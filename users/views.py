@@ -19,13 +19,10 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from usos_api import USOSClient
 
-from quizzes.models import QuizProgress
 from users.models import StudyGroup, Term, User, UserSettings
 from users.serializers import PublicUserSerializer, StudyGroupSerializer, UserSerializer
 
 dotenv.load_dotenv()
-
-request_token_secrets = {}
 
 
 async def login_usos(request):
@@ -53,7 +50,10 @@ async def login_usos(request):
         request_token, request_token_secret = (
             client.connection.auth_manager.get_request_token()
         )
-        request_token_secrets[request_token] = request_token_secret
+        await request.session.aset(
+            f"request_token_{request_token}", request_token_secret
+        )
+        request.session.modified = True
 
     return redirect(authorization_url)
 
@@ -78,8 +78,9 @@ async def authorize(request):
     ) as client:
         verifier = request.GET.get("oauth_verifier")
         request_token = request.GET.get("oauth_token")
-        request_token_secret = request_token_secrets.pop(request_token, None)
-
+        request_token_secret = await request.session.apop(
+            f"request_token_{request_token}", None
+        )
         if not request_token_secret:
             return HttpResponseForbidden()
 
@@ -158,7 +159,7 @@ async def update_user_data_from_usos(
         user_obj.set_unusable_password()
         await user_obj.asave()
 
-    user_groups = await client.group_service.get_groups_for_user(
+    user_groups = await client.group_service.get_groups_for_participant(
         fields=[
             "course_unit_id",
             "group_number",
@@ -194,20 +195,8 @@ async def update_user_data_from_usos(
     return user_obj, created
 
 
-def index(request):
-    if not request.user.is_authenticated:
-        return render(request, "dashboard.html")
-    last_used_quizzes = [
-        qp.quiz
-        for qp in QuizProgress.objects.filter(user=request.user).order_by(
-            "-last_activity"
-        )[:4]
-    ]
-    return render(request, "dashboard.html", {"last_used_quizzes": last_used_quizzes})
-
-
 @api_view(["GET", "PUT"])
-def api_settings(request):
+def settings(request):
     if request.method == "GET":
         return get_user_settings(request)
     elif request.method == "PUT":
@@ -289,7 +278,7 @@ async def refresh_user_data(request):
 
 
 @api_view(["GET", "PATCH"])
-def api_current_user(request):
+def current_user(request):
     allowed_fields_patch = [
         "overriden_photo_url",
     ]
