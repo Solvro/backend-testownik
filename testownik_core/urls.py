@@ -23,7 +23,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from grades import views as grades_views
 from quizzes import views as quizzes_views
 from users import views as users_views
-from users.views import api_current_user
+from users.views import current_user
 
 router = routers.DefaultRouter()
 router.register(r"users", users_views.UserViewSet)
@@ -31,63 +31,54 @@ router.register(r"study-groups", users_views.StudyGroupViewSet)
 router.register(r"quizzes", quizzes_views.QuizViewSet)
 router.register(r"shared-quizzes", quizzes_views.SharedQuizViewSet)
 
-
 urlpatterns = [
-    path("", users_views.index, name="index"),
+    # Admin
     path("admin/login/", users_views.admin_login, name="admin_login"),
     path("admin/", admin.site.urls, name="admin"),
+    # USOS login
     path("login/usos/", users_views.login_usos, name="login_usos"),
     path("authorize/", users_views.authorize, name="authorize"),
-    path("api/grades/", grades_views.get_grades, name="get_grades"),
-    path("quizzes/", include("quizzes.urls")),
+    # API authentication
+    path("token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    # API
+    path("", include(router.urls)),
+    path("user/", current_user, name="api_current_user"),
+    path("settings/", users_views.settings, name="api_settings"),
     path(
-        "api/legacy/quiz/<uuid:quiz_id>/",
-        quizzes_views.quiz_legacy_api,
-        name="quiz_legacy_api",
-    ),
-    path(
-        "api/legacy/quiz/<uuid:quiz_id>/progress/",
-        quizzes_views.quiz_progress_legacy_api,
-        name="progress_legacy_api",
-    ),
-    path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
-    path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
-    path("api/", include(router.urls)),
-    path("api/user/", api_current_user, name="api_current_user"),
-    path(
-        "api/random-question/",
-        quizzes_views.api_random_question_for_user,
+        "random-question/",
+        quizzes_views.random_question_for_user,
         name="api_random_question_for_user",
     ),
-    path("api/settings/", users_views.api_settings, name="api_settings"),
     path(
-        "api/last-used-quizzes/",
-        quizzes_views.api_last_used_quizzes,
+        "last-used-quizzes/",
+        quizzes_views.last_used_quizzes,
         name="api_last_used_quizzes",
     ),
     path(
-        "api/search-quizzes/",
-        quizzes_views.api_search_quizzes,
+        "quiz-progress/<uuid:quiz_id>/",
+        quizzes_views.quiz_progress,
+        name="quiz_progress_api",
+    ),
+    path(
+        "search-quizzes/",
+        quizzes_views.search_quizzes,
         name="api_search_quizzes",
     ),
     path(
-        "api/quiz-metadata/<uuid:quiz_id>/",
-        quizzes_views.quiz_metadata_api,
+        "quiz-metadata/<uuid:quiz_id>/",
+        quizzes_views.quiz_metadata,
         name="api_quiz_metadata",
     ),
     path(
-        "api/import-quiz-from-link/",
-        quizzes_views.import_quiz_from_link_api,
+        "import-quiz-from-link/",
+        quizzes_views.import_quiz_from_link,
         name="import_quiz_from_link_api",
     ),
     path(
-        "api/report-quiz-error/",
-        quizzes_views.report_question_issue_api,
+        "report-quiz-error/",
+        quizzes_views.report_question_issue,
         name="report_question_issue_api",
     ),
-    path(
-        "api/quiz-progress/<uuid:quiz_id>/",
-        quizzes_views.quiz_progress_api,
-        name="quiz_progress_api",
-    ),
+    path("grades/", grades_views.get_grades, name="get_grades"),
 ]
