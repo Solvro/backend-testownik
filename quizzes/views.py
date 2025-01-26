@@ -257,13 +257,9 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsSharedQuizMaintainerOrReadOnly]
 
     def get_queryset(self):
-        _filter = (
-            Q(user=self.request.user, quiz__visibility__gte=1)
-            | Q(
-                study_group__in=self.request.user.study_groups.all(),
-                quiz__visibility__gte=1,
-            )
-            | Q(quiz__visibility__gte=3)
+        _filter = Q(user=self.request.user, quiz__visibility__gte=1) | Q(
+            study_group__in=self.request.user.study_groups.all(),
+            quiz__visibility__gte=1,
         )
         if self.request.query_params.get("quiz"):
             _filter |= Q(quiz__maintainer=self.request.user)
