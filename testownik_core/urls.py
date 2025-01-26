@@ -18,12 +18,22 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import include, path
 from rest_framework import routers
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from grades import views as grades_views
 from quizzes import views as quizzes_views
 from users import views as users_views
 from users.views import current_user
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def status(request):
+    return Response({"status": "ok"})
+
 
 router = routers.DefaultRouter()
 router.register(r"users", users_views.UserViewSet)
@@ -32,6 +42,8 @@ router.register(r"quizzes", quizzes_views.QuizViewSet)
 router.register(r"shared-quizzes", quizzes_views.SharedQuizViewSet)
 
 urlpatterns = [
+    # Status
+    path("status/", status, name="status"),
     # Admin
     path("admin/login/", users_views.admin_login, name="admin_login"),
     path("admin/", admin.site.urls, name="admin"),
