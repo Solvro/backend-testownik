@@ -1,5 +1,6 @@
 import json
 import os
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import dotenv
 from asgiref.sync import sync_to_async
@@ -23,6 +24,23 @@ from users.models import StudyGroup, Term, User, UserSettings
 from users.serializers import PublicUserSerializer, StudyGroupSerializer, UserSerializer
 
 dotenv.load_dotenv()
+
+
+def add_query_params(url, params):
+    url_parts = list(urlparse(url))
+    query = dict(parse_qs(url_parts[4]))
+    query.update(params)
+    url_parts[4] = urlencode(query, doseq=True)
+    return urlunparse(url_parts)
+
+
+def remove_query_params(url, params):
+    url_parts = list(urlparse(url))
+    query = dict(parse_qs(url_parts[4]))
+    for param in params:
+        query.pop(param, None)
+    url_parts[4] = urlencode(query, doseq=True)
+    return urlunparse(url_parts)
 
 
 async def login_usos(request):
@@ -91,7 +109,7 @@ async def authorize(request):
             client, access_token, access_token_secret
         )
 
-        if not user.is_active_student_and_not_staff:
+        if not user.is_student_and_not_staff:
             messages.error(
                 request,
                 "Aby korzystać z Testownika, musisz być aktywnym studentem Politechniki Wrocławskiej.",
@@ -99,13 +117,21 @@ async def authorize(request):
             if created:
                 await user.adelete()
             if request.GET.get("jwt", "false") == "true":
-                return redirect(f"{redirect_url}?error=not_student")
+                return redirect(
+                    add_query_params(redirect_url, {"error": "not_student"})
+                )
             return redirect("index")
 
     if request.GET.get("jwt", "false") == "true":
         refresh = await sync_to_async(RefreshToken.for_user)(user)
         return redirect(
-            f"{redirect_url}?access_token={refresh.access_token}&refresh_token={refresh}"
+            add_query_params(
+                remove_query_params(redirect_url, ["error"]),
+                {
+                    "access_token": str(refresh.access_token),
+                    "refresh_token": str(refresh),
+                },
+            )
         )
 
     await auth_login(request, user)

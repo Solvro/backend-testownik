@@ -50,6 +50,13 @@ class User(AbstractBaseUser, PermissionsMixin):
         )
 
     @property
+    def is_student_and_not_staff(self):
+        return (
+            self.student_status >= StudentStatus.INACTIVE_STUDENT.value
+            and self.staff_status is StaffStatus.NOT_STAFF.value
+        )
+
+    @property
     def photo(self):
         return self.overriden_photo_url or self.photo_url
 
