@@ -94,3 +94,7 @@ urlpatterns = [
     ),
     path("grades/", grades_views.get_grades, name="get_grades"),
 ]
+
+# Admin site settings
+admin.site.site_url = "https://testownik.solvro.pl/"
+admin.site.site_header = "Testownik Solvro"

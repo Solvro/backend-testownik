@@ -331,7 +331,7 @@ def report_question_issue(request):
     mailer.set_mail_to(recipients, mail_body)
     mailer.set_subject("Zgłoszenie błędu w pytaniu", mail_body)
     mailer.set_plaintext_content(
-        f"{request.user.full_name} zgłosił błąd w pytaniu {data.get('question_id')} bazy {quiz.title}.\n\n{data.get('issue')}\n\nKliknij w link, aby przejść do edycji bazy: https://testownik.live/edit-quiz/{quiz.id}/#question-{data.get('question_id')}",
+        f"{request.user.full_name} zgłosił błąd w pytaniu {data.get('question_id')} quizu {quiz.title}.\n\n{data.get('issue')}\n\nKliknij w link, aby przejść do edycji bazy: https://testownik.live/edit-quiz/{quiz.id}/?scroll_to=question-{data.get('question_id')}",
         mail_body,
     )
     mailer.set_reply_to(reply_to, mail_body)
