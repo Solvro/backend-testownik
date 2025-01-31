@@ -6,7 +6,7 @@ from alerts.serializers import AlertSerializer
 
 
 class AlertViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
-    queryset = Alert.objects.all()
+    queryset = Alert.objects.filter(active=True)
     serializer_class = AlertSerializer
     permission_classes = [AllowAny]
     pagination_class = None

@@ -16,7 +16,12 @@ class AlertAdmin(admin.ModelAdmin):
     )
     ordering = ["-created_at"]
     date_hierarchy = "created_at"
-    actions = ["make_dismissible", "make_not_dismissible"]
+    actions = [
+        "make_dismissible",
+        "make_not_dismissible",
+        "make_active",
+        "make_inactive",
+    ]
 
     def make_dismissible(self, request, queryset):
         queryset.update(dismissible=True)
