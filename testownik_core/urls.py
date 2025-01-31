@@ -23,6 +23,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+from alerts.views import AlertViewSet
 from grades import views as grades_views
 from quizzes import views as quizzes_views
 from users import views as users_views
@@ -40,6 +41,7 @@ router.register(r"users", users_views.UserViewSet)
 router.register(r"study-groups", users_views.StudyGroupViewSet)
 router.register(r"quizzes", quizzes_views.QuizViewSet)
 router.register(r"shared-quizzes", quizzes_views.SharedQuizViewSet)
+router.register(r"alerts", AlertViewSet)
 
 urlpatterns = [
     # Status

@@ -28,6 +28,8 @@ class Quiz(models.Model):
         help_text="Nie będzie wyświetlany autor testu, cały czas będzie można zgłosić błąd w pytaniu",
     )
     version = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     questions = models.JSONField(default=list, blank=True)
 

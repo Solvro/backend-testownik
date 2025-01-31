@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "users.apps.UsersConfig",
     "grades.apps.GradesConfig",
     "quizzes.apps.QuizzesConfig",
+    "alerts.apps.AlertsConfig",
     "rest_framework",
     "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
