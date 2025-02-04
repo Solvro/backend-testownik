@@ -38,7 +38,7 @@ class UserSettingsSerializer(serializers.ModelSerializer):
 class TermSerializer(serializers.ModelSerializer):
     class Meta:
         model = Term
-        fields = ["id", "name", "start_date", "end_date", "is_current"]
+        fields = ["id", "name", "start_date", "end_date", "finish_date", "is_current"]
 
 
 class StudyGroupSerializer(serializers.ModelSerializer):

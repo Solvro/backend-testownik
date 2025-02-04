@@ -78,6 +78,7 @@ async def get_grades(request):
                         "name": term.name,
                         "start_date": term.start_date,
                         "end_date": term.end_date,
+                        "finish_date": term.finish_date,
                         "is_current": term.is_current,
                     }
                     for term in terms
