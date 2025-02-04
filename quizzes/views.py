@@ -185,6 +185,11 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         instance.delete()
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context.update({"user": self.request.user})
+        return context
+
 
 @async_api_view(["POST"])
 async def import_quiz_from_link(request):
