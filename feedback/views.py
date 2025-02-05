@@ -9,10 +9,8 @@ from django_ratelimit.decorators import ratelimit
 
 dotenv.load_dotenv()
 
-FORM_LINK = os.getenv("FORM_LINK")
-NAME_INPUT = os.getenv("NAME_INPUT")
-EMAIL_INPUT = os.getenv("EMAIL_INPUT")
-CONTENT_INPUT = os.getenv("CONTENT_INPUT")
+N8N_WEBHOOK = os.getenv("N8N_WEBHOOK")
+FEEDBACK_SECRET = os.getenv("FEEDBACK_SECRET")
 
 
 @api_view(["POST"])
@@ -28,12 +26,8 @@ def feedback_add(request):
         if "content" not in data:
             return Response({"error": "Text is required"}, status=400)
 
-        form_data = {
-            NAME_INPUT: data["name"],
-            EMAIL_INPUT: data["email"],
-            CONTENT_INPUT: data["content"],
-        }
-        response = requests.post(FORM_LINK, data=form_data)
+        data["secret"] = FEEDBACK_SECRET
+        response = requests.post(N8N_WEBHOOK, data=data)
 
         if response.ok:
             print("Feedback sent successfully!")
