@@ -15,7 +15,7 @@ FEEDBACK_SECRET = os.getenv("FEEDBACK_SECRET")
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
-@ratelimit(key="ip", rate="5/m", method="POST", block=True)
+@ratelimit(key="ip", rate="3/m", method="POST", block=True)
 def feedback_add(request):
     try:
         data = json.loads(request.body)
