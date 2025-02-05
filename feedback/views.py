@@ -22,9 +22,11 @@ def feedback_add(request):
         if not data:
             return Response({"error": "No data provided"}, status=400)
         if "name" not in data:
-            return Response({"error": "Email is required"}, status=400)
+            return Response({"error": "Name is required"}, status=400)
+        if "title" not in data:
+            return Response({"error": "Title is required"}, status=400)
         if "content" not in data:
-            return Response({"error": "Text is required"}, status=400)
+            return Response({"error": "Content is required"}, status=400)
 
         data["secret"] = FEEDBACK_SECRET
         response = requests.post(N8N_WEBHOOK, data=data)
