@@ -28,6 +28,7 @@ from grades import views as grades_views
 from quizzes import views as quizzes_views
 from users import views as users_views
 from users.views import current_user
+from feedback import views as feedback_views
 
 
 @api_view(["GET"])
@@ -95,6 +96,11 @@ urlpatterns = [
         name="report_question_issue_api",
     ),
     path("grades/", grades_views.get_grades, name="get_grades"),
+    path(
+        "feedback/send",
+        feedback_views.feedback_add,
+        name="feedback_add_api",
+    ),
 ]
 
 # Admin site settings
