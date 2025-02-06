@@ -53,7 +53,7 @@ def last_used_quizzes(request):
     if not request.user.is_authenticated:
         return Response({"error": "Unauthorized"}, status=401)
 
-    max_quizzes_count = min(request.query_params.get("count", 4), 20)
+    max_quizzes_count = min(int(request.query_params.get("limit", 4)), 20)
 
     last_used_quizzes = [
         qp.quiz
