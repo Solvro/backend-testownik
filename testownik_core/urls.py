@@ -24,11 +24,11 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from alerts.views import AlertViewSet
+from feedback import views as feedback_views
 from grades import views as grades_views
 from quizzes import views as quizzes_views
 from users import views as users_views
 from users.views import current_user
-from feedback import views as feedback_views
 
 
 @api_view(["GET"])

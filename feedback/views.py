@@ -1,11 +1,12 @@
-import os
-import dotenv
-from rest_framework.response import Response
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
 import json
+import os
+
+import dotenv
 import requests
 from django_ratelimit.decorators import ratelimit
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
 
 dotenv.load_dotenv()
 
@@ -35,7 +36,9 @@ def feedback_add(request):
             print("Feedback sent successfully!")
             return Response({"success": "Feedback sent successfully"})
         else:
-            print(f"Error while sending feedback form: {response.status_code}, {response.text}")
+            print(
+                f"Error while sending feedback form: {response.status_code}, {response.text}"
+            )
             return Response({"error": "Error while sending feedback form"}, status=500)
 
     except Exception as e:

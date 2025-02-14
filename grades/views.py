@@ -99,9 +99,9 @@ async def get_grades(request):
                             "value_description": grade.value_description.pl,
                             "counts_into_average": grade.counts_into_average,
                         }
-                        for grade in grades[course_edition.term_id][
-                            course_edition.course_id
-                        ]["course_grades"]
+                        for grade in grades.get(course_edition.term_id, {})
+                        .get(course_edition.course_id, {})
+                        .get("course_grades", [])
                     ],
                     "passing_status": course_edition.passing_status,
                 }
