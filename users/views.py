@@ -7,6 +7,7 @@ from asgiref.sync import sync_to_async
 from django.contrib import messages
 from django.contrib.auth import aget_user
 from django.contrib.auth import alogin as auth_login
+from django.contrib.auth import login
 from django.db.models import Q
 from django.http import (
     HttpResponseBadRequest,
@@ -15,13 +16,15 @@ from django.http import (
 )
 from django.shortcuts import redirect, render
 from rest_framework import mixins, permissions, viewsets
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from usos_api import USOSClient
 
-from users.models import StudyGroup, Term, User, UserSettings
+from users.models import EmailLoginToken, StudyGroup, Term, User, UserSettings
 from users.serializers import PublicUserSerializer, StudyGroupSerializer, UserSerializer
+from users.utils import send_login_email_to_user
 
 dotenv.load_dotenv()
 
@@ -406,3 +409,84 @@ class StudyGroupViewSet(viewsets.ModelViewSet):
         queryset = StudyGroup.objects.filter(members=self.request.user)
 
         return queryset
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def generate_otp(request):
+    email = request.data.get("email")
+    user = User.objects.filter(email=email).first()
+    if not user:
+        return Response({"error": "User not found"}, status=404)
+
+    send_login_email_to_user(user)
+    return Response({"message": "Login email sent."})
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def login_otp(request):
+    email = request.data.get("email")
+    otp_code = request.data.get("otp")
+
+    if not email or not otp_code:
+        return Response({"error": "Email and OTP code must be provided"}, status=400)
+
+    email_login_token = EmailLoginToken.objects.filter(
+        user__email=email, otp_code=otp_code
+    ).first()
+
+    if not email_login_token:
+        tokens_for_user = EmailLoginToken.objects.filter(user__email=email)
+        for token in tokens_for_user:
+            token.add_retry()
+        return Response({"error": "Invalid OTP code"}, status=400)
+
+    if email_login_token.is_expired():
+        email_login_token.delete()
+        return Response({"error": "OTP code expired"}, status=400)
+
+    if email_login_token.is_locked:
+        email_login_token.delete()
+        return Response({"error": "OTP code retries limit reached"}, status=400)
+
+    user = email_login_token.user
+    refresh = RefreshToken.for_user(user)
+    email_login_token.delete()
+    return Response(
+        {
+            "access_token": str(refresh.access_token),
+            "refresh_token": str(refresh),
+        }
+    )
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def login_link(request):
+    token = request.data.get("token")
+    if not token:
+        return Response({"error": "Token not provided"}, status=400)
+
+    email_login_token = EmailLoginToken.objects.filter(token=token).first()
+
+    if not email_login_token:
+        return Response({"error": "Invalid login link"}, status=400)
+
+    if email_login_token.is_expired():
+        email_login_token.delete()
+        return Response({"error": "Login link expired"}, status=400)
+
+    if email_login_token.is_locked:
+        email_login_token.delete()
+        return Response({"error": "Login link retries limit reached"}, status=400)
+
+    user = email_login_token.user
+    refresh = RefreshToken.for_user(user)
+    email_login_token.delete()
+    return Response(
+        {
+            "access_token": str(refresh.access_token),
+            "refresh_token": str(refresh),
+        }
+    )

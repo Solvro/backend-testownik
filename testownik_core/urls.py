@@ -56,6 +56,9 @@ urlpatterns = [
     # API authentication
     path("token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("generate-otp/", users_views.generate_otp, name="generate_otp"),
+    path("login-link/", users_views.login_link, name="login_link"),
+    path("login-otp/", users_views.login_otp, name="login_otp"),
     # API
     path("", include(router.urls)),
     path("user/", current_user, name="api_current_user"),

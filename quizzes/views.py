@@ -10,11 +10,12 @@ from urllib.parse import urlparse
 import aiohttp
 from adrf.decorators import api_view as async_api_view
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.mail import EmailMessage
 from django.core.validators import URLValidator
 from django.db.models import Q
 from django.utils import timezone
-from mailersend import emails
 from rest_framework import permissions, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import PermissionDenied
@@ -299,6 +300,7 @@ async def import_quiz_from_link(request):
 def report_question_issue(request):
     if not request.user.is_authenticated:
         return Response({"error": "Unauthorized"}, status=401)
+
     data = request.data
     if not data.get("quiz_id") or not data.get("question_id") or not data.get("issue"):
         return Response({"error": "Missing data"}, status=400)
@@ -312,37 +314,27 @@ def report_question_issue(request):
             {"error": "You cannot report issues with your own questions"}, status=400
         )
 
-    mailer = emails.NewEmail()
-    mail_body = {}
-
-    mail_from = {
-        "name": "Testownik",
-        "email": "report@testownik.live",
-    }
-
-    recipients = [
-        {
-            "name": quiz.maintainer.full_name,
-            "email": quiz.maintainer.email,
-        }
-    ]
-
-    reply_to = {
-        "name": request.user.full_name,
-        "email": request.user.email,
-    }
-
-    mailer.set_mail_from(mail_from, mail_body)
-    mailer.set_mail_to(recipients, mail_body)
-    mailer.set_subject("Zgłoszenie błędu w pytaniu", mail_body)
-    mailer.set_plaintext_content(
-        f"{request.user.full_name} zgłosił błąd w pytaniu {data.get('question_id')} quizu {quiz.title}.\n\n{data.get('issue')}\n\nKliknij w link, aby przejść do edycji bazy: https://testownik.live/edit-quiz/{quiz.id}/?scroll_to=question-{data.get('question_id')}",
-        mail_body,
+    # Email details
+    subject = "Zgłoszenie błędu w pytaniu"
+    message = (
+        f"{request.user.full_name} zgłosił błąd w pytaniu {data.get('question_id')} quizu {quiz.title}.\n\n"
+        f"{data.get('issue')}\n\n"
+        f"Kliknij w link, aby przejść do edycji bazy: https://testownik.solvro.pl/edit-quiz/{quiz.id}/?scroll_to=question-{data.get('question_id')}"
     )
-    mailer.set_reply_to(reply_to, mail_body)
+
+    from_email = settings.DEFAULT_FROM_EMAIL
+    recipient_list = [quiz.maintainer.email]
+    reply_to = [request.user.email]
 
     try:
-        mailer.send(mail_body)
+        email = EmailMessage(
+            subject=subject,
+            body=message,
+            from_email=from_email,
+            to=recipient_list,
+            reply_to=reply_to,  # This ensures replies go to the user who reported the issue
+        )
+        email.send(fail_silently=False)
     except Exception as e:
         return Response({"error": str(e)}, status=500)
 

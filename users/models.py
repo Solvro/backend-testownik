@@ -1,8 +1,11 @@
-from datetime import date
+import random
+import uuid
+from datetime import date, timedelta
 
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.db import models
 from django.db.models import BooleanField
+from django.utils.timezone import now
 from usos_api.models import Sex, StaffStatus, StudentStatus
 
 
@@ -119,3 +122,42 @@ class StudyGroup(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class EmailLoginToken(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    otp_code = models.CharField(max_length=6)
+    token = models.UUIDField(default=uuid.uuid4, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    retry_count = models.IntegerField(default=0)  # Track retries
+
+    MAX_RETRIES = 3  # Limit retries per token
+
+    @staticmethod
+    def generate_otp():
+        return f"{random.randint(100000, 999999)}"
+
+    @staticmethod
+    def create_for_user(user):
+        otp = EmailLoginToken.generate_otp()
+        token = uuid.uuid4()
+        expiration_time = now() + timedelta(minutes=10)  # 10 min expiry
+
+        return EmailLoginToken.objects.create(
+            user=user,
+            otp_code=otp,
+            token=token,
+            expires_at=expiration_time,
+        )
+
+    def is_expired(self):
+        return now() > self.expires_at
+
+    @property
+    def is_locked(self):
+        return self.retry_count >= self.MAX_RETRIES
+
+    def add_retry(self):
+        self.retry_count += 1
+        self.save()
