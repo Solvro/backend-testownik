@@ -16,6 +16,7 @@ class UserSerializer(serializers.ModelSerializer):
             "photo_url",
             "overriden_photo_url",
             "photo",
+            "hide_profile",
         ]
 
 

@@ -7,7 +7,6 @@ from asgiref.sync import sync_to_async
 from django.contrib import messages
 from django.contrib.auth import aget_user
 from django.contrib.auth import alogin as auth_login
-from django.contrib.auth import login
 from django.db.models import Q
 from django.http import (
     HttpResponseBadRequest,
@@ -310,6 +309,7 @@ async def refresh_user_data(request):
 def current_user(request):
     allowed_fields_patch = [
         "overriden_photo_url",
+        "hide_profile",
     ]
     if request.method == "PATCH":
         data = json.loads(request.body)
@@ -342,25 +342,29 @@ class UserViewSet(
             search_terms = search.split(" ")
             filters = Q()
             if len(search_terms) == 1:
-                filters |= Q(first_name__icontains=search_terms[0])
-                filters |= Q(last_name__icontains=search_terms[0])
+                filters |= Q(first_name__icontains=search_terms[0], hide_profile=False)
+                filters |= Q(last_name__icontains=search_terms[0], hide_profile=False)
                 filters |= Q(student_number=search_terms[0])
             elif len(search_terms) == 2:
                 filters |= Q(
                     first_name__icontains=search_terms[0],
                     last_name__icontains=search_terms[1],
+                    hide_profile=False,
                 )
                 filters |= Q(
                     first_name__icontains=search_terms[1],
                     last_name__icontains=search_terms[0],
+                    hide_profile=False,
                 )
                 filters |= Q(
                     first_name__icontains=search_terms[0],
                     student_number__icontains=search_terms[1],
+                    hide_profile=False,
                 )
                 filters |= Q(
                     first_name__icontains=search_terms[1],
                     student_number__icontains=search_terms[0],
+                    hide_profile=False,
                 )
             elif len(search_terms) == 3:
                 filters |= Q(

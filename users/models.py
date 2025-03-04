@@ -37,6 +37,11 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_superuser = BooleanField(default=False)
     is_staff = BooleanField(default=False)
 
+    hide_profile = BooleanField(
+        default=False,
+        help_text="Hide profile from other users in search and leaderboards, user will still be able to be added by student_number",
+    )
+
     USERNAME_FIELD = "id"
     REQUIRED_FIELDS = ["first_name", "last_name"]
 

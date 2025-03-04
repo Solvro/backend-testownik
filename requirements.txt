@@ -3,12 +3,12 @@ Django==5.1.6
 usos-api>=0.3.3
 requests==2.32.3
 djangorestframework==3.15.2
-djangorestframework-simplejwt==5.4.0
+djangorestframework-simplejwt==5.5.0
 django-cors-headers==4.7.0
 adrf==0.1.9
 gunicorn==23.0.0
-psycopg[binary]==3.2.4
+psycopg[binary]==3.2.5
 whitenoise==6.9.0
 asgiref~=3.8.1
-aiohttp~=3.11.12
+aiohttp~=3.11.13
 django-ratelimit~=4.1.0

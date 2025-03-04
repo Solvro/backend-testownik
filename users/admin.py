@@ -34,6 +34,7 @@ class UserAdmin(admin.ModelAdmin):
                     "sex",
                     "photo_url",
                     "overriden_photo_url",
+                    "hide_profile",
                 )
             },
         ),
