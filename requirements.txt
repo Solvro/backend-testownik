@@ -1,4 +1,4 @@
-python-dotenv==1.0.1
+python-dotenv==1.1.0
 Django==5.1.6
 usos-api>=0.3.3
 requests==2.32.3
