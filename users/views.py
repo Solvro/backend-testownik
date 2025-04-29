@@ -180,7 +180,7 @@ async def update_user_data_from_usos(
         defaults["access_token_secret"] = access_token_secret
 
     user_obj, created = await User.objects.aupdate_or_create(
-        id=user_data.id, defaults=defaults
+        usos_id=user_data.id, defaults=defaults
     )
 
     if created:

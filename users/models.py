@@ -10,9 +10,10 @@ from usos_api.models import Sex, StaffStatus, StudentStatus
 
 
 class User(AbstractBaseUser, PermissionsMixin):
-    id = models.IntegerField(primary_key=True)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(null=True, blank=True)
     student_number = models.CharField(max_length=6)
+    usos_id = models.IntegerField(null=True, blank=True)
     first_name = models.CharField(max_length=30)
     last_name = models.CharField(
         max_length=51

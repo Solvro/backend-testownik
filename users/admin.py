@@ -24,7 +24,7 @@ class UserAdmin(admin.ModelAdmin):
     list_filter = ["is_staff", "is_superuser", "student_status", "staff_status"]
 
     fieldsets = (
-        (None, {"fields": ("id", "email", "student_number")}),
+        (None, {"fields": ("id", "email", "student_number", "usos_id")}),
         (
             "Personal info",
             {
