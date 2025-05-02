@@ -22,6 +22,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
+from django.shortcuts import redirect
 
 from alerts.views import AlertViewSet
 from feedback import views as feedback_views
@@ -37,6 +39,12 @@ def status(request):
     return Response({"status": "ok"})
 
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def root_redirect(request):
+    return redirect('/swagger/')
+
+
 router = routers.DefaultRouter()
 router.register(r"users", users_views.UserViewSet)
 router.register(r"study-groups", users_views.StudyGroupViewSet)
@@ -45,6 +53,8 @@ router.register(r"shared-quizzes", quizzes_views.SharedQuizViewSet)
 router.register(r"alerts", AlertViewSet)
 
 urlpatterns = [
+    # Root URL redirects to Swagger UI
+    path("", root_redirect, name="index"),
     # Status
     path("status/", status, name="status"),
     # Admin
@@ -59,10 +69,15 @@ urlpatterns = [
     path("generate-otp/", users_views.generate_otp, name="generate_otp"),
     path("login-link/", users_views.login_link, name="login_link"),
     path("login-otp/", users_views.login_otp, name="login_otp"),
+    # API Documentation
+    path('schema/', SpectacularAPIView.as_view(permission_classes=[AllowAny]), name='schema'),
+    path('swagger/', SpectacularSwaggerView.as_view(url_name='schema', permission_classes=[AllowAny]), name='swagger-ui'),
+    path('redoc/', SpectacularRedocView.as_view(url_name='schema', permission_classes=[AllowAny]), name='redoc'),
     # API
     path("", include(router.urls)),
     path("user/", current_user, name="api_current_user"),
     path("settings/", users_views.settings, name="api_settings"),
+    path("delete-account/", users_views.delete_account, name="api_delete_account"),
     path(
         "random-question/",
         quizzes_views.random_question_for_user,
