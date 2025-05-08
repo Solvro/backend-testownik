@@ -9,4 +9,4 @@ class MaintenanceMode(models.Model):
 
     class Meta:
         verbose_name = "Maintenance mode"
-        verbose_name_plural = "Maintenance modes"
+        verbose_name_plural = "Maintenance mode"

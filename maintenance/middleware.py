@@ -1,4 +1,4 @@
-from django.shortcuts import render
+from django.shortcuts import HttpResponse
 from maintenance.models import MaintenanceMode
 
 
@@ -10,15 +10,11 @@ class MaintenanceModeMiddleware:
         if request.user.is_authenticated and (request.user.is_staff or request.user.is_superuser):
             return self.get_response(request)
 
-        print(request.path)
-        if request.path.startswith('/admin/') or request.path.startswith('/login/usos/') or request.path.startswith('/authorize/'):
+        if request.path.startswith('/admin/') or request.path.startswith('/login/usos') or request.path.startswith('/authorize/'):
             return self.get_response(request)
 
-        try:
-            toggle = MaintenanceMode.objects.first()
-            if toggle and toggle.is_active:
-                return render(request, 'maintenance/503.html', status=503)
-        except:
-            pass
+        toggle = MaintenanceMode.objects.first()
+        if toggle and toggle.is_active:
+            return HttpResponse("Service unavailable", status=503)
 
         return self.get_response(request)
