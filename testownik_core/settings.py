@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     "grades.apps.GradesConfig",
     "quizzes.apps.QuizzesConfig",
     "alerts.apps.AlertsConfig",
+    "maintenance.apps.MaintenanceConfig",
     "rest_framework",
     "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
@@ -71,6 +72,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "maintenance.middleware.MaintenanceModeMiddleware",
 ]
 
 REST_FRAMEWORK = {
