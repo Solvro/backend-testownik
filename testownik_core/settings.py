@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 import os
 from datetime import timedelta
 from pathlib import Path
+from django.utils.translation import gettext_lazy as _
 
 import dotenv
 
@@ -56,11 +57,23 @@ INSTALLED_APPS = [
     "quizzes.apps.QuizzesConfig",
     "alerts.apps.AlertsConfig",
     "maintenance.apps.MaintenanceConfig",
+    "constance",
+    "constance.backends.database",
     "rest_framework",
     "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "adrf",
 ]
+
+CONSTANCE_BACKEND = 'constance.backends.database.DatabaseBackend'
+
+CONSTANCE_CONFIG = {
+    'MAINTENANCE_MODE': (False, 'Is the site in maintenance mode?'),
+}
+
+CONSTANCE_CONFIG_FIELDSETS = {
+    'Maintenance Mode': ('MAINTENANCE_MODE',),
+}
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",

@@ -1,5 +1,6 @@
+from django.http import JsonResponse
 from django.shortcuts import HttpResponse
-from maintenance.models import MaintenanceMode
+from constance import config
 
 
 class MaintenanceModeMiddleware:
@@ -13,8 +14,12 @@ class MaintenanceModeMiddleware:
         if request.path.startswith('/admin/') or request.path.startswith('/login/usos') or request.path.startswith('/authorize/'):
             return self.get_response(request)
 
-        toggle = MaintenanceMode.objects.first()
-        if toggle and toggle.is_active:
+        if config.MAINTENANCE_MODE:
+            if request.headers.get('Content-Type') == 'text/plain':
+                return JsonResponse(
+                    {"detail": "Service is unavailable"},
+                    status=503
+                )
             return HttpResponse("Service unavailable", status=503)
 
         return self.get_response(request)
