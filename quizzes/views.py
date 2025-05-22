@@ -16,17 +16,19 @@ from django.core.mail import EmailMessage
 from django.core.validators import URLValidator
 from django.db.models import Q
 from django.utils import timezone
-from rest_framework import permissions, viewsets
-from rest_framework.decorators import api_view
+from rest_framework import permissions, viewsets, status
+from rest_framework.decorators import api_view, action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
+from django_filters.rest_framework import DjangoFilterBackend
 
-from quizzes.models import Quiz, QuizProgress, SharedQuiz
-from quizzes.permissions import IsSharedQuizMaintainerOrReadOnly
+from quizzes.models import Quiz, QuizProgress, SharedQuiz, QuizCollaborator
+from quizzes.permissions import IsSharedQuizMaintainerOrReadOnly, IsQuizMaintainerOrCollaborator
 from quizzes.serializers import (
     QuizMetaDataSerializer,
     QuizSerializer,
     SharedQuizSerializer,
+    QuizCollaboratorSerializer,
 )
 
 
@@ -106,14 +108,14 @@ def search_quizzes(request):
 class QuizViewSet(viewsets.ModelViewSet):
     queryset = Quiz.objects.all()
     serializer_class = QuizSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsQuizMaintainerOrCollaborator]
 
     def get_queryset(self):
         if not self.request.user.is_authenticated:
             if self.action == "list":
                 return Quiz.objects.none()
             return Quiz.objects.filter(visibility__gte=2, allow_anonymous=True)
-        _filter = Q(maintainer=self.request.user)
+        _filter = Q(maintainer=self.request.user) | Q(collaborators__user=self.request.user, collaborators__status=1)
         if self.action == "retrieve":
             _filter |= Q(visibility__gte=3)
             _filter |= Q(visibility__gte=2)
@@ -128,9 +130,10 @@ class QuizViewSet(viewsets.ModelViewSet):
         serializer.save(maintainer=self.request.user)
 
     def perform_update(self, serializer):
-        serializer.save(
-            maintainer=self.request.user, version=serializer.instance.version + 1
-        )
+        quiz = serializer.instance
+        if not quiz.can_edit(self.request.user):
+            raise PermissionDenied("You don't have permission to edit this quiz")
+        serializer.save(version=serializer.instance.version + 1)
 
     def perform_destroy(self, instance):
         if instance.maintainer == self.request.user:
@@ -396,3 +399,52 @@ def quiz_progress(request, quiz_id):
         return Response({"status": "deleted"})
     else:
         return Response({"error": "Method not allowed"}, status=405)
+
+
+class QuizCollaboratorViewSet(viewsets.ModelViewSet):
+    serializer_class = QuizCollaboratorSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = {
+        'quiz': ['exact'],
+        'status': ['exact'],
+        'user': ['exact'],
+    }
+    queryset = QuizCollaborator.objects.none()  # Default queryset for schema generation
+
+    def get_queryset(self):
+        # Skip authentication check for schema generation
+        if getattr(self, 'swagger_fake_view', False):
+            return QuizCollaborator.objects.none()
+            
+        return QuizCollaborator.objects.filter(
+            Q(quiz__maintainer=self.request.user) | Q(user=self.request.user)
+        ).distinct()
+
+    def perform_create(self, serializer):
+        quiz = serializer.validated_data['quiz']
+        if quiz.maintainer != self.request.user:
+            raise PermissionDenied("Only the quiz maintainer can add collaborators")
+        serializer.save(invited_by=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def accept(self, request, pk=None):
+        collaborator = self.get_object()
+        if collaborator.user != request.user:
+            raise PermissionDenied("You can only accept your own invitations")
+        if collaborator.status != 0:
+            return Response({"error": "This invitation has already been processed"}, status=400)
+        collaborator.status = 1
+        collaborator.save()
+        return Response(self.get_serializer(collaborator).data)
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        collaborator = self.get_object()
+        if collaborator.user != request.user:
+            raise PermissionDenied("You can only reject your own invitations")
+        if collaborator.status != 0:
+            return Response({"error": "This invitation has already been processed"}, status=400)
+        collaborator.status = 2
+        collaborator.save()
+        return Response(self.get_serializer(collaborator).data)

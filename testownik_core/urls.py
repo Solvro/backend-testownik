@@ -50,6 +50,7 @@ router.register(r"users", users_views.UserViewSet)
 router.register(r"study-groups", users_views.StudyGroupViewSet)
 router.register(r"quizzes", quizzes_views.QuizViewSet)
 router.register(r"shared-quizzes", quizzes_views.SharedQuizViewSet)
+router.register(r"collaborators", quizzes_views.QuizCollaboratorViewSet, basename="collaborator")
 router.register(r"alerts", AlertViewSet)
 
 urlpatterns = [

@@ -1,12 +1,28 @@
 from rest_framework import serializers
 
-from quizzes.models import Quiz, SharedQuiz
+from quizzes.models import Quiz, SharedQuiz, QuizCollaborator
 from users.models import StudyGroup, User
 from users.serializers import PublicUserSerializer, StudyGroupSerializer
 
 
+class QuizCollaboratorSerializer(serializers.ModelSerializer):
+    user = PublicUserSerializer(read_only=True)
+    invited_by = PublicUserSerializer(read_only=True)
+    status_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = QuizCollaborator
+        fields = ['id', 'user', 'status', 'status_name', 'invited_by', 'created_at', 'updated_at']
+        read_only_fields = ['user', 'invited_by', 'created_at', 'updated_at']
+
+    def get_status_name(self, obj):
+        return dict(QuizCollaborator._meta.get_field('status').choices)[obj.status]
+
+
 class QuizSerializer(serializers.ModelSerializer):
     maintainer = PublicUserSerializer(read_only=True)
+    collaborators = QuizCollaboratorSerializer(many=True, read_only=True)
+    can_edit = serializers.SerializerMethodField()
 
     class Meta:
         model = Quiz
@@ -20,8 +36,16 @@ class QuizSerializer(serializers.ModelSerializer):
             "allow_anonymous",
             "version",
             "questions",
+            "collaborators",
+            "can_edit",
         ]
-        read_only_fields = ["maintainer", "version"]
+        read_only_fields = ["maintainer", "version", "collaborators", "can_edit"]
+
+    def get_can_edit(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.can_edit(request.user)
+        return False
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

@@ -12,6 +12,11 @@ QUIZ_VISIBILITY_CHOICES = [
     (3, "Publiczny"),
 ]
 
+INVITATION_STATUS_CHOICES = [
+    (0, "Pending"),
+    (1, "Accepted"),
+    (2, "Rejected"),
+]
 
 class Quiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -30,7 +35,6 @@ class Quiz(models.Model):
     version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
     questions = models.JSONField(default=list, blank=True)
 
     def __str__(self):
@@ -61,6 +65,23 @@ class Quiz(models.Model):
             "is_anonymous": self.is_anonymous,
         }
 
+    def can_edit(self, user):
+        return user == self.maintainer or self.collaborators.filter(user=user, status=1).exists()
+
+class QuizCollaborator(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name='collaborators')
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    status = models.PositiveIntegerField(choices=INVITATION_STATUS_CHOICES, default=0)
+    invited_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='sent_invitations')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('quiz', 'user')
+
+    def __str__(self):
+        return f"{self.user} - {self.quiz.title} ({dict(INVITATION_STATUS_CHOICES)[self.status]})"
 
 class SharedQuiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

@@ -13,3 +13,4 @@ asgiref~=3.8.1
 aiohttp~=3.11.13
 django-ratelimit~=4.1.0
 drf-spectacular==0.27.1
+django-filter==24.1
