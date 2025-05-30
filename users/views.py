@@ -20,6 +20,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from usos_api import USOSClient
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 
 from users.models import EmailLoginToken, StudyGroup, Term, User, UserSettings
 from users.serializers import PublicUserSerializer, StudyGroupSerializer, UserSerializer
@@ -494,3 +495,93 @@ def login_link(request):
             "refresh_token": str(refresh),
         }
     )
+
+
+@extend_schema(
+    summary="Delete user account",
+    description="Delete the current user's account. Optionally transfer quiz ownership to another user before deletion.",
+    parameters=[
+        OpenApiParameter(
+            name="transfer_to_user_id",
+            description="ID of the user to transfer quizzes to before deletion",
+            required=False,
+            type=str,
+            location=OpenApiParameter.QUERY,
+        ),
+    ],
+    examples=[
+        OpenApiExample(
+            "Delete without transfer",
+            value={},
+            description="Delete account without transferring quizzes",
+        ),
+        OpenApiExample(
+            "Delete with transfer",
+            value={"transfer_to_user_id": "123e4567-e89b-12d3-a456-426614174000"},
+            description="Delete account and transfer quizzes to another user",
+        ),
+    ],
+    responses={
+        200: {
+            "description": "Account deleted successfully",
+            "content": {
+                "application/json": {
+                    "example": {"message": "Account deleted successfully"}
+                }
+            }
+        },
+        401: {
+            "description": "Unauthorized - User not authenticated",
+            "content": {
+                "application/json": {
+                    "example": {"error": "Unauthorized"}
+                }
+            }
+        },
+        404: {
+            "description": "User to transfer quizzes to not found",
+            "content": {
+                "application/json": {
+                    "example": {"error": "User to transfer quizzes to not found"}
+                }
+            }
+        }
+    }
+)
+@api_view(["POST"])
+def delete_account(request):
+    if not request.user.is_authenticated:
+        return Response({"error": "Unauthorized"}, status=401)
+
+    data = json.loads(request.body)
+    transfer_to_user_id = data.get("transfer_to_user_id")
+    
+    # If transfer_to_user_id is provided, transfer quizzes to that user
+    if transfer_to_user_id:
+        try:
+            transfer_to_user = User.objects.get(id=transfer_to_user_id)
+        except User.DoesNotExist:
+            return Response({"error": "User to transfer quizzes to not found"}, status=404)
+        
+        # Transfer all quizzes owned by the user
+        quizzes = Quiz.objects.filter(maintainer=request.user)
+        for quiz in quizzes:
+            quiz.maintainer = transfer_to_user
+            quiz.save()
+    
+    # Delete user settings
+    try:
+        request.user.settings.delete()
+    except UserSettings.DoesNotExist:
+        pass
+    
+    # Delete user's quiz progress
+    QuizProgress.objects.filter(user=request.user).delete()
+    
+    # Delete user's shared quiz entries
+    SharedQuiz.objects.filter(user=request.user).delete()
+    
+    # Delete the user
+    request.user.delete()
+    
+    return Response({"message": "Account deleted successfully"})
