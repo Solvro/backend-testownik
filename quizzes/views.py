@@ -8,7 +8,6 @@ from datetime import timedelta
 from urllib.parse import urlparse
 
 import aiohttp
-from adrf.decorators import api_view as async_api_view
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -18,7 +17,7 @@ from django.db.models import Q
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample, OpenApiParameter
 from rest_framework import permissions, viewsets
-from rest_framework.decorators import api_view, action
+from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
