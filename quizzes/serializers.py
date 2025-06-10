@@ -15,7 +15,7 @@ class QuizCollaboratorSerializer(serializers.ModelSerializer):
         fields = ['id', 'user', 'status', 'status_name', 'invited_by', 'created_at', 'updated_at']
         read_only_fields = ['user', 'invited_by', 'created_at', 'updated_at']
 
-    def get_status_name(self, obj):
+    def get_status_name(self, obj) -> dict:
         return dict(QuizCollaborator._meta.get_field('status').choices)[obj.status]
 
 
@@ -41,7 +41,7 @@ class QuizSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["maintainer", "version", "collaborators", "can_edit"]
 
-    def get_can_edit(self, obj):
+    def get_can_edit(self, obj) -> bool:
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return obj.can_edit(request.user)

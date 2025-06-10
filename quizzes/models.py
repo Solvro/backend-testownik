@@ -18,6 +18,7 @@ INVITATION_STATUS_CHOICES = [
     (2, "Rejected"),
 ]
 
+
 class Quiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255)
@@ -68,6 +69,7 @@ class Quiz(models.Model):
     def can_edit(self, user):
         return user == self.maintainer or self.collaborators.filter(user=user, status=1).exists()
 
+
 class QuizCollaborator(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name='collaborators')
@@ -82,6 +84,7 @@ class QuizCollaborator(models.Model):
 
     def __str__(self):
         return f"{self.user} - {self.quiz.title} ({dict(INVITATION_STATUS_CHOICES)[self.status]})"
+
 
 class SharedQuiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

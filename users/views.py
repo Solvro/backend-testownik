@@ -14,14 +14,18 @@ from django.http import (
     HttpResponseNotAllowed,
 )
 from django.shortcuts import redirect, render
+from drf_spectacular.types import OpenApiTypes
 from rest_framework import mixins, permissions, viewsets
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.generics import GenericAPIView
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from usos_api import USOSClient
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse
 
+from quizzes.models import QuizProgress, SharedQuiz
 from users.models import EmailLoginToken, StudyGroup, Term, User, UserSettings
 from users.serializers import PublicUserSerializer, StudyGroupSerializer, UserSerializer
 from users.utils import send_login_email_to_user
@@ -59,10 +63,10 @@ async def login_usos(request):
     )
 
     async with USOSClient(
-        "https://apps.usos.pwr.edu.pl/",
-        os.getenv("USOS_CONSUMER_KEY"),
-        os.getenv("USOS_CONSUMER_SECRET"),
-        trust_env=True,
+            "https://apps.usos.pwr.edu.pl/",
+            os.getenv("USOS_CONSUMER_KEY"),
+            os.getenv("USOS_CONSUMER_SECRET"),
+            trust_env=True,
     ) as client:
         client.set_scopes(["offline_access", "studies", "email", "photo", "grades"])
         authorization_url = await client.get_authorization_url(
@@ -92,10 +96,10 @@ async def authorize(request):
     redirect_url = request.GET.get("redirect", "index")
 
     async with USOSClient(
-        "https://apps.usos.pwr.edu.pl/",
-        os.getenv("USOS_CONSUMER_KEY"),
-        os.getenv("USOS_CONSUMER_SECRET"),
-        trust_env=True,
+            "https://apps.usos.pwr.edu.pl/",
+            os.getenv("USOS_CONSUMER_KEY"),
+            os.getenv("USOS_CONSUMER_SECRET"),
+            trust_env=True,
     ) as client:
         verifier = request.GET.get("oauth_verifier")
         request_token = request.GET.get("oauth_token")
@@ -142,7 +146,7 @@ async def authorize(request):
 
 
 async def update_user_data_from_usos(
-    client=None, access_token=None, access_token_secret=None
+        client=None, access_token=None, access_token_secret=None
 ):
     if not client:
         if not access_token or not access_token_secret:
@@ -150,10 +154,10 @@ async def update_user_data_from_usos(
                 "Either client or access_token and access_token_secret must be provided"
             )
         async with USOSClient(
-            "https://apps.usos.pwr.edu.pl/",
-            os.getenv("USOS_CONSUMER_KEY"),
-            os.getenv("USOS_CONSUMER_SECRET"),
-            trust_env=True,
+                "https://apps.usos.pwr.edu.pl/",
+                os.getenv("USOS_CONSUMER_KEY"),
+                os.getenv("USOS_CONSUMER_SECRET"),
+                trust_env=True,
         ) as client:
             client.load_access_token(access_token, access_token_secret)
             user_data = await client.user_service.get_user()
@@ -224,72 +228,100 @@ async def update_user_data_from_usos(
     return user_obj, created
 
 
-@api_view(["GET", "PUT"])
-def settings(request):
-    if request.method == "GET":
-        return get_user_settings(request)
-    elif request.method == "PUT":
-        return update_user_settings(request)
-    else:
-        return Response(status=HttpResponseNotAllowed.status_code)
+class SettingsView(APIView):
+    permission_classes = [IsAuthenticated]
 
-
-def get_user_settings(request):
-    if not request.user.is_authenticated:
-        return Response(status=HttpResponseForbidden.status_code)
-
-    try:
-        user_settings = request.user.settings
-    except UserSettings.DoesNotExist:
-        user_settings = UserSettings(user=request.user)
-
-    settings_data = {
-        "sync_progress": user_settings.sync_progress,
-        "initial_reoccurrences": user_settings.initial_reoccurrences,
-        "wrong_answer_reoccurrences": user_settings.wrong_answer_reoccurrences,
-    }
-
-    return Response(settings_data)
-
-
-def update_user_settings(request):
-    if not request.user.is_authenticated:
-        return Response(status=HttpResponseForbidden.status_code)
-
-    data = json.loads(request.body)
-
-    try:
-        user_settings = request.user.settings
-    except UserSettings.DoesNotExist:
-        user_settings = UserSettings(user=request.user)
-
-    sync_progress = data.get("sync_progress")
-    initial_reoccurrences = data.get("initial_reoccurrences")
-    wrong_answer_reoccurrences = data.get("wrong_answer_reoccurrences")
-
-    if sync_progress is not None:
-        user_settings.sync_progress = sync_progress
-
-    if initial_reoccurrences is not None:
-        if initial_reoccurrences >= 1:
-            user_settings.initial_reoccurrences = initial_reoccurrences
-        else:
-            return Response(
-                "Initial repetitions must be greater or equal to 1",
-                status=HttpResponseBadRequest.status_code,
+    @extend_schema(
+        summary="Get user settings",
+        description="Retrieve the current authenticated user's settings.",
+        responses={
+            200: OpenApiTypes.OBJECT,
+        },
+        examples=[
+            OpenApiExample(
+                'Sample Settings',
+                value={
+                    "sync_progress": True,
+                    "initial_reoccurrences": 3,
+                    "wrong_answer_reoccurrences": 1,
+                }
             )
+        ]
+    )
+    def get(self, request):
+        try:
+            user_settings = request.user.settings
+        except UserSettings.DoesNotExist:
+            user_settings = UserSettings(user=request.user)
 
-    if wrong_answer_reoccurrences is not None:
-        if wrong_answer_reoccurrences >= 0:
-            user_settings.wrong_answer_reoccurrences = wrong_answer_reoccurrences
-        else:
-            return Response(
-                "Wrong answer repetitions must be greater or equal to 0",
-                status=HttpResponseBadRequest.status_code,
+        return Response({
+            "sync_progress": user_settings.sync_progress,
+            "initial_reoccurrences": user_settings.initial_reoccurrences,
+            "wrong_answer_reoccurrences": user_settings.wrong_answer_reoccurrences,
+        })
+
+    @extend_schema(
+        summary="Update user settings",
+        description="Update the current authenticated user's settings.",
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "sync_progress": {"type": "boolean"},
+                    "initial_reoccurrences": {"type": "integer", "minimum": 1},
+                    "wrong_answer_reoccurrences": {"type": "integer", "minimum": 0},
+                },
+                "required": [],
+            }
+        },
+        responses={
+            200: OpenApiTypes.OBJECT,
+            400: OpenApiResponse(description="Validation error"),
+        },
+        examples=[
+            OpenApiExample(
+                'Successful Update',
+                value={
+                    "sync_progress": True,
+                    "initial_reoccurrences": 3,
+                    "wrong_answer_reoccurrences": 2,
+                }
             )
+        ]
+    )
+    def put(self, request):
+        data = json.loads(request.body)
 
-    user_settings.save()
-    return Response(status=200)
+        try:
+            user_settings = request.user.settings
+        except UserSettings.DoesNotExist:
+            user_settings = UserSettings(user=request.user)
+
+        sync_progress = data.get("sync_progress")
+        initial_reoccurrences = data.get("initial_reoccurrences")
+        wrong_answer_reoccurrences = data.get("wrong_answer_reoccurrences")
+
+        if sync_progress is not None:
+            user_settings.sync_progress = sync_progress
+
+        if initial_reoccurrences is not None:
+            if initial_reoccurrences >= 1:
+                user_settings.initial_reoccurrences = initial_reoccurrences
+            else:
+                return Response(
+                    "Initial repetitions must be ≥ 1", status=HttpResponseBadRequest.status_code
+                )
+
+        if wrong_answer_reoccurrences is not None:
+            if wrong_answer_reoccurrences >= 0:
+                user_settings.wrong_answer_reoccurrences = wrong_answer_reoccurrences
+            else:
+                return Response(
+                    "Wrong answer repetitions must be ≥ 0", status=HttpResponseBadRequest.status_code
+                )
+
+        user_settings.save()
+        return Response(status=200)
 
 
 async def refresh_user_data(request):
@@ -306,28 +338,38 @@ async def refresh_user_data(request):
     return redirect(request.GET.get("next", "index"))
 
 
-@api_view(["GET", "PATCH"])
-def current_user(request):
-    allowed_fields_patch = [
-        "overriden_photo_url",
-        "hide_profile",
-    ]
-    if request.method == "PATCH":
+class CurrentUserView(GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = UserSerializer
+
+    @extend_schema(
+        summary="Get current user profile",
+        description="Returns basic information about the currently authenticated user.",
+    )
+    def get(self, request):
+        serializer = self.get_serializer(request.user)
+        return Response(serializer.data)
+
+    @extend_schema(
+        summary="Update current user profile",
+        description="Update limited fields in the user's profile.",
+    )
+    def patch(self, request):
+        allowed_fields_patch = ["overriden_photo_url", "hide_profile"]
         data = json.loads(request.body)
+
         for key in data.keys():  # Check if all fields are allowed
             if key not in allowed_fields_patch:
                 return Response(
                     f"Field '{key}' is not allowed to be updated",
                     status=HttpResponseBadRequest.status_code,
                 )
-        serializer = UserSerializer(request.user, data=data, partial=True)
+
+        serializer = self.get_serializer(request.user, data=data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
-        print(serializer.errors)
         return Response(serializer.errors, status=HttpResponseBadRequest.status_code)
-    serializer = UserSerializer(request.user)
-    return Response(serializer.data)
 
 
 class UserViewSet(
@@ -416,172 +458,271 @@ class StudyGroupViewSet(viewsets.ModelViewSet):
         return queryset
 
 
-@api_view(["POST"])
-@permission_classes([AllowAny])
-def generate_otp(request):
-    email = request.data.get("email")
-    user = User.objects.filter(email=email).first()
-    if not user:
-        return Response({"error": "User not found"}, status=404)
+class GenerateOtpView(APIView):
+    permission_classes = [AllowAny]
 
-    send_login_email_to_user(user)
-    return Response({"message": "Login email sent."})
-
-
-@api_view(["POST"])
-@permission_classes([AllowAny])
-def login_otp(request):
-    email = request.data.get("email")
-    otp_code = request.data.get("otp")
-
-    if not email or not otp_code:
-        return Response({"error": "Email and OTP code must be provided"}, status=400)
-
-    email_login_token = EmailLoginToken.objects.filter(
-        user__email=email, otp_code=otp_code
-    ).first()
-
-    if not email_login_token:
-        tokens_for_user = EmailLoginToken.objects.filter(user__email=email)
-        for token in tokens_for_user:
-            token.add_retry()
-        return Response({"error": "Invalid OTP code"}, status=400)
-
-    if email_login_token.is_expired():
-        email_login_token.delete()
-        return Response({"error": "OTP code expired"}, status=400)
-
-    if email_login_token.is_locked:
-        email_login_token.delete()
-        return Response({"error": "OTP code retries limit reached"}, status=400)
-
-    user = email_login_token.user
-    refresh = RefreshToken.for_user(user)
-    email_login_token.delete()
-    return Response(
-        {
-            "access_token": str(refresh.access_token),
-            "refresh_token": str(refresh),
-        }
-    )
-
-
-@api_view(["POST"])
-@permission_classes([AllowAny])
-def login_link(request):
-    token = request.data.get("token")
-    if not token:
-        return Response({"error": "Token not provided"}, status=400)
-
-    email_login_token = EmailLoginToken.objects.filter(token=token).first()
-
-    if not email_login_token:
-        return Response({"error": "Invalid login link"}, status=400)
-
-    if email_login_token.is_expired():
-        email_login_token.delete()
-        return Response({"error": "Login link expired"}, status=400)
-
-    if email_login_token.is_locked:
-        email_login_token.delete()
-        return Response({"error": "Login link retries limit reached"}, status=400)
-
-    user = email_login_token.user
-    refresh = RefreshToken.for_user(user)
-    email_login_token.delete()
-    return Response(
-        {
-            "access_token": str(refresh.access_token),
-            "refresh_token": str(refresh),
-        }
-    )
-
-
-@extend_schema(
-    summary="Delete user account",
-    description="Delete the current user's account. Optionally transfer quiz ownership to another user before deletion.",
-    parameters=[
-        OpenApiParameter(
-            name="transfer_to_user_id",
-            description="ID of the user to transfer quizzes to before deletion",
-            required=False,
-            type=str,
-            location=OpenApiParameter.QUERY,
-        ),
-    ],
-    examples=[
-        OpenApiExample(
-            "Delete without transfer",
-            value={},
-            description="Delete account without transferring quizzes",
-        ),
-        OpenApiExample(
-            "Delete with transfer",
-            value={"transfer_to_user_id": "123e4567-e89b-12d3-a456-426614174000"},
-            description="Delete account and transfer quizzes to another user",
-        ),
-    ],
-    responses={
-        200: {
-            "description": "Account deleted successfully",
-            "content": {
-                "application/json": {
-                    "example": {"message": "Account deleted successfully"}
-                }
+    @extend_schema(
+        summary="Request login OTP",
+        description="Send a one-time password (OTP) to a user's email to initiate login.",
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "email": {"type": "string", "format": "email"},
+                },
+                "required": ["email"],
             }
         },
-        401: {
-            "description": "Unauthorized - User not authenticated",
-            "content": {
-                "application/json": {
-                    "example": {"error": "Unauthorized"}
-                }
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string"},
+                },
+            },
+            404: OpenApiResponse(description="User not found"),
+        },
+        examples=[
+            OpenApiExample(
+                "Valid request",
+                value={"email": "user@example.com"},
+            ),
+            OpenApiExample(
+                "Success response",
+                response_only=True,
+                value={"message": "Login email sent."}
+            ),
+            OpenApiExample(
+                "Error response (user not found)",
+                response_only=True,
+                value={"error": "User not found"},
+                status_codes=["404"]
+            )
+        ]
+    )
+    def post(self, request):
+        email = request.data.get("email")
+        user = User.objects.filter(email=email).first()
+        if not user:
+            return Response({"error": "User not found"}, status=404)
+
+        send_login_email_to_user(user)
+        return Response({"message": "Login email sent."})
+
+
+class LoginOtpView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        summary="Verify OTP for login",
+        description="Verify the OTP provided by the user and return JWT tokens.",
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "email": {"type": "string", "format": "email"},
+                    "otp": {"type": "string"},
+                },
+                "required": ["email", "otp"],
             }
         },
-        404: {
-            "description": "User to transfer quizzes to not found",
-            "content": {
-                "application/json": {
-                    "example": {"error": "User to transfer quizzes to not found"}
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "access_token": {"type": "string"},
+                    "refresh_token": {"type": "string"},
+                },
+            },
+            400: OpenApiResponse(description="Invalid or expired OTP"),
+        },
+        examples=[
+            OpenApiExample(
+                "Valid request",
+                value={
+                    "email": "user@example.com",
+                    "otp": "123456"
                 }
-            }
-        }
-    }
-)
-@api_view(["POST"])
-def delete_account(request):
-    if not request.user.is_authenticated:
-        return Response({"error": "Unauthorized"}, status=401)
+            ),
+            OpenApiExample(
+                "Success response",
+                response_only=True,
+                value={
+                    "access_token": "eyJ0eXAiOiJKV1QiLCJh...",
+                    "refresh_token": "eyJ0eXAiOiJKV1QiLCJi..."
+                }
+            ),
+            OpenApiExample(
+                "Error response (invalid OTP)",
+                response_only=True,
+                value={"error": "Invalid OTP code"},
+                status_codes=["400"]
+            ),
+            OpenApiExample(
+                "Error response (expired OTP)",
+                response_only=True,
+                value={"error": "OTP code expired or retries limit reached"},
+                status_codes=["400"]
+            )
+        ]
+    )
+    def post(self, request):
+        email = request.data.get("email")
+        otp_code = request.data.get("otp")
 
-    data = json.loads(request.body)
-    transfer_to_user_id = data.get("transfer_to_user_id")
-    
-    # If transfer_to_user_id is provided, transfer quizzes to that user
-    if transfer_to_user_id:
+        if not email or not otp_code:
+            return Response({"error": "Email and OTP code must be provided"}, status=400)
+
+        email_login_token = EmailLoginToken.objects.filter(
+            user__email=email, otp_code=otp_code
+        ).first()
+
+        if not email_login_token:
+            for token in EmailLoginToken.objects.filter(user__email=email):
+                token.add_retry()
+            return Response({"error": "Invalid OTP code"}, status=400)
+
+        if email_login_token.is_expired() or email_login_token.is_locked:
+            email_login_token.delete()
+            return Response({"error": "OTP code expired or retries limit reached"}, status=400)
+
+        user = email_login_token.user
+        refresh = RefreshToken.for_user(user)
+        email_login_token.delete()
+
+        return Response({
+            "access_token": str(refresh.access_token),
+            "refresh_token": str(refresh),
+        })
+
+
+class LoginLinkView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        summary="Verify login link token",
+        description="Verify a token from a login email link and return JWT tokens upon success.",
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "token": {"type": "string"},
+                },
+                "required": ["token"],
+            }
+        },
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "access_token": {"type": "string"},
+                    "refresh_token": {"type": "string"},
+                },
+            },
+            400: OpenApiResponse(description="Token not provided or invalid/expired"),
+        },
+        examples=[
+            OpenApiExample(
+                "Valid token request",
+                value={"token": "sometokenvalue123"}
+            ),
+            OpenApiExample(
+                "Success response",
+                response_only=True,
+                value={
+                    "access_token": "eyJ0eXAiOiJKV1QiLCJh...",
+                    "refresh_token": "eyJ0eXAiOiJKV1QiLCJi..."
+                }
+            ),
+            OpenApiExample(
+                "Error response (invalid token)",
+                response_only=True,
+                value={"error": "Invalid or expired login link"},
+                status_codes=["400"]
+            )
+        ]
+    )
+    def post(self, request):
+        token = request.data.get("token")
+        if not token:
+            return Response({"error": "Token not provided"}, status=400)
+
+        email_login_token = EmailLoginToken.objects.filter(token=token).first()
+
+        if not email_login_token or email_login_token.is_expired() or email_login_token.is_locked:
+            if email_login_token:
+                email_login_token.delete()
+            return Response({"error": "Invalid or expired login link"}, status=400)
+
+        user = email_login_token.user
+        refresh = RefreshToken.for_user(user)
+        email_login_token.delete()
+
+        return Response({
+            "access_token": str(refresh.access_token),
+            "refresh_token": str(refresh),
+        })
+
+
+class DeleteAccountView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Delete user account",
+        description="Deletes the user account. Optionally transfer quizzes to another user.",
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "transfer_to_user_id": {"type": "string", "format": "uuid"},
+                },
+                "required": [],
+            }
+        },
+        responses={
+            200: OpenApiTypes.OBJECT,
+            404: OpenApiResponse(description="Transfer target user not found"),
+        },
+        examples=[
+            OpenApiExample(
+                "Delete without transferring quizzes",
+                value={}
+            ),
+            OpenApiExample(
+                "Delete and transfer quizzes to another user",
+                value={"transfer_to_user_id": "123e4567-e89b-12d3-a456-426614174000"}
+            ),
+            OpenApiExample(
+                "Success response",
+                response_only=True,
+                value={"message": "Account deleted successfully"}
+            )
+        ]
+    )
+    def post(self, request):
+        from quizzes.models import Quiz, QuizProgress, SharedQuiz
+
+        data = json.loads(request.body)
+        transfer_to_user_id = data.get("transfer_to_user_id")
+
+        if transfer_to_user_id:
+            try:
+                transfer_to_user = User.objects.get(id=transfer_to_user_id)
+            except User.DoesNotExist:
+                return Response({"error": "User to transfer quizzes to not found"}, status=404)
+
+            quizzes = Quiz.objects.filter(maintainer=request.user)
+            for quiz in quizzes:
+                quiz.maintainer = transfer_to_user
+                quiz.save()
+
         try:
-            transfer_to_user = User.objects.get(id=transfer_to_user_id)
-        except User.DoesNotExist:
-            return Response({"error": "User to transfer quizzes to not found"}, status=404)
-        
-        # Transfer all quizzes owned by the user
-        quizzes = Quiz.objects.filter(maintainer=request.user)
-        for quiz in quizzes:
-            quiz.maintainer = transfer_to_user
-            quiz.save()
-    
-    # Delete user settings
-    try:
-        request.user.settings.delete()
-    except UserSettings.DoesNotExist:
-        pass
-    
-    # Delete user's quiz progress
-    QuizProgress.objects.filter(user=request.user).delete()
-    
-    # Delete user's shared quiz entries
-    SharedQuiz.objects.filter(user=request.user).delete()
-    
-    # Delete the user
-    request.user.delete()
-    
-    return Response({"message": "Account deleted successfully"})
+            request.user.settings.delete()
+        except UserSettings.DoesNotExist:
+            pass
+
+        QuizProgress.objects.filter(user=request.user).delete()
+        SharedQuiz.objects.filter(user=request.user).delete()
+        request.user.delete()
+
+        return Response({"message": "Account deleted successfully"})
