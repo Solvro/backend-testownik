@@ -290,7 +290,7 @@ class SettingsView(APIView):
         ]
     )
     def put(self, request):
-        data = json.loads(request.body)
+        data = request.data
 
         try:
             user_settings = request.user.settings
