@@ -14,3 +14,18 @@ class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):
 
         # Write permissions are only allowed to the maintainer of the shared quiz.
         return obj.quiz.maintainer == request.user
+
+
+class IsQuizMaintainerOrCollaborator(permissions.BasePermission):
+    """
+    Custom permission to allow quiz maintainers and accepted collaborators to edit the quiz.
+    """
+
+    def has_object_permission(self, request, view, obj):
+        # Read permissions are allowed to any request,
+        # so we'll always allow GET, HEAD or OPTIONS requests.
+        if request.method in permissions.SAFE_METHODS:
+            return True
+
+        # Write permissions are only allowed to the maintainer or accepted collaborators
+        return obj.can_edit(request.user)

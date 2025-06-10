@@ -1,11 +1,14 @@
 import random
 import uuid
 from datetime import date, timedelta
+from typing import Optional
 
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.db import models
 from django.db.models import BooleanField
 from django.utils.timezone import now
+from drf_spectacular.utils import extend_schema_field
+from rest_framework import serializers
 from usos_api.models import Sex, StaffStatus, StudentStatus
 
 
@@ -50,25 +53,25 @@ class User(AbstractBaseUser, PermissionsMixin):
         return f"{self.first_name} {self.last_name} ({self.student_number})"
 
     @property
-    def full_name(self):
+    def full_name(self) -> str:
         return f"{self.first_name} {self.last_name}"
 
     @property
-    def is_active_student_and_not_staff(self):
+    def is_active_student_and_not_staff(self) -> bool:
         return (
             self.student_status is StudentStatus.ACTIVE_STUDENT.value
             and self.staff_status is StaffStatus.NOT_STAFF.value
         )
 
     @property
-    def is_student_and_not_staff(self):
+    def is_student_and_not_staff(self) -> bool:
         return (
             self.student_status >= StudentStatus.INACTIVE_STUDENT.value
             and self.staff_status is StaffStatus.NOT_STAFF.value
         )
 
     @property
-    def photo(self):
+    def photo(self) -> Optional[str]:
         return self.overriden_photo_url or self.photo_url
 
     def get_sex(self):
@@ -106,7 +109,8 @@ class Term(models.Model):
     finish_date = models.DateField(null=True, blank=True)
 
     @property
-    def is_current(self):
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
+    def is_current(self) -> Optional[bool]:
         return (
             self.start_date <= date.today() <= self.finish_date
             if self.start_date and self.finish_date
@@ -157,11 +161,11 @@ class EmailLoginToken(models.Model):
             expires_at=expiration_time,
         )
 
-    def is_expired(self):
+    def is_expired(self) -> bool:
         return now() > self.expires_at
 
     @property
-    def is_locked(self):
+    def is_locked(self) -> bool:
         return self.retry_count >= self.MAX_RETRIES
 
     def add_retry(self):

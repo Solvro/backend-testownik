@@ -63,6 +63,8 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "adrf",
+    "drf_spectacular",
+    "django_filters",
 ]
 
 CONSTANCE_BACKEND = 'constance.backends.database.DatabaseBackend'
@@ -95,6 +97,10 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_FILTER_BACKENDS": [
+        "django_filters.rest_framework.DjangoFilterBackend",
     ],
 }
 
@@ -192,3 +198,18 @@ EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = os.getenv(
     "DEFAULT_FROM_EMAIL", "Testownik Solvro <testownik@solvro.pl>"
 )
+
+# DRF Spectacular Settings
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Testownik API',
+    'DESCRIPTION': 'API documentation for Testownik application',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SWAGGER_UI_SETTINGS': {
+        'deepLinking': True,
+        'persistAuthorization': True,
+    },
+    'SERVE_PUBLIC': True,
+    'SERVE_PERMISSIONS': ['rest_framework.permissions.AllowAny'],
+}
