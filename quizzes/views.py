@@ -457,7 +457,7 @@ class QuizProgressView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(
-        summary="Get, update or delete quiz progress",
+        summary="Get quiz progress",
         responses={
             200: {
                 "type": "object",
@@ -485,6 +485,26 @@ class QuizProgressView(APIView):
             quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
         return Response(quiz_progress.to_dict())
 
+    @extend_schema(
+        summary="Update quiz progress",
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "current_question": {"type": "integer"},
+                    "correct_answers_count": {"type": "integer"},
+                    "wrong_answers_count": {"type": "integer"},
+                    "study_time": {"type": "number"},
+                    "reoccurrences": {"type": "array", "items": {"type": "integer"}},
+                },
+            }
+        },
+        responses={
+            200: OpenApiResponse(description="Quiz progress updated"),
+            401: OpenApiResponse(description="Unauthorized"),
+            400: OpenApiResponse(description="Invalid data"),
+        },
+    )
     def post(self, request, quiz_id):
         data = json.loads(request.body)
         try:
@@ -505,6 +525,14 @@ class QuizProgressView(APIView):
         quiz_progress.save()
         return Response({"status": "updated"})
 
+    @extend_schema(
+        summary="Delete quiz progress",
+        responses={
+            200: OpenApiResponse(description="Progress deleted"),
+            401: OpenApiResponse(description="Unauthorized"),
+            404: OpenApiResponse(description="Not Found"),
+        },
+    )
     def delete(self, request, quiz_id):
         quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
         quiz_progress.delete()
