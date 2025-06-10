@@ -83,8 +83,7 @@ class QuizCollaborator(models.Model):
         unique_together = ('quiz', 'user')
 
     def __str__(self):
-        return f"{self.user} - {self.quiz.title} ({dict(INVITATION_STATUS_CHOICES)[self.status]})"
-
+        return f"{self.user} - {self.quiz.title} ({self.get_status_display()})"
 
 class SharedQuiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

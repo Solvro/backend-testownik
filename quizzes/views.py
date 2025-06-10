@@ -196,9 +196,6 @@ class QuizViewSet(viewsets.ModelViewSet):
         serializer.save(maintainer=self.request.user)
 
     def perform_update(self, serializer):
-        quiz = serializer.instance
-        if not quiz.can_edit(self.request.user):
-            raise PermissionDenied("You don't have permission to edit this quiz")
         serializer.save(version=serializer.instance.version + 1)
 
     def perform_destroy(self, instance):

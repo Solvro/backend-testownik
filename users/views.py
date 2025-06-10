@@ -716,11 +716,6 @@ class DeleteAccountView(APIView):
                 quiz.maintainer = transfer_to_user
                 quiz.save()
 
-        try:
-            request.user.settings.delete()
-        except UserSettings.DoesNotExist:
-            pass
-
         QuizProgress.objects.filter(user=request.user).delete()
         SharedQuiz.objects.filter(user=request.user).delete()
         request.user.delete()

@@ -15,9 +15,6 @@ class QuizCollaboratorSerializer(serializers.ModelSerializer):
         fields = ['id', 'user', 'status', 'status_name', 'invited_by', 'created_at', 'updated_at']
         read_only_fields = ['user', 'invited_by', 'created_at', 'updated_at']
 
-    def get_status_name(self, obj) -> dict:
-        return dict(QuizCollaborator._meta.get_field('status').choices)[obj.status]
-
 
 class QuizSerializer(serializers.ModelSerializer):
     maintainer = PublicUserSerializer(read_only=True)
