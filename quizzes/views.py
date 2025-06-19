@@ -14,6 +14,7 @@ from django.core.exceptions import ValidationError
 from django.core.mail import EmailMessage
 from django.core.validators import URLValidator
 from django.db.models import Q
+from django.db import IntegrityError
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample, OpenApiParameter
 from rest_framework import permissions, viewsets
@@ -558,17 +559,14 @@ class QuizCollaboratorViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         quiz = serializer.validated_data['quiz']
-        user_id = serializer.validated_data['user_id']
 
-        if not user_id:
-            raise ValidationError({"user_id": "This field is required"})
-        if not quiz:
-            raise ValidationError({"quiz": "This field is required"})
         if quiz.maintainer != self.request.user:
             raise PermissionDenied("Only the quiz maintainer can add collaborators")
-        if QuizCollaborator.objects.filter(quiz=quiz, user_id=user_id).exists():
+
+        try:
+            serializer.save(invited_by=self.request.user)
+        except IntegrityError:
             raise ValidationError("This user is already a collaborator for this quiz.")
-        serializer.save(invited_by=self.request.user)
 
     @action(detail=True, methods=['post'])
     def accept(self, request, pk=None):

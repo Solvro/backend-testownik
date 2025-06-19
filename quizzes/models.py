@@ -81,6 +81,9 @@ class QuizCollaborator(models.Model):
 
     class Meta:
         unique_together = ('quiz', 'user')
+        constraints = [
+            models.UniqueConstraint(fields=['quiz', 'user'], name='unique_quiz_user_collaborator')
+        ]
 
     def __str__(self):
         return f"{self.user} - {self.quiz.title} ({self.get_status_display()})"
