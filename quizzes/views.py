@@ -558,8 +558,16 @@ class QuizCollaboratorViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         quiz = serializer.validated_data['quiz']
+        user_id = serializer.validated_data['user_id']
+
+        if not user_id:
+            raise ValidationError({"user_id": "This field is required"})
+        if not quiz:
+            raise ValidationError({"quiz": "This field is required"})
         if quiz.maintainer != self.request.user:
             raise PermissionDenied("Only the quiz maintainer can add collaborators")
+        if QuizCollaborator.objects.filter(quiz=quiz, user_id=user_id).exists():
+            raise ValidationError("This user is already a collaborator for this quiz.")
         serializer.save(invited_by=self.request.user)
 
     @action(detail=True, methods=['post'])

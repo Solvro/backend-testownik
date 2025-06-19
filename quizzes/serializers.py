@@ -7,15 +7,22 @@ from users.serializers import PublicUserSerializer, StudyGroupSerializer
 
 class QuizCollaboratorSerializer(serializers.ModelSerializer):
     user = PublicUserSerializer(read_only=True)
+    user_id = serializers.UUIDField(write_only=True)
     invited_by = PublicUserSerializer(read_only=True)
     status_name = serializers.SerializerMethodField()
 
     class Meta:
         model = QuizCollaborator
-        fields = ['id', 'user', 'status', 'status_name', 'invited_by', 'created_at', 'updated_at']
-        read_only_fields = ['user', 'invited_by', 'created_at', 'updated_at']
+        fields = ['id', 'quiz', 'user', 'user_id', 'status', 'status_name', 'invited_by', 'created_at', 'updated_at']
+        read_only_fields = ['invited_by', 'created_at', 'updated_at']
 
-    def get_status_name(self, obj):
+    def create(self, validated_data):
+        user_id = validated_data.pop('user_id')
+        validated_data['user_id'] = user_id
+        return super().create(validated_data)
+
+    @staticmethod
+    def get_status_name(obj):
         return obj.get_status_display()
 
 
