@@ -12,13 +12,6 @@ QUIZ_VISIBILITY_CHOICES = [
     (3, "Publiczny"),
 ]
 
-INVITATION_STATUS_CHOICES = [
-    (0, "Pending"),
-    (1, "Accepted"),
-    (2, "Rejected"),
-]
-
-
 class Quiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255)
@@ -67,26 +60,7 @@ class Quiz(models.Model):
         }
 
     def can_edit(self, user):
-        return user == self.maintainer or self.collaborators.filter(user=user, status=1).exists()
-
-
-class QuizCollaborator(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name='collaborators')
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    status = models.PositiveIntegerField(choices=INVITATION_STATUS_CHOICES, default=0)
-    invited_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='sent_invitations')
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        unique_together = ('quiz', 'user')
-        constraints = [
-            models.UniqueConstraint(fields=['quiz', 'user'], name='unique_quiz_user_collaborator')
-        ]
-
-    def __str__(self):
-        return f"{self.user} - {self.quiz.title} ({self.get_status_display()})"
+        return user == self.maintainer or self.sharedquiz_set.filter(user=user, allow_edit=True).exists()
 
 class SharedQuiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -105,6 +79,7 @@ class SharedQuiz(models.Model):
         null=True,
         blank=True,
     )
+    allow_edit = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.quiz.title} shared with {self.user or self.study_group}"

@@ -1,35 +1,15 @@
 from rest_framework import serializers
 
-from quizzes.models import Quiz, SharedQuiz, QuizCollaborator
+from quizzes.models import Quiz, SharedQuiz
 from users.models import StudyGroup, User
 from users.serializers import PublicUserSerializer, StudyGroupSerializer
 
 
-class QuizCollaboratorSerializer(serializers.ModelSerializer):
-    user = PublicUserSerializer(read_only=True)
-    user_id = serializers.UUIDField(write_only=True)
-    invited_by = PublicUserSerializer(read_only=True)
-    status_name = serializers.SerializerMethodField()
-
-    class Meta:
-        model = QuizCollaborator
-        fields = ['id', 'quiz', 'user', 'user_id', 'status', 'status_name', 'invited_by', 'created_at', 'updated_at']
-        read_only_fields = ['invited_by', 'created_at', 'updated_at']
-
-    def create(self, validated_data):
-        user_id = validated_data.pop('user_id')
-        validated_data['user_id'] = user_id
-        return super().create(validated_data)
-
-    @staticmethod
-    def get_status_name(obj):
-        return obj.get_status_display()
-
 
 class QuizSerializer(serializers.ModelSerializer):
     maintainer = PublicUserSerializer(read_only=True)
-    collaborators = QuizCollaboratorSerializer(many=True, read_only=True)
     can_edit = serializers.SerializerMethodField()
+    collaborators = serializers.SerializerMethodField()
 
     class Meta:
         model = Quiz
@@ -43,16 +23,28 @@ class QuizSerializer(serializers.ModelSerializer):
             "allow_anonymous",
             "version",
             "questions",
-            "collaborators",
             "can_edit",
+            "collaborators",
         ]
-        read_only_fields = ["maintainer", "version", "collaborators", "can_edit"]
+        read_only_fields = ["maintainer", "version", "can_edit"]
 
     def get_can_edit(self, obj) -> bool:
         request = self.context.get('request')
         if request and request.user.is_authenticated:
+
             return obj.can_edit(request.user)
         return False
+
+    def get_collaborators(self, obj):
+        shared_quizzes = SharedQuiz.objects.filter(quiz=obj)
+        collaborators = [
+            {
+            "user": shared_quiz.user.full_name,
+            "allow_edit": shared_quiz.allow_edit,
+            }
+            for shared_quiz in shared_quizzes
+        ]
+        return collaborators
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -105,11 +97,12 @@ class SharedQuizSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False,
     )
+    allow_edit = serializers.BooleanField(required=False, default=False)
 
     class Meta:
         model = SharedQuiz
-        fields = ["id", "quiz", "quiz_id", "user", "user_id", "group", "study_group_id"]
-        optional_fields = ["user_id", "study_group_id"]
+        fields = ["id", "quiz", "quiz_id", "user", "user_id", "group", "study_group_id", "allow_edit"]
+        optional_fields = ["user_id", "study_group_id", "allow_edit"]
 
     def validate(self, attrs):
         # Ensure that only one of `user_id` or `study_group_id` is provided

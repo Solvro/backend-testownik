@@ -3,7 +3,6 @@ from rest_framework.routers import DefaultRouter
 from quizzes.views import (
     QuizViewSet,
     SharedQuizViewSet,
-    QuizCollaboratorViewSet,
     RandomQuestionView,
     LastUsedQuizzesView,
     QuizMetadataView,
@@ -16,7 +15,6 @@ from quizzes.views import (
 router = DefaultRouter()
 router.register("quizzes", QuizViewSet)
 router.register("shared-quizzes", SharedQuizViewSet)
-router.register("collaborators", QuizCollaboratorViewSet, basename="collaborator")
 
 urlpatterns = [
     path("", include(router.urls)),
