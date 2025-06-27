@@ -5,7 +5,6 @@ from users.models import StudyGroup, User
 from users.serializers import PublicUserSerializer, StudyGroupSerializer
 
 
-
 class QuizSerializer(serializers.ModelSerializer):
     maintainer = PublicUserSerializer(read_only=True)
     can_edit = serializers.SerializerMethodField()
@@ -29,7 +28,7 @@ class QuizSerializer(serializers.ModelSerializer):
         read_only_fields = ["maintainer", "version", "can_edit"]
 
     def get_can_edit(self, obj) -> bool:
-        request = self.context.get('request')
+        request = self.context.get("request")
         if request and request.user.is_authenticated:
 
             return obj.can_edit(request.user)
@@ -39,8 +38,8 @@ class QuizSerializer(serializers.ModelSerializer):
         shared_quizzes = SharedQuiz.objects.filter(quiz=obj)
         collaborators = [
             {
-            "user": shared_quiz.user.full_name if shared_quiz.user else None,
-            "allow_edit": shared_quiz.allow_edit,
+                "user": shared_quiz.user.full_name if shared_quiz.user else None,
+                "allow_edit": shared_quiz.allow_edit,
             }
             for shared_quiz in shared_quizzes
         ]
@@ -101,7 +100,16 @@ class SharedQuizSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SharedQuiz
-        fields = ["id", "quiz", "quiz_id", "user", "user_id", "group", "study_group_id", "allow_edit"]
+        fields = [
+            "id",
+            "quiz",
+            "quiz_id",
+            "user",
+            "user_id",
+            "group",
+            "study_group_id",
+            "allow_edit",
+        ]
         optional_fields = ["user_id", "study_group_id", "allow_edit"]
 
     def validate(self, attrs):

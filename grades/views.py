@@ -1,7 +1,12 @@
 import os
 
 import dotenv
-from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample, OpenApiParameter
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+)
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -27,7 +32,7 @@ class GetGradesView(APIView):
                 required=False,
                 type=str,
                 location=OpenApiParameter.QUERY,
-                description="Optional term ID to filter grades"
+                description="Optional term ID to filter grades",
             )
         ],
         responses={
@@ -35,7 +40,7 @@ class GetGradesView(APIView):
                 description="Grades and terms returned successfully",
             ),
             401: OpenApiResponse(description="Unauthorized"),
-            500: OpenApiResponse(description="Failed to retrieve grades")
+            500: OpenApiResponse(description="Failed to retrieve grades"),
         },
         examples=[
             OpenApiExample(
@@ -48,7 +53,7 @@ class GetGradesView(APIView):
                             "start_date": "2024-10-01",
                             "end_date": "2025-01-31",
                             "finish_date": "2025-02-15",
-                            "is_current": True
+                            "is_current": True,
                         }
                     ],
                     "courses": [
@@ -62,23 +67,23 @@ class GetGradesView(APIView):
                                     "value": 4.5,
                                     "value_symbol": "+4",
                                     "value_description": "Very Good",
-                                    "counts_into_average": True
+                                    "counts_into_average": True,
                                 }
                             ],
-                            "passing_status": "passed"
+                            "passing_status": "passed",
                         }
-                    ]
+                    ],
                 },
-                status_codes=["200"]
+                status_codes=["200"],
             )
-        ]
+        ],
     )
     async def get(self, request):
         term_id = request.GET.get("term_id")
         request_user = request.user
 
         async with USOSClient(
-                USOS_BASE_URL, CONSUMER_KEY, CONSUMER_SECRET, trust_env=True
+            USOS_BASE_URL, CONSUMER_KEY, CONSUMER_SECRET, trust_env=True
         ) as client:
             client.load_access_token(
                 request_user.access_token, request_user.access_token_secret

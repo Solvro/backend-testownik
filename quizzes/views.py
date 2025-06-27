@@ -15,7 +15,12 @@ from django.core.mail import EmailMessage
 from django.core.validators import URLValidator
 from django.db.models import Q
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample, OpenApiParameter
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+)
 from rest_framework import permissions, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -23,7 +28,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from quizzes.models import Quiz, QuizProgress, SharedQuiz
-from quizzes.permissions import IsSharedQuizMaintainerOrReadOnly, IsQuizMaintainerOrCollaborator
+from quizzes.permissions import (
+    IsQuizMaintainerOrCollaborator,
+    IsSharedQuizMaintainerOrReadOnly,
+)
 from quizzes.serializers import (
     QuizMetaDataSerializer,
     QuizSerializer,
@@ -48,7 +56,7 @@ class RandomQuestionView(APIView):
                         "quiz_title": {"type": "string"},
                     },
                 },
-                description="Randomly selected question from user's recent quizzes"
+                description="Randomly selected question from user's recent quizzes",
             ),
             401: OpenApiResponse(description="Unauthorized"),
             404: OpenApiResponse(description="No quizzes found"),
@@ -61,16 +69,15 @@ class RandomQuestionView(APIView):
                     "text": "What is the capital of France?",
                     "options": ["Paris", "London", "Berlin", "Madrid"],
                     "quiz_id": "123e4567-e89b-12d3-a456-426614174000",
-                    "quiz_title": "Geography Quiz"
+                    "quiz_title": "Geography Quiz",
                 },
-                status_codes=["200"]
+                status_codes=["200"],
             )
-        ]
+        ],
     )
     def get(self, request):
         quizzes_progress = QuizProgress.objects.filter(
-            user=request.user,
-            last_activity__gt=timezone.now() - timedelta(days=90)
+            user=request.user, last_activity__gt=timezone.now() - timedelta(days=90)
         ).order_by("?")
 
         for quiz_progress in quizzes_progress:
@@ -90,7 +97,7 @@ class LastUsedQuizzesView(APIView):
         summary="Get recently used quizzes",
         responses={
             200: QuizMetaDataSerializer(many=True),
-            401: OpenApiResponse(description="Unauthorized")
+            401: OpenApiResponse(description="Unauthorized"),
         },
         parameters=[
             OpenApiParameter(
@@ -100,14 +107,16 @@ class LastUsedQuizzesView(APIView):
                 location=OpenApiParameter.QUERY,
                 description="Maximum number of recent quizzes to return (max: 20)",
             )
-        ]
+        ],
     )
     def get(self, request):
         max_quizzes_count = min(int(request.query_params.get("limit", 4)), 20)
 
         last_used_quizzes = [
             qp.quiz
-            for qp in QuizProgress.objects.filter(user=request.user).order_by("-last_activity")[:max_quizzes_count]
+            for qp in QuizProgress.objects.filter(user=request.user).order_by(
+                "-last_activity"
+            )[:max_quizzes_count]
         ]
 
         return Response([quiz.to_dict() for quiz in last_used_quizzes])
@@ -129,7 +138,7 @@ class SearchQuizzesView(APIView):
                 },
             },
             401: OpenApiResponse(description="Unauthorized"),
-            400: OpenApiResponse(description="Missing query parameter")
+            400: OpenApiResponse(description="Missing query parameter"),
         },
         parameters=[
             OpenApiParameter(
@@ -137,16 +146,18 @@ class SearchQuizzesView(APIView):
                 required=True,
                 type=str,
                 location=OpenApiParameter.QUERY,
-                description="Search term for quiz titles"
+                description="Search term for quiz titles",
             )
-        ]
+        ],
     )
     def get(self, request):
         query = urllib.parse.unquote(request.query_params.get("query", ""))
         if not query:
             return Response({"error": "Query parameter is required"}, status=400)
 
-        user_quizzes = Quiz.objects.filter(maintainer=request.user, title__icontains=query)
+        user_quizzes = Quiz.objects.filter(
+            maintainer=request.user, title__icontains=query
+        )
         shared_quizzes = SharedQuiz.objects.filter(
             user=request.user, quiz__title__icontains=query, quiz__visibility__gte=1
         )
@@ -157,12 +168,14 @@ class SearchQuizzesView(APIView):
         )
         public_quizzes = Quiz.objects.filter(title__icontains=query, visibility__gte=3)
 
-        return Response({
-            "user_quizzes": [q.to_search_result() for q in user_quizzes],
-            "shared_quizzes": [q.quiz.to_search_result() for q in shared_quizzes],
-            "group_quizzes": [q.quiz.to_search_result() for q in group_quizzes],
-            "public_quizzes": [q.to_search_result() for q in public_quizzes],
-        })
+        return Response(
+            {
+                "user_quizzes": [q.to_search_result() for q in user_quizzes],
+                "shared_quizzes": [q.quiz.to_search_result() for q in shared_quizzes],
+                "group_quizzes": [q.quiz.to_search_result() for q in group_quizzes],
+                "public_quizzes": [q.to_search_result() for q in public_quizzes],
+            }
+        )
 
 
 # This viewset will only return user's quizzes when listing, but will allow to view all quizzes when retrieving a single quiz.
@@ -171,14 +184,19 @@ class SearchQuizzesView(APIView):
 class QuizViewSet(viewsets.ModelViewSet):
     queryset = Quiz.objects.all()
     serializer_class = QuizSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsQuizMaintainerOrCollaborator]
+    permission_classes = [
+        permissions.IsAuthenticatedOrReadOnly,
+        IsQuizMaintainerOrCollaborator,
+    ]
 
     def get_queryset(self):
         if not self.request.user.is_authenticated:
             if self.action == "list":
                 return Quiz.objects.none()
             return Quiz.objects.filter(visibility__gte=2, allow_anonymous=True)
-        _filter = Q(maintainer=self.request.user) | Q(sharedquiz__user=self.request.user)
+        _filter = Q(maintainer=self.request.user) | Q(
+            sharedquiz__user=self.request.user
+        )
         if self.action == "retrieve":
             _filter |= Q(visibility__gte=3)
             _filter |= Q(visibility__gte=2)
@@ -228,11 +246,13 @@ class QuizMetadataView(APIView):
         summary="Get quiz metadata",
         responses={
             200: QuizMetaDataSerializer,
-        }
+        },
     )
     def get(self, request, quiz_id):
         quiz = Quiz.objects.get(id=quiz_id)
-        return Response(QuizMetaDataSerializer(quiz, context={"user": request.user}).data)
+        return Response(
+            QuizMetaDataSerializer(quiz, context={"user": request.user}).data
+        )
 
 
 class SharedQuizViewSet(viewsets.ModelViewSet):
@@ -270,17 +290,15 @@ class ImportQuizFromLinkView(APIView):
         request={
             "application/json": {
                 "type": "object",
-                "properties": {
-                    "link": {"type": "string", "format": "uri"}
-                },
-                "required": ["link"]
+                "properties": {"link": {"type": "string", "format": "uri"}},
+                "required": ["link"],
             }
         },
         responses={
             201: QuizSerializer,
             400: OpenApiResponse(description="Validation or fetch failure"),
-            401: OpenApiResponse(description="Unauthorized")
-        }
+            401: OpenApiResponse(description="Unauthorized"),
+        },
     )
     async def post(self, request):
 
@@ -307,7 +325,8 @@ class ImportQuizFromLinkView(APIView):
             # Check if hostname is an IP address
             ipaddress.ip_address(hostname)
             return Response(
-                {"error": "IP addresses are not allowed, only public domains"}, status=400
+                {"error": "IP addresses are not allowed, only public domains"},
+                status=400,
             )
         except ValueError:
             # If not an IP, ensure the hostname is valid
@@ -320,11 +339,15 @@ class ImportQuizFromLinkView(APIView):
             ip_obj = ipaddress.ip_address(ip)
             if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved:
                 return Response(
-                    {"error": "Private, loopback, or reserved addresses are not allowed"},
+                    {
+                        "error": "Private, loopback, or reserved addresses are not allowed"
+                    },
                     status=400,
                 )
         except Exception as e:
-            return Response({"error": f"Hostname resolution failed: {str(e)}"}, status=400)
+            return Response(
+                {"error": f"Hostname resolution failed: {str(e)}"}, status=400
+            )
 
         try:
             # Use aiohttp to download the file asynchronously
@@ -332,13 +355,15 @@ class ImportQuizFromLinkView(APIView):
                 async with session.get(link, timeout=5) as response:
                     # Check for HTTP status and content type
                     if response.status != 200:
-                        return Response({"error": "Failed to fetch the file"}, status=400)
+                        return Response(
+                            {"error": "Failed to fetch the file"}, status=400
+                        )
 
                     content_type = response.headers.get("Content-Type", "")
                     if (
-                            "application/json" not in content_type
-                            and "text/json" not in content_type
-                            and "text/plain" not in content_type
+                        "application/json" not in content_type
+                        and "text/json" not in content_type
+                        and "text/plain" not in content_type
                     ):
                         return Response(
                             {"error": "The file is not a valid JSON file"}, status=400
@@ -366,7 +391,8 @@ class ImportQuizFromLinkView(APIView):
                     for field in required_fields:
                         if field not in quiz_data:
                             return Response(
-                                {"error": f"Missing required field: {field}"}, status=400
+                                {"error": f"Missing required field: {field}"},
+                                status=400,
                             )
 
         except asyncio.TimeoutError:
@@ -396,7 +422,7 @@ class ReportQuestionIssueView(APIView):
                     "question_id": {"type": "string"},
                     "issue": {"type": "string"},
                 },
-                "required": ["quiz_id", "question_id", "issue"]
+                "required": ["quiz_id", "question_id", "issue"],
             }
         },
         responses={
@@ -404,12 +430,16 @@ class ReportQuestionIssueView(APIView):
             400: OpenApiResponse(description="Missing or invalid data"),
             401: OpenApiResponse(description="Unauthorized"),
             404: OpenApiResponse(description="Quiz not found"),
-            500: OpenApiResponse(description="Email sending failed")
-        }
+            500: OpenApiResponse(description="Email sending failed"),
+        },
     )
     def post(self, request):
         data = request.data
-        if not data.get("quiz_id") or not data.get("question_id") or not data.get("issue"):
+        if (
+            not data.get("quiz_id")
+            or not data.get("question_id")
+            or not data.get("issue")
+        ):
             return Response({"error": "Missing data"}, status=400)
 
         quiz = Quiz.objects.get(id=data.get("quiz_id"))
@@ -418,7 +448,8 @@ class ReportQuestionIssueView(APIView):
 
         if request.user == quiz.maintainer:
             return Response(
-                {"error": "You cannot report issues with your own questions"}, status=400
+                {"error": "You cannot report issues with your own questions"},
+                status=400,
             )
 
         # Email details
@@ -463,18 +494,22 @@ class QuizProgressView(APIView):
                     "study_time": {"type": "number"},
                     "last_activity": {"type": "string", "format": "date-time"},
                     "reoccurrences": {"type": "array", "items": {"type": "integer"}},
-                }
+                },
             },
             401: OpenApiResponse(description="Unauthorized"),
             403: OpenApiResponse(description="Forbidden"),
-            404: OpenApiResponse(description="Not Found")
-        }
+            404: OpenApiResponse(description="Not Found"),
+        },
     )
     def get(self, request, quiz_id):
         try:
-            quiz_progress, _ = QuizProgress.objects.get_or_create(quiz_id=quiz_id, user=request.user)
+            quiz_progress, _ = QuizProgress.objects.get_or_create(
+                quiz_id=quiz_id, user=request.user
+            )
         except QuizProgress.MultipleObjectsReturned:
-            duplicates = QuizProgress.objects.filter(quiz_id=quiz_id, user=request.user).order_by("-last_activity")[1:]
+            duplicates = QuizProgress.objects.filter(
+                quiz_id=quiz_id, user=request.user
+            ).order_by("-last_activity")[1:]
             for duplicate in duplicates:
                 duplicate.delete()
             quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
@@ -503,14 +538,23 @@ class QuizProgressView(APIView):
     def post(self, request, quiz_id):
         data = json.loads(request.body)
         try:
-            quiz_progress, _ = QuizProgress.objects.get_or_create(quiz_id=quiz_id, user=request.user)
+            quiz_progress, _ = QuizProgress.objects.get_or_create(
+                quiz_id=quiz_id, user=request.user
+            )
         except QuizProgress.MultipleObjectsReturned:
-            duplicates = QuizProgress.objects.filter(quiz_id=quiz_id, user=request.user).order_by("-last_activity")[1:]
+            duplicates = QuizProgress.objects.filter(
+                quiz_id=quiz_id, user=request.user
+            ).order_by("-last_activity")[1:]
             for duplicate in duplicates:
                 duplicate.delete()
             quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
 
-        for field in ["current_question", "reoccurrences", "correct_answers_count", "wrong_answers_count"]:
+        for field in [
+            "current_question",
+            "reoccurrences",
+            "correct_answers_count",
+            "wrong_answers_count",
+        ]:
             if field in data:
                 setattr(quiz_progress, field, data[field])
 
@@ -532,4 +576,3 @@ class QuizProgressView(APIView):
         quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
         quiz_progress.delete()
         return Response({"status": "deleted"})
-

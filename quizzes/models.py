@@ -12,6 +12,7 @@ QUIZ_VISIBILITY_CHOICES = [
     (3, "Publiczny"),
 ]
 
+
 class Quiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255)
@@ -60,7 +61,11 @@ class Quiz(models.Model):
         }
 
     def can_edit(self, user):
-        return user == self.maintainer or self.sharedquiz_set.filter(user=user, allow_edit=True).exists()
+        return (
+            user == self.maintainer
+            or self.sharedquiz_set.filter(user=user, allow_edit=True).exists()
+        )
+
 
 class SharedQuiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

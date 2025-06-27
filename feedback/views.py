@@ -4,7 +4,7 @@ import os
 import dotenv
 import requests
 from django_ratelimit.decorators import ratelimit
-from drf_spectacular.utils import OpenApiResponse, OpenApiExample, extend_schema
+from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -34,11 +34,18 @@ class FeedbackAddView(APIView):
         },
         responses={
             200: OpenApiResponse(
-                response={"type": "object", "properties": {"success": {"type": "string"}}},
+                response={
+                    "type": "object",
+                    "properties": {"success": {"type": "string"}},
+                },
                 description="Feedback submitted successfully",
             ),
-            400: OpenApiResponse(description="Missing required fields or invalid input"),
-            500: OpenApiResponse(description="Internal server error or webhook failure"),
+            400: OpenApiResponse(
+                description="Missing required fields or invalid input"
+            ),
+            500: OpenApiResponse(
+                description="Internal server error or webhook failure"
+            ),
         },
         examples=[
             OpenApiExample(
@@ -51,7 +58,7 @@ class FeedbackAddView(APIView):
                 request_only=True,
                 status_codes=["200"],
             )
-        ]
+        ],
     )
     def post(self, request):
         try:
@@ -75,7 +82,9 @@ class FeedbackAddView(APIView):
                 print(
                     f"Error while sending feedback form: {response.status_code}, {response.text}"
                 )
-                return Response({"error": "Error while sending feedback form"}, status=500)
+                return Response(
+                    {"error": "Error while sending feedback form"}, status=500
+                )
 
         except Exception as e:
             return Response({"error": f"Internal Server Error: {str(e)}"}, status=500)

@@ -1,4 +1,5 @@
 from django.urls import path
+
 from grades.views import GetGradesView
 
 urlpatterns = [
