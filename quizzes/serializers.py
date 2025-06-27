@@ -39,7 +39,7 @@ class QuizSerializer(serializers.ModelSerializer):
         shared_quizzes = SharedQuiz.objects.filter(quiz=obj)
         collaborators = [
             {
-            "user": shared_quiz.user.full_name,
+            "user": shared_quiz.user.full_name if shared_quiz.user else None,
             "allow_edit": shared_quiz.allow_edit,
             }
             for shared_quiz in shared_quizzes

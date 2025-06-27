@@ -216,7 +216,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         quiz = self.get_object()
         if not quiz.can_edit(request.user):
             return Response(
-                {"error": "You are not the maintainer of this quiz"}, status=403
+                {"error": "You do not have permission to edit this quiz"}, status=403
             )
         return super().update(request, *args, **kwargs)
 
