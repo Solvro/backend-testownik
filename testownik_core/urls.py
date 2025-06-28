@@ -1,109 +1,69 @@
-"""
-URL configuration for testownik_core project.
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/5.0/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
-"""
-
 from django.contrib import admin
+from django.shortcuts import redirect
 from django.urls import include, path
-from rest_framework import routers
+from drf_spectacular.utils import extend_schema
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from alerts.views import AlertViewSet
-from feedback import views as feedback_views
-from grades import views as grades_views
-from quizzes import views as quizzes_views
-from users import views as users_views
-from users.views import current_user
+from users.views import admin_login
 
 
+@extend_schema(exclude=True)
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def status(request):
     return Response({"status": "ok"})
 
 
-router = routers.DefaultRouter()
-router.register(r"users", users_views.UserViewSet)
-router.register(r"study-groups", users_views.StudyGroupViewSet)
-router.register(r"quizzes", quizzes_views.QuizViewSet)
-router.register(r"shared-quizzes", quizzes_views.SharedQuizViewSet)
-router.register(r"alerts", AlertViewSet)
+@extend_schema(exclude=True)
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def root_redirect(request):
+    return redirect("/swagger/")
+
 
 urlpatterns = [
+    # Root URL redirects to Swagger UI
+    path("", root_redirect, name="index"),
     # Status
     path("status/", status, name="status"),
     # Admin
-    path("admin/login/", users_views.admin_login, name="admin_login"),
-    path("admin/", admin.site.urls, name="admin"),
-    # USOS login
-    path("login/usos/", users_views.login_usos, name="login_usos"),
-    path("authorize/", users_views.authorize, name="authorize"),
-    # API authentication
+    path("admin/login/", admin_login, name="admin_login"),
+    path("admin/", admin.site.urls),
+    # Authentication
     path("token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
-    path("generate-otp/", users_views.generate_otp, name="generate_otp"),
-    path("login-link/", users_views.login_link, name="login_link"),
-    path("login-otp/", users_views.login_otp, name="login_otp"),
-    # API
-    path("", include(router.urls)),
-    path("user/", current_user, name="api_current_user"),
-    path("settings/", users_views.settings, name="api_settings"),
+    # Docs
     path(
-        "random-question/",
-        quizzes_views.random_question_for_user,
-        name="api_random_question_for_user",
+        "schema/",
+        SpectacularAPIView.as_view(permission_classes=[AllowAny]),
+        name="schema",
     ),
     path(
-        "last-used-quizzes/",
-        quizzes_views.last_used_quizzes,
-        name="api_last_used_quizzes",
+        "swagger/",
+        SpectacularSwaggerView.as_view(
+            url_name="schema", permission_classes=[AllowAny]
+        ),
+        name="swagger-ui",
     ),
     path(
-        "quiz-progress/<uuid:quiz_id>/",
-        quizzes_views.quiz_progress,
-        name="quiz_progress_api",
+        "redoc/",
+        SpectacularRedocView.as_view(url_name="schema", permission_classes=[AllowAny]),
+        name="redoc",
     ),
-    path(
-        "search-quizzes/",
-        quizzes_views.search_quizzes,
-        name="api_search_quizzes",
-    ),
-    path(
-        "quiz-metadata/<uuid:quiz_id>/",
-        quizzes_views.quiz_metadata,
-        name="api_quiz_metadata",
-    ),
-    path(
-        "import-quiz-from-link/",
-        quizzes_views.import_quiz_from_link,
-        name="import_quiz_from_link_api",
-    ),
-    path(
-        "report-quiz-error/",
-        quizzes_views.report_question_issue,
-        name="report_question_issue_api",
-    ),
-    path("grades/", grades_views.get_grades, name="get_grades"),
-    path(
-        "feedback/send",
-        feedback_views.feedback_add,
-        name="feedback_add_api",
-    ),
+    # Include app routes
+    path("", include("users.urls")),
+    path("", include("quizzes.urls")),
+    path("", include("grades.urls")),
+    path("", include("feedback.urls")),
+    path("", include("alerts.urls")),
 ]
 
 # Admin site settings

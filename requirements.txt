@@ -9,6 +9,9 @@ adrf==0.1.9
 gunicorn==23.0.0
 psycopg[binary]==3.2.7
 whitenoise==6.9.0
-asgiref==3.8.1
-aiohttp==3.11.18
-django-ratelimit==4.1.0
+asgiref~=3.8.1
+aiohttp~=3.11.13
+django-ratelimit~=4.1.0
+drf-spectacular==0.27.1
+django-filter==24.1
+django-constance>=4.3.2

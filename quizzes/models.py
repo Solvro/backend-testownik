@@ -30,7 +30,6 @@ class Quiz(models.Model):
     version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
     questions = models.JSONField(default=list, blank=True)
 
     def __str__(self):
@@ -61,6 +60,13 @@ class Quiz(models.Model):
             "is_anonymous": self.is_anonymous,
         }
 
+    def can_edit(self, user):
+        return (
+            user == self.maintainer
+            or self.sharedquiz_set.filter(user=user, allow_edit=True).exists()
+            or self.sharedquiz_set.filter(study_group__in=user.study_groups.all(), allow_edit=True).exists()
+        )
+
 
 class SharedQuiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -79,6 +85,7 @@ class SharedQuiz(models.Model):
         null=True,
         blank=True,
     )
+    allow_edit = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.quiz.title} shared with {self.user or self.study_group}"
