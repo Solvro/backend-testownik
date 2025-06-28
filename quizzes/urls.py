@@ -39,5 +39,5 @@ urlpatterns = [
         ReportQuestionIssueView.as_view(),
         name="report-question-issue",
     ),
-    path("search/", SearchQuizzesView.as_view(), name="search-quizzes"),
+    path("search-quizzes/", SearchQuizzesView.as_view(), name="search-quizzes"),
 ]

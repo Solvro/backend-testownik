@@ -30,7 +30,6 @@ class QuizSerializer(serializers.ModelSerializer):
     def get_can_edit(self, obj) -> bool:
         request = self.context.get("request")
         if request and request.user.is_authenticated:
-
             return obj.can_edit(request.user)
         return False
 
@@ -57,6 +56,7 @@ class QuizSerializer(serializers.ModelSerializer):
 
 class QuizMetaDataSerializer(serializers.ModelSerializer):
     maintainer = PublicUserSerializer(read_only=True)
+    can_edit = serializers.SerializerMethodField()
 
     class Meta:
         model = Quiz
@@ -69,6 +69,7 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "is_anonymous",
             "allow_anonymous",
             "version",
+            "can_edit",
         ]
         read_only_fields = ["maintainer"]
 
@@ -78,6 +79,12 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
         if instance.is_anonymous and not user == instance.maintainer:
             data["maintainer"] = None
         return data
+
+    def get_can_edit(self, obj) -> bool:
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            return obj.can_edit(request.user)
+        return False
 
 
 class SharedQuizSerializer(serializers.ModelSerializer):
@@ -113,15 +120,22 @@ class SharedQuizSerializer(serializers.ModelSerializer):
         optional_fields = ["user_id", "study_group_id", "allow_edit"]
 
     def validate(self, attrs):
-        # Ensure that only one of `user_id` or `study_group_id` is provided
         user = attrs.get("user")
         study_group = attrs.get("study_group")
+
+        # Never allow both user and study_group to be provided simultaneously
         if user and study_group:
             raise serializers.ValidationError(
                 "Only one of 'user_id' or 'study_group_id' can be provided, not both."
             )
+
+        # For create operations (no instance) or when both fields are missing,
+        # require at least one field to be provided
         if not user and not study_group:
-            raise serializers.ValidationError(
-                "You must provide either 'user_id' or 'study_group_id'."
-            )
+            # If this is an update and the instance already has either user or study_group, it's valid
+            if not self.instance or (not self.instance.user and not self.instance.study_group):
+                raise serializers.ValidationError(
+                    "You must provide either 'user_id' or 'study_group_id'."
+                )
+
         return attrs

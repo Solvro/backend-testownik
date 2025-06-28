@@ -194,10 +194,8 @@ class QuizViewSet(viewsets.ModelViewSet):
             if self.action == "list":
                 return Quiz.objects.none()
             return Quiz.objects.filter(visibility__gte=2, allow_anonymous=True)
-        _filter = Q(maintainer=self.request.user) | Q(
-            sharedquiz__user=self.request.user
-        )
-        if self.action == "retrieve":
+        _filter = Q(maintainer=self.request.user)
+        if self.action == "retrieve" or self.action == "update":
             _filter |= Q(visibility__gte=3)
             _filter |= Q(visibility__gte=2)
             _filter |= Q(visibility__gte=1, sharedquiz__user=self.request.user)
@@ -264,9 +262,8 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
         _filter = Q(user=self.request.user, quiz__visibility__gte=1) | Q(
             study_group__in=self.request.user.study_groups.all(),
             quiz__visibility__gte=1,
-        )
+        )  | Q(quiz__maintainer=self.request.user)
         if self.request.query_params.get("quiz"):
-            _filter |= Q(quiz__maintainer=self.request.user)
             _filter &= Q(quiz_id=self.request.query_params.get("quiz"))
         return SharedQuiz.objects.filter(_filter)
 

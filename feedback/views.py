@@ -3,6 +3,8 @@ import os
 
 import dotenv
 import requests
+from adrf.generics import GenericAPIView
+from django.utils.decorators import method_decorator
 from django_ratelimit.decorators import ratelimit
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework.permissions import AllowAny
@@ -15,10 +17,10 @@ N8N_WEBHOOK = os.getenv("N8N_WEBHOOK")
 FEEDBACK_SECRET = os.getenv("FEEDBACK_SECRET")
 
 
-class FeedbackAddView(APIView):
+class FeedbackAddView(GenericAPIView):
     permission_classes = [AllowAny]
 
-    @ratelimit(key="ip", rate="3/m", method="POST", block=True)
+    @method_decorator(ratelimit(key="ip", rate="3/m", method="POST", block=True))
     @extend_schema(
         summary="Submit feedback",
         request={
@@ -62,7 +64,7 @@ class FeedbackAddView(APIView):
     )
     def post(self, request):
         try:
-            data = json.loads(request.body)
+            data = request.data
             if not data:
                 return Response({"error": "No data provided"}, status=400)
             if "name" not in data:
