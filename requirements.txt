@@ -1,7 +1,7 @@
 python-dotenv==1.1.0
 Django==5.2.0
 usos-api>=0.3.3
-requests==2.32.3
+requests==2.32.5
 djangorestframework==3.16.0
 djangorestframework-simplejwt==5.5.0
 django-cors-headers==4.7.0
