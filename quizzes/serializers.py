@@ -133,7 +133,9 @@ class SharedQuizSerializer(serializers.ModelSerializer):
         # require at least one field to be provided
         if not user and not study_group:
             # If this is an update and the instance already has either user or study_group, it's valid
-            if not self.instance or (not self.instance.user and not self.instance.study_group):
+            if not self.instance or (
+                not self.instance.user and not self.instance.study_group
+            ):
                 raise serializers.ValidationError(
                     "You must provide either 'user_id' or 'study_group_id'."
                 )

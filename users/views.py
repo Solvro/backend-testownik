@@ -6,7 +6,8 @@ import dotenv
 from asgiref.sync import sync_to_async
 from django.contrib import messages
 from django.contrib.auth import aget_user
-from django.contrib.auth import alogin as auth_login
+from django.contrib.auth import alogin as async_auth_login
+from django.contrib.auth import login as auth_login
 from django.db.models import Q
 from django.http import (
     HttpResponseBadRequest,
@@ -31,6 +32,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from usos_api import USOSClient
 
 from quizzes.models import QuizProgress, SharedQuiz
+from testownik_core.settings import oauth
 from users.models import EmailLoginToken, StudyGroup, Term, User, UserSettings
 from users.serializers import PublicUserSerializer, StudyGroupSerializer, UserSerializer
 from users.utils import send_login_email_to_user
@@ -43,7 +45,7 @@ def add_query_params(url, params):
     query = dict(parse_qs(url_parts[4]))
     query.update(params)
     url_parts[4] = urlencode(query, doseq=True)
-    return urlunparse(url_parts)
+    return str(urlunparse(url_parts))
 
 
 def remove_query_params(url, params):
@@ -52,7 +54,22 @@ def remove_query_params(url, params):
     for param in params:
         query.pop(param, None)
     url_parts[4] = urlencode(query, doseq=True)
-    return urlunparse(url_parts)
+    return str(urlunparse(url_parts))
+
+
+def login(request):
+    confirm_user = request.GET.get("confirm_user", "false") == "true"
+    jwt = request.GET.get("jwt", "false") == "true"
+    redirect_url = request.GET.get("redirect", "")
+    callback_url = request.build_absolute_uri(
+        f"/authorize/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
+    )
+    additional_params = {}
+    if confirm_user:
+        additional_params["prompt"] = "login"
+    return oauth.create_client("solvro-auth").authorize_redirect(
+        request, callback_url, **additional_params
+    )
 
 
 async def login_usos(request):
@@ -64,7 +81,7 @@ async def login_usos(request):
         return HttpResponseForbidden("Redirect URL must be provided when using JWT")
 
     callback_url = request.build_absolute_uri(
-        f"/authorize/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
+        f"/authorize/usos/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
     )
 
     async with USOSClient(
@@ -97,7 +114,47 @@ def admin_login(request):
     )
 
 
-async def authorize(request):
+def authorize(request):
+    token = oauth.create_client("solvro-auth").authorize_access_token(request)
+    resp = oauth.create_client("solvro-auth").get(
+        "https://auth.solvro.pl/realms/solvro/protocol/openid-connect/userinfo",
+        token=token,
+    )
+    resp.raise_for_status()
+    profile = resp.json()
+
+    redirect_url = request.GET.get("redirect", "index")
+
+    if not profile.get("email"):
+        if request.GET.get("jwt", "false") == "true":
+            return redirect(add_query_params(redirect_url, {"error": "no_email"}))
+        messages.error(request, "Brak adresu email w profilu użytkownika.")
+        return redirect(redirect_url)
+
+    user, created = User.objects.update_or_create(
+        email=profile["email"],
+        defaults={
+            "photo_url": f"https://api.dicebear.com/9.x/adventurer/svg?seed={profile['email']}",
+        },
+    )
+
+    if request.GET.get("jwt", "false") == "true":
+        refresh = RefreshToken.for_user(request.user)
+        return redirect(
+            add_query_params(
+                remove_query_params(redirect_url, ["error"]),
+                {
+                    "access_token": str(refresh.access_token),
+                    "refresh_token": str(refresh),
+                },
+            )
+        )
+
+    auth_login(request, user)
+    return redirect(redirect_url)
+
+
+async def authorize_usos(request):
     redirect_url = request.GET.get("redirect", "index")
 
     async with USOSClient(
@@ -146,7 +203,7 @@ async def authorize(request):
             )
         )
 
-    await auth_login(request, user)
+    await async_auth_login(request, user)
     return redirect(redirect_url)
 
 

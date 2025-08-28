@@ -39,10 +39,17 @@
 
         <div class="submit-row">
             {% if not user.is_authenticated %}
-                <a class="button" href="{% url 'login_usos' %}?redirect={{ next }}">Log in with USOS</a>
+                <div class="flex-column my-4">
+                    <a class="button" href="{% url 'login_usos' %}?redirect={{ next }}">Log in with USOS</a>
+                    <a class="button" href="{% url 'login' %}?redirect={{ next }}">Log in with Solvro Auth</a>
+                </div>
             {% else %}
-                <a class="button" href="{% url 'login_usos' %}?confirm_user=true&redirect={{ next }}">Log in with a
-                    different account</a>
+                <div class="flex-column my-4">
+                    <a class="button" href="{% url 'login_usos' %}?confirm_user=true&redirect={{ next }}">Log in with a
+                        different USOS account</a>
+                    <a class="button" href="{% url 'login' %}?confirm_user=true&redirect={{ next }}">Log in with a different Solvro Auth
+                        account</a>
+                </div>
             {% endif %}
         </div>
 
@@ -51,9 +58,19 @@
         a.button {
             display: inline-block;
             padding: 10px 20px;
-            margin: 10px 0;
             text-decoration: none;
             border-radius: 5px;
+        }
+
+        .flex-column {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .my-4 {
+            margin-top: 10px;
+            margin-bottom: 10px;
         }
     </style>
 {% endblock %}

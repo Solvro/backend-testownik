@@ -64,7 +64,9 @@ class Quiz(models.Model):
         return (
             user == self.maintainer
             or self.sharedquiz_set.filter(user=user, allow_edit=True).exists()
-            or self.sharedquiz_set.filter(study_group__in=user.study_groups.all(), allow_edit=True).exists()
+            or self.sharedquiz_set.filter(
+                study_group__in=user.study_groups.all(), allow_edit=True
+            ).exists()
         )
 
 

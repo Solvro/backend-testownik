@@ -19,6 +19,11 @@ async def get_grades(request):
     term_id = request.GET.get("term_id")
     request_user = request.user
 
+    if not request_user.usos_id:
+        return Response(
+            {"detail": "User does not have a linked USOS account."}, status=400
+        )
+
     async with USOSClient(
         USOS_BASE_URL, CONSUMER_KEY, CONSUMER_SECRET, trust_env=True
     ) as client:

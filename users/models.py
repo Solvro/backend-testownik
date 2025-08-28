@@ -50,7 +50,15 @@ class User(AbstractBaseUser, PermissionsMixin):
     REQUIRED_FIELDS = ["first_name", "last_name"]
 
     def __str__(self):
-        return f"{self.first_name} {self.last_name} ({self.student_number})"
+        return (
+            f"{self.first_name} {self.last_name} ({self.student_number})"
+            if self.student_number
+            else (
+                f"{self.first_name} {self.last_name}"
+                if self.first_name and self.last_name
+                else self.email or str(self.id)
+            )
+        )
 
     @property
     def full_name(self) -> str:

@@ -15,6 +15,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import dotenv
+from authlib.integrations.django_client import OAuth
 from django.utils.translation import gettext_lazy as _
 
 dotenv.load_dotenv()
@@ -164,6 +165,23 @@ AUTH_PASSWORD_VALIDATORS = [
         "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
+
+AUTHLIB_OAUTH_CLIENTS = {
+    "solvro-auth": {
+        "client_id": os.getenv("SOLVRO_AUTH_CLIENT_ID", "testownik"),
+        "client_secret": os.getenv("SOLVRO_AUTH_CLIENT_SECRET", ""),
+        "access_token_url": "https://auth.solvro.pl/realms/solvro/protocol/openid-connect/token",
+        "access_token_params": None,
+        "refresh_token_url": None,
+        "authorize_url": "https://auth.solvro.pl/realms/solvro/protocol/openid-connect/auth",
+        "api_base_url": "https://api.testownik.solvro.pl/",
+        "server_metadata_url": "https://auth.solvro.pl/realms/solvro/.well-known/openid-configuration",
+        "client_kwargs": {"scope": "openid profile email"},
+    }
+}
+
+oauth = OAuth()
+oauth.register(name="solvro-auth")
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.0/topics/i18n/
