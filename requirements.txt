@@ -7,7 +7,7 @@ djangorestframework-simplejwt==5.5.1
 django-cors-headers==4.7.0
 adrf==0.1.9
 gunicorn==23.0.0
-psycopg[binary]==3.2.9
+psycopg[binary]==3.2.10
 whitenoise==6.9.0
 asgiref~=3.9.1
 aiohttp~=3.12.15
