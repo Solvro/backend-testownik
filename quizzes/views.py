@@ -8,6 +8,7 @@ from datetime import timedelta
 from urllib.parse import urlparse
 
 import aiohttp
+from adrf.views import APIView as asyncAPIView
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -283,7 +284,7 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
         return context
 
 
-class ImportQuizFromLinkView(APIView):
+class ImportQuizFromLinkView(asyncAPIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -401,11 +402,15 @@ class ImportQuizFromLinkView(APIView):
         except aiohttp.ClientError as e:
             return Response({"error": f"Request failed: {str(e)}"}, status=400)
 
-        # Create a new quiz object using serializer
         serializer = QuizSerializer(data=quiz_data)
-        if serializer.is_valid():
+
+        is_valid = await sync_to_async(serializer.is_valid)()
+        if is_valid:
             quiz = await sync_to_async(serializer.save)(maintainer=request.user)
-            return Response(QuizSerializer(quiz).data, status=201)
+            data = await sync_to_async(
+                lambda q, u: QuizSerializer(q, context={"user": u}).data
+            )(quiz, request.user)
+            return Response(data, status=201)
         else:
             return Response(serializer.errors, status=400)
 
@@ -458,7 +463,7 @@ class ReportQuestionIssueView(APIView):
         message = (
             f"{request.user.full_name} zgłosił błąd w pytaniu {data.get('question_id')} quizu {quiz.title}.\n\n"
             f"{data.get('issue')}\n\n"
-            f"Kliknij w link, aby przejść do edycji bazy: https://testownik.solvro.pl/edit-quiz/{quiz.id}/?scroll_to=question-{data.get('question_id')}"
+            f"Kliknij w link, aby przejść do edycji quizu: https://testownik.solvro.pl/edit-quiz/{quiz.id}/?scroll_to=question-{data.get('question_id')}"
         )
 
         from_email = settings.DEFAULT_FROM_EMAIL

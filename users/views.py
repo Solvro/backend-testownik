@@ -315,6 +315,7 @@ class SettingsView(APIView):
             user_settings = request.user.settings
         except UserSettings.DoesNotExist:
             user_settings = UserSettings(user=request.user)
+            user_settings.save()
 
         return Response(
             {
@@ -387,7 +388,13 @@ class SettingsView(APIView):
                 )
 
         user_settings.save()
-        return Response(status=200)
+        return Response(
+            {
+                "sync_progress": user_settings.sync_progress,
+                "initial_reoccurrences": user_settings.initial_reoccurrences,
+                "wrong_answer_reoccurrences": user_settings.wrong_answer_reoccurrences,
+            }
+        )
 
 
 async def refresh_user_data(request):
