@@ -15,4 +15,4 @@ django-ratelimit~=4.1.0
 drf-spectacular==0.28.0
 django-filter==25.1
 django-constance>=4.3.2
-Authlib==1.6.3
+Authlib==1.6.4
