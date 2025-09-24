@@ -139,7 +139,7 @@ def authorize(request):
     )
 
     if request.GET.get("jwt", "false") == "true":
-        refresh = RefreshToken.for_user(request.user)
+        refresh = RefreshToken.for_user(user)
         return redirect(
             add_query_params(
                 remove_query_params(redirect_url, ["error"]),
