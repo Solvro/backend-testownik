@@ -9,7 +9,7 @@ adrf==0.1.9
 gunicorn==23.0.0
 psycopg[binary]==3.2.10
 whitenoise==6.11.0
-asgiref~=3.9.1
+asgiref~=3.9.2
 aiohttp~=3.12.15
 django-ratelimit~=4.1.0
 drf-spectacular==0.28.0
