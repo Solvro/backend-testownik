@@ -1,6 +1,7 @@
 import json
 import os
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from time import sleep
 
 import dotenv
 from asgiref.sync import sync_to_async
@@ -13,6 +14,7 @@ from django.http import (
     HttpResponseBadRequest,
     HttpResponseForbidden,
     HttpResponseNotAllowed,
+    JsonResponse
 )
 from django.shortcuts import redirect, render
 from drf_spectacular.types import OpenApiTypes
@@ -84,25 +86,39 @@ async def login_usos(request):
         f"/authorize/usos/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
     )
 
-    async with USOSClient(
-        "https://apps.usos.pwr.edu.pl/",
-        os.getenv("USOS_CONSUMER_KEY"),
-        os.getenv("USOS_CONSUMER_SECRET"),
-        trust_env=True,
-    ) as client:
-        client.set_scopes(["offline_access", "studies", "email", "photo", "grades"])
-        authorization_url = await client.get_authorization_url(
-            callback_url, confirm_user
-        )
-        request_token, request_token_secret = (
-            client.connection.auth_manager.get_request_token()
-        )
-        await request.session.aset(
-            f"request_token_{request_token}", request_token_secret
-        )
-        request.session.modified = True
+    max_retries = 3  # max tries
+    retry_delay = 2  # time before next try (seconds)
 
-    return redirect(authorization_url)
+    for attempt in range(max_retries):
+        try:
+            async with USOSClient(
+                    "https://apps.usos.pwr.edu.pl/",
+                    os.getenv("USOS_CONSUMER_KEY"),
+                    os.getenv("USOS_CONSUMER_SECRET"),
+                    trust_env=True,
+            ) as client:
+                client.set_scopes(["offline_access", "studies", "email", "photo", "grades"])
+                authorization_url = await client.get_authorization_url(
+                    callback_url, confirm_user
+                )
+                request_token, request_token_secret = (
+                    client.connection.auth_manager.get_request_token()
+                )
+                await request.session.aset(
+                    f"request_token_{request_token}", request_token_secret
+                )
+                request.session.modified = True
+
+            return redirect(authorization_url)
+
+        except Exception as e:
+            if attempt < max_retries - 1:
+                sleep(retry_delay)
+                continue
+            # USOS error, 403 status code
+            return redirect(add_query_params(redirect_url, {"error": "403"}))
+    # unexpected error, 400 status code
+    return redirect(add_query_params(redirect_url, {"error": "400"}))
 
 
 def admin_login(request):
