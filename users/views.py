@@ -1,7 +1,7 @@
 import json
 import os
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
-from time import sleep
+from asyncio import sleep
 
 import dotenv
 from asgiref.sync import sync_to_async
@@ -113,7 +113,7 @@ async def login_usos(request):
 
         except Exception as e:
             if attempt < max_retries - 1:
-                sleep(retry_delay)
+                await sleep(retry_delay)
                 continue
             # USOS error, 403 status code
             return redirect(add_query_params(redirect_url, {"error": "403"}))

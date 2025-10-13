@@ -116,6 +116,6 @@ async def get_grades(request):
             }
         )
     except APIException as e:
-        return Response({"detail": f"API error: {str(e)}"}, status=500)
+        return Response({"detail": f"API error"}, status=500)
     except Exception as e:
-        return Response({"detail": f"An unexpected error occurred: {str(e)}"}, status=500)
+        return Response({"detail": f"An unexpected error occurred"}, status=500)
