@@ -33,20 +33,24 @@ async def get_grades(request):
             )
             ects = await client.course_service.get_user_courses_ects()
 
+            if not ects:
+                return Response(
+                    {"detail": "No ECTS data found for this user."},
+                    status=404
+                )
+
             # Check if terms are already in the database
             term_ids = ects.keys()
             existing_terms = Term.objects.filter(id__in=ects.keys())
             existing_term_ids = [
-                term_id async for term_id in existing_terms.values_list("id", flat=True)
+                term_id async for term_id in existing_terms.avalues_list("id", flat=True)
             ]
 
             # Find missing terms
             missing_term_ids = set(term_ids) - set(existing_term_ids)
 
             # Get terms from the database
-            terms = []
-            async for term in existing_terms:
-                terms.append(term)
+            terms = [term async for term in existing_terms.aiterator()]
 
             # Fetch missing terms from the API
             if missing_term_ids:

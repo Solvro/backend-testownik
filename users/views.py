@@ -1,7 +1,7 @@
 import json
 import os
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
-from asyncio import sleep
+from asyncio import sleep, CancelledError
 
 import dotenv
 from asgiref.sync import sync_to_async
@@ -112,6 +112,9 @@ async def login_usos(request):
             return redirect(authorization_url)
 
         except Exception as e:
+            if isinstance(e, CancelledError):
+                raise
+
             if attempt < max_retries - 1:
                 await sleep(retry_delay)
                 continue
