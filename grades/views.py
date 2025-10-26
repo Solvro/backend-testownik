@@ -2,6 +2,7 @@ import os
 
 import dotenv
 from adrf.decorators import api_view as async_api_view
+from asgiref.sync import sync_to_async
 from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 from usos_api import USOSClient
@@ -42,9 +43,9 @@ async def get_grades(request):
             # Check if terms are already in the database
             term_ids = ects.keys()
             existing_terms = Term.objects.filter(id__in=ects.keys())
-            existing_term_ids = [
-                term_id async for term_id in existing_terms.avalues_list("id", flat=True)
-            ]
+            existing_term_ids = await sync_to_async(
+                lambda: list(existing_terms.values_list("id", flat=True))
+            )()
 
             # Find missing terms
             missing_term_ids = set(term_ids) - set(existing_term_ids)
