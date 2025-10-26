@@ -1,3 +1,4 @@
+import logging
 import os
 
 import dotenv
@@ -9,6 +10,8 @@ from usos_api import USOSClient
 from users.models import Term
 
 dotenv.load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 USOS_BASE_URL = "https://apps.usos.pwr.edu.pl/"
 CONSUMER_KEY = os.getenv("USOS_CONSUMER_KEY")
@@ -35,15 +38,14 @@ async def get_grades(request):
 
             if not ects:
                 return Response(
-                    {"detail": "No ECTS data found for this user."},
-                    status=404
+                    {"detail": "No ECTS data found for this user."}, status=404
                 )
 
             # Check if terms are already in the database
             term_ids = ects.keys()
             existing_terms = Term.objects.filter(id__in=ects.keys())
             existing_term_ids = [
-                term_id async for term_id in existing_terms.avalues_list("id", flat=True)
+                term_id async for term_id in existing_terms.values_list("id", flat=True)
             ]
 
             # Find missing terms
@@ -120,6 +122,16 @@ async def get_grades(request):
             }
         )
     except APIException as e:
-        return Response({"detail": f"API error"}, status=500)
+        logger.error(
+            f"API error occurred for user {request_user.id}: {str(e)}",
+            exc_info=True,
+            extra={"user_id": request_user.id, "term_id": term_id},
+        )
+        return Response({"detail": "API error"}, status=500)
     except Exception as e:
-        return Response({"detail": f"An unexpected error occurred"}, status=500)
+        logger.error(
+            f"Unexpected error occurred for user {request_user.id}: {str(e)}",
+            exc_info=True,
+            extra={"user_id": request_user.id, "term_id": term_id},
+        )
+        return Response({"detail": "An unexpected error occurred"}, status=500)

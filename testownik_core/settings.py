@@ -16,7 +16,6 @@ from pathlib import Path
 
 import dotenv
 from authlib.integrations.django_client import OAuth
-from django.utils.translation import gettext_lazy as _
 
 dotenv.load_dotenv()
 

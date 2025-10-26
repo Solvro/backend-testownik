@@ -1,7 +1,7 @@
 import json
 import os
+from asyncio import CancelledError, sleep
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
-from asyncio import sleep, CancelledError
 
 import dotenv
 from asgiref.sync import sync_to_async
@@ -13,19 +13,15 @@ from django.db.models import Q
 from django.http import (
     HttpResponseBadRequest,
     HttpResponseForbidden,
-    HttpResponseNotAllowed,
-    JsonResponse
 )
 from django.shortcuts import redirect, render
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
-    OpenApiParameter,
     OpenApiResponse,
     extend_schema,
 )
 from rest_framework import mixins, permissions, viewsets
-from rest_framework.decorators import api_view, permission_classes
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -92,12 +88,14 @@ async def login_usos(request):
     for attempt in range(max_retries):
         try:
             async with USOSClient(
-                    "https://apps.usos.pwr.edu.pl/",
-                    os.getenv("USOS_CONSUMER_KEY"),
-                    os.getenv("USOS_CONSUMER_SECRET"),
-                    trust_env=True,
+                "https://apps.usos.pwr.edu.pl/",
+                os.getenv("USOS_CONSUMER_KEY"),
+                os.getenv("USOS_CONSUMER_SECRET"),
+                trust_env=True,
             ) as client:
-                client.set_scopes(["offline_access", "studies", "email", "photo", "grades"])
+                client.set_scopes(
+                    ["offline_access", "studies", "email", "photo", "grades"]
+                )
                 authorization_url = await client.get_authorization_url(
                     callback_url, confirm_user
                 )
@@ -794,7 +792,7 @@ class DeleteAccountView(APIView):
         ],
     )
     def post(self, request):
-        from quizzes.models import Quiz, QuizProgress, SharedQuiz
+        from quizzes.models import Quiz
 
         data = json.loads(request.body)
         transfer_to_user_id = data.get("transfer_to_user_id")
