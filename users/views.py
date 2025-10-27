@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from asyncio import CancelledError, sleep
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
@@ -27,7 +28,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
-from usos_api import USOSClient
+from usos_api import USOSAPIException, USOSClient
 
 from quizzes.models import QuizProgress, SharedQuiz
 from testownik_core.settings import oauth
@@ -36,6 +37,8 @@ from users.serializers import PublicUserSerializer, StudyGroupSerializer, UserSe
 from users.utils import send_login_email_to_user
 
 dotenv.load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 def add_query_params(url, params):
@@ -116,10 +119,10 @@ async def login_usos(request):
             if attempt < max_retries - 1:
                 await sleep(retry_delay)
                 continue
-            # USOS error, 403 status code
-            return redirect(add_query_params(redirect_url, {"error": "403"}))
-    # unexpected error, 400 status code
-    return redirect(add_query_params(redirect_url, {"error": "400"}))
+            return redirect(
+                add_query_params(redirect_url, {"error": "usos_unavailable"})
+            )
+    return redirect(add_query_params(redirect_url, {"error": "usos_unavailable"}))
 
 
 def admin_login(request):
@@ -186,11 +189,36 @@ async def authorize_usos(request):
             f"request_token_{request_token}", None
         )
         if not request_token_secret:
+            if request.GET.get("retry") != "1":
+                login_url = request.build_absolute_uri("/api/login/usos/")
+                params = request.GET.copy()
+                params["retry"] = "1"
+                return redirect(add_query_params(login_url, dict(params)))
+
+            if request.GET.get("jwt", "false") == "true":
+                return redirect(
+                    add_query_params(redirect_url, {"error": "invalid_token"})
+                )
             return HttpResponseForbidden()
 
-        access_token, access_token_secret = await client.authorize(
-            verifier, request_token, request_token_secret
-        )
+        try:
+            access_token, access_token_secret = await client.authorize(
+                verifier, request_token, request_token_secret
+            )
+        except USOSAPIException as e:
+            logger.exception(f"Error during USOS authorization: {e}")
+            if request.GET.get("retry") != "1":
+                login_url = request.build_absolute_uri("/api/login/usos/")
+                params = request.GET.copy()
+                params["retry"] = "1"
+                return redirect(add_query_params(login_url, dict(params)))
+
+            if request.GET.get("jwt", "false") == "true":
+                return redirect(
+                    add_query_params(redirect_url, {"error": "authorization_failed"})
+                )
+            return HttpResponseForbidden()
+
         user, created = await update_user_data_from_usos(
             client, access_token, access_token_secret
         )
