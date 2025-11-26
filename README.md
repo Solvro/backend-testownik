@@ -15,9 +15,9 @@ A Django-based backend application for managing quizzes, grades, and user feedba
 
 ## Tech Stack
 
-- Python 3.x
-- Django 5.1.6
-- Django REST Framework 3.15.2
+- Python 3
+- Django
+- Django REST Framework
 - PostgreSQL (production) / SQLite (development)
 - JWT Authentication
 - USOS API Integration
@@ -26,7 +26,7 @@ A Django-based backend application for managing quizzes, grades, and user feedba
 
 ## Prerequisites
 
-- Python 3.x
+- Python 3
 - pip (Python package manager)
 - PostgreSQL (for production)
 - USOS API credentials
