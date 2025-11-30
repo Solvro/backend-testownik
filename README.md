@@ -1,126 +1,187 @@
-# Testownik Core
+# <img src="https://github.com/Solvro/web-testownik/blob/main/public/favicon/192x192.png?raw=true" width="24"> Testownik Solvro - Backend
 
-A Django-based backend application for managing quizzes, grades, and user feedback in an educational context. The project integrates with USOS API for user authentication and provides a RESTful API interface.
+<div align="center">
 
-## Features
+![Python](https://img.shields.io/badge/python-%233776AB.svg?style=for-the-badge&logo=python&logoColor=white)
+![Django](https://img.shields.io/badge/django-%23092E20.svg?style=for-the-badge&logo=django&logoColor=white)
+![DjangoREST](https://img.shields.io/badge/DJANGO-REST-ff1709?style=for-the-badge&logo=django&logoColor=white&color=ff1709&labelColor=gray)
 
-- User authentication via USOS API
-- Quiz management system
-- Grade tracking and management
-- Alert system for notifications
-- Feedback collection and management
-- RESTful API with JWT authentication
-- API documentation using DRF Spectacular
-- CORS support for frontend integration
+**Twoje narzędzie do nauki na Politechnice Wrocławskiej**
 
-## Tech Stack
+[🌐 Odwiedź aplikację](https://testownik.solvro.pl) • [🧑‍💻 Zobacz frontend](https://github.com/Solvro/web-testownik) • [🛠️ API Swagger](https://api.testownik.solvro.pl/swagger/)
 
-- Python 3
-- Django
-- Django REST Framework
-- PostgreSQL (production) / SQLite (development)
-- JWT Authentication
-- USOS API Integration
-- Gunicorn (production server)
-- WhiteNoise (static files)
+</div>
 
-## Prerequisites
+---
 
-- Python 3
-- pip (Python package manager)
-- PostgreSQL (for production)
-- USOS API credentials
+## 📖 O projekcie
 
-## Installation
+**Testownik Solvro** to platforma edukacyjna stworzona przez [KN Solvro](https://github.com/Solvro) dla studentów Politechniki Wrocławskiej. Aplikacja umożliwia tworzenie, rozwiązywanie i udostępnianie quizów, pomagając w przygotowaniu do sesji egzaminacyjnej.
 
-1. Clone the repository:
+---
+
+## 🚀 Uruchomienie lokalne
+
+### Wymagania
+
+- Python **3.10+**
+- pip
+
+### Instalacja
+
+1. **Sklonuj repozytorium**
+
+   ```bash
+   git clone https://github.com/Solvro/backend-testownik.git
+   cd backend-testownik
+   ```
+
+2. **Utwórz i aktywuj środowisko wirtualne**
+
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate        # Linux / macOS
+   .venv\Scripts\activate           # Windows
+   ```
+
+3. **Zainstaluj zależności**
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Skopiuj plik środowiskowy**
+
+   ```
+   cp .env.example .env
+   ```
+
+5. **Wykonaj migracje bazy danych**
+
+   ```bash
+   python manage.py migrate
+   ```
+
+6. **(Opcjonalnie) Stwórz konto administratora**
+
+   ```bash
+   python manage.py createsuperuser
+   ```
+
+7. **Uruchom serwer deweloperski**
+
+   ```bash
+   python manage.py runserver
+   ```
+
+Po uruchomieniu API będzie dostępne pod:  
+[http://localhost:8000/](http://localhost:8000/)
+
+---
+
+## 📜 Najważniejsze komendy
+
+| Komenda                            | Opis                          |
+| ---------------------------------- | ----------------------------- |
+| `python manage.py runserver`       | Uruchamia serwer deweloperski |
+| `python manage.py migrate`         | Wykonuje migracje bazy danych |
+| `python manage.py createsuperuser` | Tworzy konto administratora   |
+| `pip install -r requirements.txt`  | Instaluje zależności          |
+
+---
+
+## 🛠️ Stack technologiczny
+
+- **Język:** Python 3
+- **Framework:** Django + Django REST Framework
+- **Baza danych:** PostgreSQL (prod) / SQLite (dev)
+- **Uwierzytelnianie:** JWT (JSON Web Tokens)
+- **Integracja z USOS:** [`usos-api`](https://pypi.org/project/usos-api/)
+- **Dokumentacja API:** DRF Spectacular • Swagger UI
+
+---
+
+## 🤝 Kontrybucja
+
+Chcesz pomóc w rozwoju Testownika? Let's go!
+
+1. Sforkuj repozytorium (tylko jeśli jeszcze nie jesteś w teamie testownika)
+2. Stwórz branch dla swojej funkcji (`git checkout -b feat/amazing-feature`)
+3. Commituj zmiany (`git commit -m 'feat: add amazing feature'`)
+4. Wypchnij branch (`git push origin feature/amazing-feature`)
+5. Otwórz Pull Request
+
+Aby było nam wszystkim łatwiej stosuj się do tych zasad przy tworzeniu branchy oraz commitów.
+
+### 🪾 Nazewnictwo branchy
+
+Każdy branch powinien zawierać **prefiks określający typ zmiany** oraz **numer GitHub Issue**.
+
+**Format**
+
+```
+<prefix>/<issue>-short-description
+```
+
+**Dostępne prefiksy**
+
+- `feat/` - nowe funkcje
+- `fix/` - poprawki błędów
+- `hotfix/` - krytyczne poprawki produkcyjne
+- `design/` - zmiany UI/UX
+- `refactor/` - poprawa kodu bez zmiany działania
+- `test/` - testy
+- `docs/` - dokumentacja
+
+**Przykłady**
+
+```
+feat/123-add-usos-integration
+fix/87-token-refresh-bug
+refactor/210-cleanup-serializers
+```
+
+### ✍️ Format commitów
+
+Stosujemy standard [**Conventional Commits**](https://www.conventionalcommits.org/en/v1.0.0/), aby się móc później łatwiej połapać.
+
+**Format**
+
+```
+<type>(opcjonalny scope): opis w czasie teraźniejszym
+```
+
+**Typy commitów**
+
+- `feat:` - nowa funkcjonalność
+- `fix:` - naprawa błędu
+- `docs:` - dokumentacja
+- `refactor:` - poprawa struktury kodu
+- `test:` - testy
+- `chore:` - zmiany w konfiguracji, dependency itp.
+
+**Przykłady**
+
 ```bash
-git clone <repository-url>
-cd testownik_core
+feat(auth): add USOS SSO login
+fix(quizzes): correct question ordering
+docs: update README with backend setup
 ```
 
-2. Create and activate a virtual environment:
-```bash
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-```
+---
 
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+## 📬 Kontakt
 
-4. Create a `.env` file in the project root with the following variables:
-```env
-SECRET_KEY=your-secret-key
-DEBUG=True
-ALLOWED_HOSTS=localhost,127.0.0.1
-CORS_ALLOWED_ORIGINS=http://localhost:5173
-CSRF_TRUSTED_ORIGINS=http://localhost:8000
+- **Email:** [testownik@solvro.pl](mailto:testownik@solvro.pl)
+- **Organizacja:** [KN Solvro](https://github.com/Solvro)
+- **Strona:** [testownik.solvro.pl](https://testownik.solvro.pl)
 
-# Database settings (for production)
-DB_ENGINE=django.db.backends.postgresql
-DB_NAME=your_db_name
-DB_USER=your_db_user
-DB_PASSWORD=your_db_password
-DB_HOST=localhost
-DB_PORT=5432
+---
 
-# Email settings
-EMAIL_HOST=your-smtp-server
-EMAIL_USE_TLS=True
-EMAIL_PORT=587
-EMAIL_HOST_USER=your-email
-EMAIL_HOST_PASSWORD=your-password
-DEFAULT_FROM_EMAIL=Testownik Solvro <testownik@solvro.pl>
-```
+<div align="center">
 
-5. Run migrations:
-```bash
-python manage.py migrate
-```
+Stworzone z ❤️ przez [KN Solvro](https://github.com/Solvro) dla studentów Politechniki Wrocławskiej
 
-6. Create a superuser (optional):
-```bash
-python manage.py createsuperuser
-```
+⭐ Jeśli projekt Ci się podoba, zostaw gwiazdkę!
 
-7. Run the development server:
-```bash
-python manage.py runserver
-```
-
-## Project Structure
-
-- `alerts/` - Alert system for notifications
-- `feedback/` - Feedback collection and management
-- `grades/` - Grade tracking and management
-- `quizzes/` - Quiz management system
-- `users/` - User management and authentication
-- `templates/` - HTML templates
-- `testownik_core/` - Main project configuration
-
-## API Documentation
-
-The API documentation is available at `/api/schema/swagger-ui/` when running the server. It provides detailed information about all available endpoints, request/response formats, and authentication requirements.
-
-## Development
-
-- The project uses Django REST Framework for API development
-- JWT authentication is implemented for secure API access
-- CORS is configured to allow frontend integration
-- Rate limiting is implemented for API protection
-
-## Production Deployment
-
-For production deployment:
-
-1. Set `DEBUG=False` in your environment variables
-2. Configure a proper database (PostgreSQL recommended)
-3. Set up proper email settings
-4. Configure proper CORS and CSRF settings
-5. Use Gunicorn as the production server:
-```bash
-gunicorn testownik_core.wsgi:application
-```
-
+</div>
