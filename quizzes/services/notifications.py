@@ -2,8 +2,13 @@ from django.core.mail import send_mail, send_mass_mail
 from django.template.loader import render_to_string
 from django.conf import settings
 
-def notify_quiz_shared_to_users(quiz,user):
+def should_send_notification(user):
     if not user.email:
+        return False
+    return True
+
+def notify_quiz_shared_to_users(quiz,user):
+    if not should_send_notification(user):
         return
     subject = f'Quiz "{quiz.title}" został ci udostępniony'
     message = render_to_string('emails/quiz_shared.html', {
@@ -20,10 +25,13 @@ def notify_quiz_shared_to_users(quiz,user):
     )
 
 def notify_quiz_shared_to_groups(quiz, group):
-    users_with_email = group.members.exclude(email='').exclude(email__isnull=True)
+    users_to_notify = [
+        user for user in group.members.all()
+        if should_send_notification(user)
+    ]
 
     messages = []
-    for user in users_with_email:
+    for user in users_to_notify:
         subject = f'Quiz "{quiz.title}" został ci udostępniony'
         message = render_to_string('emails/quiz_shared.html', {
         'user': user,
