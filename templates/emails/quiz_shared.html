@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body>
+    <h2>Cześć {{ user.first_name|default:user.username }}!</h2>
+    <p>Quiz <strong>"{{ quiz.title }}"</strong> został Ci udostępniony.</p>
+    <p><a href="{{ quiz.get_absolute_url }}">Kliknij tutaj, aby rozpocząć</a></p>
+</body>
+</html>
