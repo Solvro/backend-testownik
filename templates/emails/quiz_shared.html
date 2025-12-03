@@ -4,6 +4,6 @@
 <body>
     <h2>Cześć {{ user.first_name|default:user.username }}!</h2>
     <p>Quiz <strong>"{{ quiz.title }}"</strong> został Ci udostępniony.</p>
-    <p><a href="{{ quiz.get_absolute_url }}">Kliknij tutaj, aby rozpocząć</a></p>
+    <p><a href="https://testownik.solvro.pl/quiz/{{ quiz.id }}">Kliknij tutaj, aby rozpocząć</a></p> 
 </body>
 </html>

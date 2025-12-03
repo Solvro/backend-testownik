@@ -1,4 +1,8 @@
-from django.core.mail import send_mail, send_mass_mail
+from django.core.mail import (
+    send_mail,
+    get_connection,
+)
+from django.core.mail.message import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.conf import settings
 
@@ -7,7 +11,7 @@ def should_send_notification(user):
         return False
     return True
 
-def notify_quiz_shared_to_users(quiz,user):
+def notify_quiz_shared_to_users(quiz, user):
     if not should_send_notification(user):
         return
     subject = f'Quiz "{quiz.title}" został ci udostępniony'
@@ -33,10 +37,18 @@ def notify_quiz_shared_to_groups(quiz, group):
     messages = []
     for user in users_to_notify:
         subject = f'Quiz "{quiz.title}" został ci udostępniony'
-        message = render_to_string('emails/quiz_shared.html', {
-        'user': user,
-        'quiz': quiz,
-    })
-        messages.append((subject, message, settings.DEFAULT_FROM_EMAIL, [user.email]))
+        html_message = render_to_string('emails/quiz_shared.html', {
+            'user': user,
+            'quiz': quiz,
+        })
+        email = EmailMultiAlternatives(
+            subject=subject,
+            body=html_message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[user.email],
+        )
+        email.attach_alternative(html_message, 'text/html')
+        messages.append(email)
     if messages:
-        send_mass_mail(messages, fail_silently=True)
+        connection = get_connection(fail_silently=True)
+        connection.send_messages(messages)
