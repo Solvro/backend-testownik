@@ -173,7 +173,7 @@ docs: update README with backend setup
 
 Niepewny czego dotyczy temat? Zgłoś go najpierw na [frontendzie](https://github.com/Solvro/web-testownik/issues/new).
 
-Jeśli jesteś dość pewien, że sprawa dotyczy **wyłącznie backendu**  
+Jeśli jesteś dość pewien, że sprawa dotyczy **wyłącznie backendu**
 (API, baza danych, logika serwera), wtedy wrzuć zgłoszenie na [backendzie](https://github.com/Solvro/backend-testownik/issues/new).
 
 ---
