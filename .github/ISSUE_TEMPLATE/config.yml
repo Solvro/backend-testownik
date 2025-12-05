@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Zgłoś problem w Frontend (domyślnie tutaj)
+    url: https://github.com/Solvro/web-testownik/issues/new
+    about: Jeśli nie jesteś pewien, czy to front czy back, zgłoś temat w repo Frontend.
+  - name: Kontakt z Solvro
+    url: mailto:testownik@solvro.pl
+    about: Pytania, sugestie i sprawy, które nie pasują do zgłoszenia w Issues.
