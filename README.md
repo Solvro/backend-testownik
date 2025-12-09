@@ -141,6 +141,37 @@ fix/87-token-refresh-bug
 refactor/210-cleanup-serializers
 ```
 
+
+### 🧹 Pre-commit i jakość kodu
+
+W projekcie używamy [pre-commit](https://pre-commit.com/) oraz [ruff](https://docs.astral.sh/ruff/) do automatycznego formatowania i lintowania kodu przy każdym `git commit`.
+
+**Instalacja narzędzi deweloperskich**
+
+   ```bash
+      pip install -r requirements-dev.txt
+   ```
+
+**Instalacja hooków pre-commit**
+
+   ```bash
+      pre-commit install
+   ```
+
+**Ręczne uruchomienie wszystkich hooków**
+
+   ```bash
+      pre-commit run --all-files
+   ```
+
+
+Po instalacji hooków, przy każdym `git commit` automatycznie uruchomią się:
+
+- `ruff` – linting i sortowanie importów
+
+- `ruff-format` – formatowanie kodu
+
+
 ### ✍️ Format commitów
 
 Stosujemy standard [**Conventional Commits**](https://www.conventionalcommits.org/en/v1.0.0/), aby się móc później łatwiej połapać.
