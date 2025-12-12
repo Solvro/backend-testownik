@@ -194,9 +194,9 @@ Stosujemy standard [**Conventional Commits**](https://www.conventionalcommits.or
 **Przykłady**
 
 ```bash
-feat(auth): add USOS SSO login
-fix(quizzes): correct question ordering
-docs: update README with backend setup
+   feat(auth): add USOS SSO login
+   fix(quizzes): correct question ordering
+   docs: update README with backend setup
 ```
 
 ---
