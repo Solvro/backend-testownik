@@ -31,9 +31,7 @@ urlpatterns = [
         QuizProgressView.as_view(),
         name="quiz-progress",
     ),
-    path(
-        "import-from-link/", ImportQuizFromLinkView.as_view(), name="import-from-link"
-    ),
+    path("import-from-link/", ImportQuizFromLinkView.as_view(), name="import-from-link"),
     path(
         "report-question-issue/",
         ReportQuestionIssueView.as_view(),

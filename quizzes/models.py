@@ -40,9 +40,7 @@ class Quiz(models.Model):
             "id": self.id,
             "title": self.title,
             "description": self.description,
-            "maintainer": (
-                self.maintainer.full_name if not self.is_anonymous else "Anonimowy"
-            ),
+            "maintainer": (self.maintainer.full_name if not self.is_anonymous else "Anonimowy"),
             "visibility": self.visibility,
             "visibility_name": dict(QUIZ_VISIBILITY_CHOICES)[self.visibility],
             "is_anonymous": self.is_anonymous,
@@ -54,9 +52,7 @@ class Quiz(models.Model):
         return {
             "id": self.id,
             "title": self.title,
-            "maintainer": (
-                self.maintainer.full_name if not self.is_anonymous else "Anonimowy"
-            ),
+            "maintainer": (self.maintainer.full_name if not self.is_anonymous else "Anonimowy"),
             "is_anonymous": self.is_anonymous,
         }
 
@@ -64,9 +60,7 @@ class Quiz(models.Model):
         return (
             user == self.maintainer
             or self.sharedquiz_set.filter(user=user, allow_edit=True).exists()
-            or self.sharedquiz_set.filter(
-                study_group__in=user.study_groups.all(), allow_edit=True
-            ).exists()
+            or self.sharedquiz_set.filter(study_group__in=user.study_groups.all(), allow_edit=True).exists()
         )
 
 
@@ -102,6 +96,9 @@ class QuizProgress(models.Model):
     wrong_answers_count = models.PositiveIntegerField(default=0)
     study_time = models.DurationField(default=timedelta)
     last_activity = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.quiz.title} - {self.user} - {self.current_question}"
 
     def to_dict(self):
         return {
