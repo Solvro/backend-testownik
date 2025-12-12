@@ -4,7 +4,7 @@ line-length = 120
 indent-width = 4
 
 [tool.ruff.lint]
-ignore = ["ISC001"]
+ignore = ["ISC001", "DJ001"]
 select = [
     "E",   # PEP8 errors (syntax, indentation)
     "F",   # Pyflakes (dead code, unused imports)
