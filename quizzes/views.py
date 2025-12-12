@@ -1,5 +1,6 @@
 import ipaddress
 import json
+import logging
 import random
 import socket
 import urllib.parse
@@ -337,14 +338,16 @@ class ImportQuizFromLinkView(asyncAPIView):
                     status=400,
                 )
         except Exception as e:
-            return Response({"error": f"Hostname resolution failed: {str(e)}"}, status=400)
+            logging.exception("Error resolving hostname '%s': %s", hostname, str(e))
+            return Response({"error": "Hostname resolution failed."}, status=400)
 
         try:
             # Use aiohttp to download the file asynchronously
-            async with aiohttp.ClientSession() as session, session.get(link, timeout=5) as response:
-                # Check for HTTP status and content type
-                if response.status != 200:
-                    return Response({"error": "Failed to fetch the file"}, status=400)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(link, timeout=5) as response:
+                    # Check for HTTP status and content type
+                    if response.status != 200:
+                        return Response({"error": "Failed to fetch the file"}, status=400)
 
                 content_type = response.headers.get("Content-Type", "")
                 if (
