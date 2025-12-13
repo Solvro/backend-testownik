@@ -1,11 +1,15 @@
 import logging
 import os
+import copy
+
 
 import dotenv
 from adrf.decorators import api_view as async_api_view
 from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 from usos_api import USOSClient
+from usos_api.services.courses import CourseEdition
+from usos_api.services.grades import Grade
 
 from users.models import Term
 
@@ -17,6 +21,47 @@ USOS_BASE_URL = "https://apps.usos.pwr.edu.pl/"
 CONSUMER_KEY = os.getenv("USOS_CONSUMER_KEY")
 CONSUMER_SECRET = os.getenv("USOS_CONSUMER_SECRET")
 
+
+def generate_course_grade(course_edition: CourseEdition, grades) -> list:
+    user_groups = course_edition.user_groups
+    grades = grades.get(course_edition.term_id).get(course_edition.course_id, {})
+    result = []
+
+    if (len(user_groups) > 1):
+        # grupa kursów
+        if (user_groups[0].class_type_id == 'W'):
+            grades = grades.get("course_grades", [])
+        else:
+            grades = grades.get("course_units_grades", {})
+            
+            if not grades:
+                return []
+            
+            keys = list(grades.keys())
+            if (len(keys) != 1): return []
+
+            unit_grades = grades.get(keys[0], {}).get("1", [])
+
+            # idk why usos_api zwraca różne typy danych w tym miejscu
+            if type(unit_grades) == list:
+                grades = unit_grades
+            elif type(unit_grades) == Grade:
+                grades = [unit_grades]
+
+    else:
+        grades = grades.get("course_grades", [])
+
+    for grade in grades:
+        result.append({
+            "value": grade.value,
+            "value_symbol": grade.value_symbol,
+            "value_description": grade.value_description.pl,
+            "counts_into_average": grade.counts_into_average,
+        })
+
+    return result
+
+    
 
 @async_api_view(["GET"])
 async def get_grades(request):
@@ -71,9 +116,23 @@ async def get_grades(request):
                     terms.append(term_obj)
 
             course_editions = await client.course_service.get_user_course_editions()
+
             grades = await client.grade_service.get_grades_by_terms(
                 term_id or [term.id for term in terms]
             )
+
+            # adding course editions for other types of classes if exists 
+            course_editions_to_add = []
+            for course_edition in course_editions:
+                if (len(course_edition.user_groups) == 2):
+                    cp = copy.deepcopy(course_edition)
+
+                    cp.user_groups[0] = cp.user_groups[1]
+                    course_editions_to_add.append(cp)
+
+            for course_edition_to_add in course_editions_to_add:
+                course_editions.append(course_edition_to_add)
+            
 
         courses_ects = {
             course: ects_points
@@ -81,10 +140,12 @@ async def get_grades(request):
             for course, ects_points in term_courses.items()
         }
 
+        course_editions.sort(key=lambda ce: ce.course_name.pl)
+
         return Response(
             {
                 "terms": sorted(
-                    [
+                    [   
                         {
                             "id": term.id,
                             "name": term.name,
@@ -102,19 +163,10 @@ async def get_grades(request):
                     {
                         "course_id": course_edition.course_id,
                         "course_name": course_edition.course_name.pl,
+                        "course_type": course_edition.user_groups[0].class_type.en,
                         "term_id": course_edition.term_id,
                         "ects": courses_ects.get(course_edition.course_id, 0),
-                        "grades": [
-                            {
-                                "value": grade.value,
-                                "value_symbol": grade.value_symbol,
-                                "value_description": grade.value_description.pl,
-                                "counts_into_average": grade.counts_into_average,
-                            }
-                            for grade in grades.get(course_edition.term_id, {})
-                            .get(course_edition.course_id, {})
-                            .get("course_grades", [])
-                        ],
+                        "grades": generate_course_grade(course_edition, grades),
                         "passing_status": course_edition.passing_status,
                     }
                     for course_edition in course_editions
