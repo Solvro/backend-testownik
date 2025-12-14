@@ -12,7 +12,17 @@ urlpatterns = [
     path("login-link/", views.LoginLinkView.as_view(), name="login_link"),
     path("login-otp/", views.LoginOtpView.as_view(), name="login_otp"),
     path("user/", views.CurrentUserView.as_view(), name="api_current_user"),
-    path("settings/", views.SettingsView.as_view(), name="api_settings"),
+    path(
+        "settings/",
+        views.SettingsViewSet.as_view(
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+            }
+        ),
+        name="api_settings",
+    ),
     path(
         "user/delete-account/",
         views.DeleteAccountView.as_view(),
