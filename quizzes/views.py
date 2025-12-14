@@ -279,12 +279,12 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         shared_quiz = serializer.save()
-        def sent_notification():
+        def send_notification():
             if shared_quiz.user:
                 notify_quiz_shared_to_users(shared_quiz.quiz, shared_quiz.user)
             elif shared_quiz.study_group:
                 notify_quiz_shared_to_groups(shared_quiz.quiz, shared_quiz.study_group)
-        transaction.on_commit(sent_notification)
+        transaction.on_commit(send_notification)
 
     def perform_destroy(self, instance):
         instance.delete()
