@@ -111,7 +111,10 @@ class LastUsedQuizzesView(APIView):
             )[:max_quizzes_count]
         ]
 
-        return Response([quiz.to_dict() for quiz in last_used_quizzes])
+        serializer = QuizMetaDataSerializer(
+            last_used_quizzes, many=True, context={"user": request.user}
+        )
+        return Response(serializer.data)
 
 
 class SearchQuizzesView(APIView):
