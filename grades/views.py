@@ -24,16 +24,17 @@ CONSUMER_SECRET = os.getenv("USOS_CONSUMER_SECRET")
 
 def generate_course_grade(course_edition: CourseEdition, grades) -> list:
     user_groups = course_edition.user_groups
-    grades = grades.get(course_edition.term_id).get(course_edition.course_id, {})
+    grades = grades.get(course_edition.term_id, {}).get(course_edition.course_id, {})
     result = []
 
+    # check if course group
     if (len(user_groups) > 1):
-        # grupa kursów
         if (user_groups[0].class_type_id == 'W'):
             grades = grades.get("course_grades", [])
         else:
             grades = grades.get("course_units_grades", {})
             
+            # if no grades found, return empty list
             if not grades:
                 return []
             
@@ -43,9 +44,9 @@ def generate_course_grade(course_edition: CourseEdition, grades) -> list:
             unit_grades = grades.get(keys[0], {}).get("1", [])
 
             # idk why usos_api zwraca różne typy danych w tym miejscu
-            if type(unit_grades) == list:
+            if isinstance(unit_grades, list):
                 grades = unit_grades
-            elif type(unit_grades) == Grade:
+            elif isinstance(unit_grades, Grade):
                 grades = [unit_grades]
 
     else:
@@ -121,17 +122,17 @@ async def get_grades(request):
                 term_id or [term.id for term in terms]
             )
 
-            # adding course editions for other types of classes if exists 
-            course_editions_to_add = []
-            for course_edition in course_editions:
-                if (len(course_edition.user_groups) == 2):
-                    cp = copy.deepcopy(course_edition)
+            # adding copies of course editions for each group if multiple groups exist
+            course_editions_to_add = [
+                copy.deepcopy(course_edition) for course_edition in course_editions if len(course_edition.user_groups) > 1
+            ]
 
-                    cp.user_groups[0] = cp.user_groups[1]
-                    course_editions_to_add.append(cp)
+            # swaping the groups in the copies
+            for cp in course_editions_to_add:
+                cp.user_groups[0] = cp.user_groups[1]
 
-            for course_edition_to_add in course_editions_to_add:
-                course_editions.append(course_edition_to_add)
+            # merging the lists
+            course_editions.extend(course_editions_to_add)
             
 
         courses_ects = {
