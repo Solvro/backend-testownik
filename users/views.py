@@ -319,7 +319,7 @@ class SettingsView(APIView):
                     "wrong_answer_reoccurrences": 1,
                     "notify_quiz_shared": False,
                     "notify_bug_reported": False,
-                    "notify_marketing": True
+                    "notify_marketing": True,
                 },
             )
         ],
@@ -354,7 +354,7 @@ class SettingsView(APIView):
                     "wrong_answer_reoccurrences": {"type": "integer", "minimum": 0},
                     "notify_quiz_shared": {"type": "boolean"},
                     "notify_bug_reported": {"type": "boolean"},
-                    "notify_marketing": {"type": "boolean"}
+                    "notify_marketing": {"type": "boolean"},
                 },
                 "required": [],
             }
@@ -372,7 +372,7 @@ class SettingsView(APIView):
                     "wrong_answer_reoccurrences": 2,
                     "notify_quiz_shared": False,
                     "notify_bug_reported": True,
-                    "notify_marketing": True
+                    "notify_marketing": True,
                 },
             )
         ],
@@ -439,7 +439,6 @@ class SettingsView(APIView):
                     "notify_marketing must be a boolean",
                     status=HttpResponseBadRequest.status_code,
                 )
-
 
         user_settings.save()
         return Response(
