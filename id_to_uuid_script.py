@@ -52,6 +52,7 @@ def migrate_user_ids():
                 if int(object_id) in id_mapping:
                     entry["fields"]["object_id"] = id_mapping[int(object_id)]
             except ValueError:
+                # Could not convert object_id to int; skipping mapping update for this entry.
                 pass
 
     # Save migrated data
