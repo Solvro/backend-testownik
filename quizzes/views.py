@@ -244,7 +244,7 @@ class QuizMetadataView(APIView):
     def get(self, request, quiz_id):
         quiz = Quiz.objects.get(id=quiz_id)
         return Response(
-            QuizMetaDataSerializer(quiz, context={"user": request.user}).data
+            QuizMetaDataSerializer(quiz, context={"request": request}).data
         )
 
 
