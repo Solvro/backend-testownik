@@ -15,16 +15,20 @@ def notify_quiz_shared_to_users(quiz, user):
     if not should_send_notification(user):
         return
     subject = f'Quiz "{quiz.title}" został ci udostępniony'
-    message = render_to_string('emails/quiz_shared.html', {
+    text_message = render_to_string('emails/quiz_shared.txt', {
+        'user': user,
+        'quiz': quiz,
+    })
+    html_message = render_to_string('emails/quiz_shared.html', {
         'user': user,
         'quiz': quiz,
     })
     send_mail(
         subject=subject,
-        message=message,
+        message=text_message,
         from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=[user.email],
-        html_message=message,
+        html_message=html_message,
         fail_silently=True,
     )
 
@@ -37,13 +41,18 @@ def notify_quiz_shared_to_groups(quiz, group):
     messages = []
     for user in users_to_notify:
         subject = f'Quiz "{quiz.title}" został ci udostępniony'
+
+        text_message = render_to_string('emails/quiz_shared.txt', {
+            'user': user,
+            'quiz': quiz,
+        })
         html_message = render_to_string('emails/quiz_shared.html', {
             'user': user,
             'quiz': quiz,
         })
         email = EmailMultiAlternatives(
             subject=subject,
-            body=html_message,
+            body=text_message,
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[user.email],
         )
