@@ -75,8 +75,9 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        user = self.context.get("user")
-        if instance.is_anonymous and not user == instance.maintainer:
+        request = self.context.get("request")
+        user = request.user if request else self.context.get("user")
+        if instance.is_anonymous and user and not user == instance.maintainer:
             data["maintainer"] = None
         return data
 
