@@ -1,5 +1,4 @@
 import json
-import logging
 import random
 import urllib.parse
 from datetime import timedelta
