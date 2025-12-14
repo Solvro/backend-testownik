@@ -1,15 +1,12 @@
-from django.core.mail import (
-    send_mail,
-    get_connection,
-)
+from django.conf import settings
+from django.core.mail import get_connection, send_mail
 from django.core.mail.message import EmailMultiAlternatives
 from django.template.loader import render_to_string
-from django.conf import settings
+
 
 def should_send_notification(user):
-    if not user.email:
-        return False
-    return True
+    return bool(user.email)
+
 
 def notify_quiz_shared_to_users(quiz, user):
     if not should_send_notification(user):
@@ -31,6 +28,7 @@ def notify_quiz_shared_to_users(quiz, user):
         html_message=html_message,
         fail_silently=True,
     )
+
 
 def notify_quiz_shared_to_groups(quiz, group):
     users_to_notify = [

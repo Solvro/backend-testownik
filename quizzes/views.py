@@ -14,8 +14,8 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.mail import EmailMessage
 from django.core.validators import URLValidator
-from django.db.models import Q
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -39,9 +39,9 @@ from quizzes.serializers import (
     QuizSerializer,
     SharedQuizSerializer,
 )
-from quizzes.services.notifications import(
-    notify_quiz_shared_to_users,
+from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
+    notify_quiz_shared_to_users,
 )
 
 
