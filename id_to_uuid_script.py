@@ -30,10 +30,9 @@ def migrate_user_ids():
     # Phase 2: Update all foreign keys
     for entry in data:
         # Update foreign keys
-        if entry["model"] == "users.usersettings":
+        if entry["model"] == "users.usersettings" and entry["pk"] in id_mapping:
             # Handle OneToOneField as primary key
-            if entry["pk"] in id_mapping:
-                entry["pk"] = id_mapping[entry["pk"]]
+            entry["pk"] = id_mapping[entry["pk"]]
 
         # Update regular foreign keys
         for field in ["user", "maintainer"]:
@@ -43,20 +42,18 @@ def migrate_user_ids():
         # Update M2M relationships (StudyGroup members)
         if entry["model"] == "users.studygroup" and "members" in entry["fields"]:
             entry["fields"]["members"] = [
-                id_mapping[member_id]
-                for member_id in entry["fields"]["members"]
-                if member_id in id_mapping
+                id_mapping[member_id] for member_id in entry["fields"]["members"] if member_id in id_mapping
             ]
 
         # Update admin log entries
-        if entry["model"] == "admin.logentry":
-            if "object_id" in entry["fields"]:
-                object_id = entry["fields"]["object_id"]
-                try:
-                    if int(object_id) in id_mapping:
-                        entry["fields"]["object_id"] = id_mapping[int(object_id)]
-                except ValueError:
-                    pass
+        if (entry["model"] == "admin.logentry") and ("object_id" in entry["fields"]):
+            object_id = entry["fields"]["object_id"]
+            try:
+                if int(object_id) in id_mapping:
+                    entry["fields"]["object_id"] = id_mapping[int(object_id)]
+            except ValueError:
+                # Could not convert object_id to int; skipping mapping update for this entry.
+                pass
 
     # Save migrated data
     with open(output_file, "w") as f:

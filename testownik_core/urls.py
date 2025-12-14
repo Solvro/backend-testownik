@@ -48,9 +48,7 @@ urlpatterns = [
     ),
     path(
         "swagger/",
-        SpectacularSwaggerView.as_view(
-            url_name="schema", permission_classes=[AllowAny]
-        ),
+        SpectacularSwaggerView.as_view(url_name="schema", permission_classes=[AllowAny]),
         name="swagger-ui",
     ),
     path(

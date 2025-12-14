@@ -106,9 +106,7 @@ class LastUsedQuizzesView(APIView):
 
         last_used_quizzes = [
             qp.quiz
-            for qp in QuizProgress.objects.filter(user=request.user).order_by(
-                "-last_activity"
-            )[:max_quizzes_count]
+            for qp in QuizProgress.objects.filter(user=request.user).order_by("-last_activity")[:max_quizzes_count]
         ]
 
         return Response([quiz.to_dict() for quiz in last_used_quizzes])
@@ -147,9 +145,7 @@ class SearchQuizzesView(APIView):
         if not query:
             return Response({"error": "Query parameter is required"}, status=400)
 
-        user_quizzes = Quiz.objects.filter(
-            maintainer=request.user, title__icontains=query
-        )
+        user_quizzes = Quiz.objects.filter(maintainer=request.user, title__icontains=query)
         shared_quizzes = SharedQuiz.objects.filter(
             user=request.user, quiz__title__icontains=query, quiz__visibility__gte=1
         )
@@ -170,8 +166,10 @@ class SearchQuizzesView(APIView):
         )
 
 
-# This viewset will only return user's quizzes when listing, but will allow to view all quizzes when retrieving a single quiz.
-# This is by design, if the user wants to view shared quizzes, they should use the SharedQuizViewSet and for public quizzes they should use the api_search_quizzes view.
+# This viewset will only return user's quizzes when listing,
+#   but will allow to view all quizzes when retrieving a single quiz.
+# This is by design, if the user wants to view shared quizzes,
+#   they should use the SharedQuizViewSet and for public quizzes they should use the api_search_quizzes view.
 # It will also allow to create, update and delete quizzes only if the user is the maintainer of the quiz.
 class QuizViewSet(viewsets.ModelViewSet):
     queryset = Quiz.objects.all()
@@ -223,9 +221,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         quiz = self.get_object()
         if not quiz.can_edit(request.user):
-            return Response(
-                {"error": "You do not have permission to edit this quiz"}, status=403
-            )
+            return Response({"error": "You do not have permission to edit this quiz"}, status=403)
         return super().update(request, *args, **kwargs)
 
 
@@ -240,9 +236,7 @@ class QuizMetadataView(APIView):
     )
     def get(self, request, quiz_id):
         quiz = Quiz.objects.get(id=quiz_id)
-        return Response(
-            QuizMetaDataSerializer(quiz, context={"user": request.user}).data
-        )
+        return Response(QuizMetaDataSerializer(quiz, context={"user": request.user}).data)
 
 
 class SharedQuizViewSet(viewsets.ModelViewSet):
@@ -301,11 +295,7 @@ class ReportQuestionIssueView(APIView):
     )
     def post(self, request):
         data = request.data
-        if (
-            not data.get("quiz_id")
-            or not data.get("question_id")
-            or not data.get("issue")
-        ):
+        if not data.get("quiz_id") or not data.get("question_id") or not data.get("issue"):
             return Response({"error": "Missing data"}, status=400)
 
         quiz = Quiz.objects.get(id=data.get("quiz_id"))
@@ -369,13 +359,9 @@ class QuizProgressView(APIView):
     )
     def get(self, request, quiz_id):
         try:
-            quiz_progress, _ = QuizProgress.objects.get_or_create(
-                quiz_id=quiz_id, user=request.user
-            )
+            quiz_progress, _ = QuizProgress.objects.get_or_create(quiz_id=quiz_id, user=request.user)
         except QuizProgress.MultipleObjectsReturned:
-            duplicates = QuizProgress.objects.filter(
-                quiz_id=quiz_id, user=request.user
-            ).order_by("-last_activity")[1:]
+            duplicates = QuizProgress.objects.filter(quiz_id=quiz_id, user=request.user).order_by("-last_activity")[1:]
             for duplicate in duplicates:
                 duplicate.delete()
             quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
@@ -404,13 +390,9 @@ class QuizProgressView(APIView):
     def post(self, request, quiz_id):
         data = json.loads(request.body)
         try:
-            quiz_progress, _ = QuizProgress.objects.get_or_create(
-                quiz_id=quiz_id, user=request.user
-            )
+            quiz_progress, _ = QuizProgress.objects.get_or_create(quiz_id=quiz_id, user=request.user)
         except QuizProgress.MultipleObjectsReturned:
-            duplicates = QuizProgress.objects.filter(
-                quiz_id=quiz_id, user=request.user
-            ).order_by("-last_activity")[1:]
+            duplicates = QuizProgress.objects.filter(quiz_id=quiz_id, user=request.user).order_by("-last_activity")[1:]
             for duplicate in duplicates:
                 duplicate.delete()
             quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
