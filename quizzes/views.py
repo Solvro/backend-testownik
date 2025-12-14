@@ -1,19 +1,11 @@
-import ipaddress
 import json
 import logging
 import random
-import socket
 import urllib.parse
 from datetime import timedelta
-from urllib.parse import urlparse
 
-import aiohttp
-from adrf.views import APIView as asyncAPIView
-from asgiref.sync import sync_to_async
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.core.mail import EmailMessage
-from django.core.validators import URLValidator
 from django.db.models import Q
 from django.utils import timezone
 from drf_spectacular.utils import (
@@ -276,125 +268,6 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
         context = super().get_serializer_context()
         context.update({"user": self.request.user})
         return context
-
-
-class ImportQuizFromLinkView(asyncAPIView):
-    permission_classes = [IsAuthenticated]
-
-    @extend_schema(
-        summary="Import quiz from external link",
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {"link": {"type": "string", "format": "uri"}},
-                "required": ["link"],
-            }
-        },
-        responses={
-            201: QuizSerializer,
-            400: OpenApiResponse(description="Validation or fetch failure"),
-            401: OpenApiResponse(description="Unauthorized"),
-        },
-    )
-    async def post(self, request):
-        # Sanitize and validate the link
-        data = json.loads(request.body)
-        link = data.get("link")
-        if not link:
-            return Response({"error": "Link parameter is required"}, status=400)
-
-        # Validate URL format
-        validator = URLValidator()
-        try:
-            validator(link)
-        except ValidationError:
-            return Response({"error": "Invalid URL"}, status=400)
-
-        # Parse and validate the URL's hostname and scheme
-        parsed_url = urlparse(link)
-        if parsed_url.scheme not in ["https"]:
-            return Response({"error": "Only HTTPS protocol is allowed"}, status=400)
-
-        hostname = parsed_url.hostname
-        try:
-            # Check if hostname is an IP address
-            ipaddress.ip_address(hostname)
-            return Response(
-                {"error": "IP addresses are not allowed, only public domains"},
-                status=400,
-            )
-        except ValueError:
-            # If not an IP, ensure the hostname is valid
-            if not hostname or "." not in hostname:
-                return Response({"error": "Invalid domain name"}, status=400)
-
-        try:
-            # Resolve the hostname to ensure it is valid and not private
-            ip = socket.gethostbyname(hostname)
-            ip_obj = ipaddress.ip_address(ip)
-            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved:
-                return Response(
-                    {"error": "Private, loopback, or reserved addresses are not allowed"},
-                    status=400,
-                )
-        except Exception as e:
-            logging.exception("Error resolving hostname '%s': %s", hostname, str(e))
-            return Response({"error": "Hostname resolution failed."}, status=400)
-
-        try:
-            # Use aiohttp to download the file asynchronously
-            async with aiohttp.ClientSession() as session:
-                async with session.get(link, timeout=5) as response:
-                    # Check for HTTP status and content type
-                    if response.status != 200:
-                        return Response({"error": "Failed to fetch the file"}, status=400)
-
-                content_type = response.headers.get("Content-Type", "")
-                if (
-                    "application/json" not in content_type
-                    and "text/json" not in content_type
-                    and "text/plain" not in content_type
-                ):
-                    return Response({"error": "The file is not a valid JSON file"}, status=400)
-
-                # Check file size
-                content_length = int(response.headers.get("Content-Length", 0))
-                max_file_size = 5 * 1024 * 1024  # 5 MB
-                if content_length > max_file_size:
-                    return Response({"error": "File size exceeds the 5MB limit"}, status=400)
-
-                # Parse JSON content
-                try:
-                    if "text/plain" in content_type:
-                        quiz_data = json.loads(await response.text())
-                    else:
-                        quiz_data = await response.json()
-                except aiohttp.ContentTypeError:
-                    return Response({"error": "Invalid JSON format"}, status=400)
-
-                # Validate quiz data structure
-                required_fields = ["title", "description", "questions"]
-                for field in required_fields:
-                    if field not in quiz_data:
-                        return Response(
-                            {"error": f"Missing required field: {field}"},
-                            status=400,
-                        )
-
-        except TimeoutError:
-            return Response({"error": "Request timed out"}, status=400)
-        except aiohttp.ClientError as e:
-            return Response({"error": f"Request failed: {str(e)}"}, status=400)
-
-        serializer = QuizSerializer(data=quiz_data)
-
-        is_valid = await sync_to_async(serializer.is_valid)()
-        if is_valid:
-            quiz = await sync_to_async(serializer.save)(maintainer=request.user)
-            data = await sync_to_async(lambda q, u: QuizSerializer(q, context={"user": u}).data)(quiz, request.user)
-            return Response(data, status=201)
-        else:
-            return Response(serializer.errors, status=400)
 
 
 class ReportQuestionIssueView(APIView):

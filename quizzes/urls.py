@@ -2,7 +2,6 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from quizzes.views import (
-    ImportQuizFromLinkView,
     LastUsedQuizzesView,
     QuizMetadataView,
     QuizProgressView,
@@ -31,7 +30,6 @@ urlpatterns = [
         QuizProgressView.as_view(),
         name="quiz-progress",
     ),
-    path("import-from-link/", ImportQuizFromLinkView.as_view(), name="import-from-link"),
     path(
         "report-question-issue/",
         ReportQuestionIssueView.as_view(),

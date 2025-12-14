@@ -97,6 +97,11 @@ class UserSettings(models.Model):
     initial_reoccurrences = models.IntegerField(default=1)
     wrong_answer_reoccurrences = models.IntegerField(default=1)
 
+    # user notification preferences
+    notify_quiz_shared = models.BooleanField(default=True)
+    notify_bug_reported = models.BooleanField(default=True)
+    notify_marketing = models.BooleanField(default=True)
+
     def __str__(self):
         return f"Settings for {self.user}"
 
