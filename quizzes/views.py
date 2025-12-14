@@ -112,7 +112,7 @@ class LastUsedQuizzesView(APIView):
         ]
 
         serializer = QuizMetaDataSerializer(
-            last_used_quizzes, many=True, context={"user": request.user}
+            last_used_quizzes, many=True, context={"user": request.user, "request": request}
         )
         return Response(serializer.data)
 

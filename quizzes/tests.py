@@ -66,3 +66,7 @@ class LastUsedQuizzesViewTest(TestCase):
         self.assertIn("description", response.data[0])
         self.assertIn("maintainer", response.data[0])
         self.assertIn("visibility", response.data[0])
+        self.assertIn("can_edit", response.data[0])
+        
+        # Verify that can_edit is True since user is the maintainer
+        self.assertTrue(response.data[0]["can_edit"])
