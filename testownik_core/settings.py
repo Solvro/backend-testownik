@@ -26,22 +26,21 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv(
-    "SECRET_KEY", "django-insecure-mo_va&2*lmj8z2ymm5i##wze&u%#d=v1boeki1tc=7@9sn3ilf"
-)
+SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-mo_va&2*lmj8z2ymm5i##wze&u%#d=v1boeki1tc=7@9sn3ilf")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", "False") == "True"
 
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost").split(",")
 
-CORS_ALLOWED_ORIGIN_REGEXES = os.getenv(
-    "CORS_ALLOWED_ORIGINS", "http://localhost:5173"
-).split(",")
+CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",")
 
-CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:8000").split(
-    ","
-)
+if os.getenv("ALLOW_CORS_PREVIEW", "False") == "True":
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        r"^https://[\w-]+-testownik\.b\.solvro\.pl$",
+    ]
+
+CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:8000").split(",")
 
 # Application definition
 
@@ -212,9 +211,7 @@ EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
 EMAIL_PORT = os.getenv("EMAIL_PORT", 587)
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
-DEFAULT_FROM_EMAIL = os.getenv(
-    "DEFAULT_FROM_EMAIL", "Testownik Solvro <testownik@solvro.pl>"
-)
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Testownik Solvro <testownik@solvro.pl>")
 
 # DRF Spectacular Settings
 SPECTACULAR_SETTINGS = {

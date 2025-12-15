@@ -68,9 +68,7 @@ def login(request):
     additional_params = {}
     if confirm_user:
         additional_params["prompt"] = "login"
-    return oauth.create_client("solvro-auth").authorize_redirect(
-        request, callback_url, **additional_params
-    )
+    return oauth.create_client("solvro-auth").authorize_redirect(request, callback_url, **additional_params)
 
 
 async def login_usos(request):
@@ -96,18 +94,10 @@ async def login_usos(request):
                 os.getenv("USOS_CONSUMER_SECRET"),
                 trust_env=True,
             ) as client:
-                client.set_scopes(
-                    ["offline_access", "studies", "email", "photo", "grades"]
-                )
-                authorization_url = await client.get_authorization_url(
-                    callback_url, confirm_user
-                )
-                request_token, request_token_secret = (
-                    client.connection.auth_manager.get_request_token()
-                )
-                await request.session.aset(
-                    f"request_token_{request_token}", request_token_secret
-                )
+                client.set_scopes(["offline_access", "studies", "email", "photo", "grades"])
+                authorization_url = await client.get_authorization_url(callback_url, confirm_user)
+                request_token, request_token_secret = client.connection.auth_manager.get_request_token()
+                await request.session.aset(f"request_token_{request_token}", request_token_secret)
                 request.session.modified = True
 
             return redirect(authorization_url)
@@ -119,9 +109,7 @@ async def login_usos(request):
             if attempt < max_retries - 1:
                 await sleep(retry_delay)
                 continue
-            return redirect(
-                add_query_params(redirect_url, {"error": "usos_unavailable"})
-            )
+            return redirect(add_query_params(redirect_url, {"error": "usos_unavailable"}))
     return redirect(add_query_params(redirect_url, {"error": "usos_unavailable"}))
 
 
@@ -129,9 +117,7 @@ def admin_login(request):
     next_url = request.GET.get("next", "/admin")
     if request.user.is_authenticated and request.user.is_superuser:
         return redirect(next_url)
-    return render(
-        request, "users/admin_login.html", {"next": next_url, "username": request.user}
-    )
+    return render(request, "users/admin_login.html", {"next": next_url, "username": request.user})
 
 
 def authorize(request):
@@ -185,9 +171,7 @@ async def authorize_usos(request):
     ) as client:
         verifier = request.GET.get("oauth_verifier")
         request_token = request.GET.get("oauth_token")
-        request_token_secret = await request.session.apop(
-            f"request_token_{request_token}", None
-        )
+        request_token_secret = await request.session.apop(f"request_token_{request_token}", None)
         if not request_token_secret:
             if request.GET.get("retry") != "1":
                 login_url = request.build_absolute_uri("/api/login/usos/")
@@ -196,15 +180,11 @@ async def authorize_usos(request):
                 return redirect(add_query_params(login_url, dict(params)))
 
             if request.GET.get("jwt", "false") == "true":
-                return redirect(
-                    add_query_params(redirect_url, {"error": "invalid_token"})
-                )
+                return redirect(add_query_params(redirect_url, {"error": "invalid_token"}))
             return HttpResponseForbidden()
 
         try:
-            access_token, access_token_secret = await client.authorize(
-                verifier, request_token, request_token_secret
-            )
+            access_token, access_token_secret = await client.authorize(verifier, request_token, request_token_secret)
         except USOSAPIException as e:
             logger.exception(f"Error during USOS authorization: {e}")
             if request.GET.get("retry") != "1":
@@ -214,14 +194,10 @@ async def authorize_usos(request):
                 return redirect(add_query_params(login_url, dict(params)))
 
             if request.GET.get("jwt", "false") == "true":
-                return redirect(
-                    add_query_params(redirect_url, {"error": "authorization_failed"})
-                )
+                return redirect(add_query_params(redirect_url, {"error": "authorization_failed"}))
             return HttpResponseForbidden()
 
-        user, created = await update_user_data_from_usos(
-            client, access_token, access_token_secret
-        )
+        user, created = await update_user_data_from_usos(client, access_token, access_token_secret)
 
         if not user.is_student_and_not_staff:
             messages.error(
@@ -231,9 +207,7 @@ async def authorize_usos(request):
             if created:
                 await user.adelete()
             if request.GET.get("jwt", "false") == "true":
-                return redirect(
-                    add_query_params(redirect_url, {"error": "not_student"})
-                )
+                return redirect(add_query_params(redirect_url, {"error": "not_student"}))
             return redirect("index")
 
     if request.GET.get("jwt", "false") == "true":
@@ -252,14 +226,10 @@ async def authorize_usos(request):
     return redirect(redirect_url)
 
 
-async def update_user_data_from_usos(
-    client=None, access_token=None, access_token_secret=None
-):
+async def update_user_data_from_usos(client=None, access_token=None, access_token_secret=None):
     if not client:
         if not access_token or not access_token_secret:
-            raise ValueError(
-                "Either client or access_token and access_token_secret must be provided"
-            )
+            raise ValueError("Either client or access_token and access_token_secret must be provided")
         async with USOSClient(
             "https://apps.usos.pwr.edu.pl/",
             os.getenv("USOS_CONSUMER_KEY"),
@@ -281,9 +251,7 @@ async def update_user_data_from_usos(
         "staff_status": user_data.staff_status.value,
         "photo_url": user_data.photo_urls.get(
             "original",
-            user_data.photo_urls.get(
-                "200x200", next(iter(user_data.photo_urls.values()), None)
-            ),
+            user_data.photo_urls.get("200x200", next(iter(user_data.photo_urls.values()), None)),
         ),
     }
 
@@ -291,9 +259,7 @@ async def update_user_data_from_usos(
         defaults["access_token"] = access_token
         defaults["access_token_secret"] = access_token_secret
 
-    user_obj, created = await User.objects.aupdate_or_create(
-        usos_id=user_data.id, defaults=defaults
-    )
+    user_obj, created = await User.objects.aupdate_or_create(usos_id=user_data.id, defaults=defaults)
 
     if created:
         user_obj.set_unusable_password()
@@ -351,6 +317,9 @@ class SettingsView(APIView):
                     "sync_progress": True,
                     "initial_reoccurrences": 3,
                     "wrong_answer_reoccurrences": 1,
+                    "notify_quiz_shared": False,
+                    "notify_bug_reported": False,
+                    "notify_marketing": True,
                 },
             )
         ],
@@ -367,6 +336,9 @@ class SettingsView(APIView):
                 "sync_progress": user_settings.sync_progress,
                 "initial_reoccurrences": user_settings.initial_reoccurrences,
                 "wrong_answer_reoccurrences": user_settings.wrong_answer_reoccurrences,
+                "notify_quiz_shared": user_settings.notify_quiz_shared,
+                "notify_bug_reported": user_settings.notify_bug_reported,
+                "notify_marketing": user_settings.notify_marketing,
             }
         )
 
@@ -380,6 +352,9 @@ class SettingsView(APIView):
                     "sync_progress": {"type": "boolean"},
                     "initial_reoccurrences": {"type": "integer", "minimum": 1},
                     "wrong_answer_reoccurrences": {"type": "integer", "minimum": 0},
+                    "notify_quiz_shared": {"type": "boolean"},
+                    "notify_bug_reported": {"type": "boolean"},
+                    "notify_marketing": {"type": "boolean"},
                 },
                 "required": [],
             }
@@ -395,6 +370,9 @@ class SettingsView(APIView):
                     "sync_progress": True,
                     "initial_reoccurrences": 3,
                     "wrong_answer_reoccurrences": 2,
+                    "notify_quiz_shared": False,
+                    "notify_bug_reported": True,
+                    "notify_marketing": True,
                 },
             )
         ],
@@ -410,6 +388,9 @@ class SettingsView(APIView):
         sync_progress = data.get("sync_progress")
         initial_reoccurrences = data.get("initial_reoccurrences")
         wrong_answer_reoccurrences = data.get("wrong_answer_reoccurrences")
+        notify_quiz_shared = data.get("notify_quiz_shared")
+        notify_bug_reported = data.get("notify_bug_reported")
+        notify_marketing = data.get("notify_marketing")
 
         if sync_progress is not None:
             user_settings.sync_progress = sync_progress
@@ -432,12 +413,42 @@ class SettingsView(APIView):
                     status=HttpResponseBadRequest.status_code,
                 )
 
+        if notify_quiz_shared is not None:
+            if isinstance(notify_quiz_shared, bool):
+                user_settings.notify_quiz_shared = notify_quiz_shared
+            else:
+                return Response(
+                    "notify_quiz_shared must be a boolean",
+                    status=HttpResponseBadRequest.status_code,
+                )
+
+        if notify_bug_reported is not None:
+            if isinstance(notify_bug_reported, bool):
+                user_settings.notify_bug_reported = notify_bug_reported
+            else:
+                return Response(
+                    "notify_bug_reported must be a boolean",
+                    status=HttpResponseBadRequest.status_code,
+                )
+
+        if notify_marketing is not None:
+            if isinstance(notify_marketing, bool):
+                user_settings.notify_marketing = notify_marketing
+            else:
+                return Response(
+                    "notify_marketing must be a boolean",
+                    status=HttpResponseBadRequest.status_code,
+                )
+
         user_settings.save()
         return Response(
             {
                 "sync_progress": user_settings.sync_progress,
                 "initial_reoccurrences": user_settings.initial_reoccurrences,
                 "wrong_answer_reoccurrences": user_settings.wrong_answer_reoccurrences,
+                "notify_quiz_shared": user_settings.notify_quiz_shared,
+                "notify_bug_reported": user_settings.notify_bug_reported,
+                "notify_marketing": user_settings.notify_marketing,
             }
         )
 
@@ -450,9 +461,7 @@ async def refresh_user_data(request):
             access_token_secret=request_user.access_token_secret,
         )
     except Exception as e:
-        messages.error(
-            request, f"Wystąpił błąd podczas odświeżania danych użytkownika: {e}"
-        )
+        messages.error(request, f"Wystąpił błąd podczas odświeżania danych użytkownika: {e}")
     return redirect(request.GET.get("next", "index"))
 
 
@@ -476,7 +485,7 @@ class CurrentUserView(GenericAPIView):
         allowed_fields_patch = ["overriden_photo_url", "hide_profile"]
         data = json.loads(request.body)
 
-        for key in data.keys():  # Check if all fields are allowed
+        for key in data:  # Check if all fields are allowed
             if key not in allowed_fields_patch:
                 return Response(
                     f"Field '{key}' is not allowed to be updated",
@@ -490,9 +499,7 @@ class CurrentUserView(GenericAPIView):
         return Response(serializer.errors, status=HttpResponseBadRequest.status_code)
 
 
-class UserViewSet(
-    mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet
-):
+class UserViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     queryset = User.objects.all()
     serializer_class = PublicUserSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -655,9 +662,7 @@ class LoginOtpView(APIView):
             400: OpenApiResponse(description="Invalid or expired OTP"),
         },
         examples=[
-            OpenApiExample(
-                "Valid request", value={"email": "user@example.com", "otp": "123456"}
-            ),
+            OpenApiExample("Valid request", value={"email": "user@example.com", "otp": "123456"}),
             OpenApiExample(
                 "Success response",
                 response_only=True,
@@ -685,13 +690,9 @@ class LoginOtpView(APIView):
         otp_code = request.data.get("otp")
 
         if not email or not otp_code:
-            return Response(
-                {"error": "Email and OTP code must be provided"}, status=400
-            )
+            return Response({"error": "Email and OTP code must be provided"}, status=400)
 
-        email_login_token = EmailLoginToken.objects.filter(
-            user__email=email, otp_code=otp_code
-        ).first()
+        email_login_token = EmailLoginToken.objects.filter(user__email=email, otp_code=otp_code).first()
 
         if not email_login_token:
             for token in EmailLoginToken.objects.filter(user__email=email):
@@ -700,9 +701,7 @@ class LoginOtpView(APIView):
 
         if email_login_token.is_expired() or email_login_token.is_locked:
             email_login_token.delete()
-            return Response(
-                {"error": "OTP code expired or retries limit reached"}, status=400
-            )
+            return Response({"error": "OTP code expired or retries limit reached"}, status=400)
 
         user = email_login_token.user
         refresh = RefreshToken.for_user(user)
@@ -766,11 +765,7 @@ class LoginLinkView(APIView):
 
         email_login_token = EmailLoginToken.objects.filter(token=token).first()
 
-        if (
-            not email_login_token
-            or email_login_token.is_expired()
-            or email_login_token.is_locked
-        ):
+        if not email_login_token or email_login_token.is_expired() or email_login_token.is_locked:
             if email_login_token:
                 email_login_token.delete()
             return Response({"error": "Invalid or expired login link"}, status=400)
@@ -829,9 +824,7 @@ class DeleteAccountView(APIView):
             try:
                 transfer_to_user = User.objects.get(id=transfer_to_user_id)
             except User.DoesNotExist:
-                return Response(
-                    {"error": "User to transfer quizzes to not found"}, status=404
-                )
+                return Response({"error": "User to transfer quizzes to not found"}, status=404)
 
             quizzes = Quiz.objects.filter(maintainer=request.user)
             for quiz in quizzes:

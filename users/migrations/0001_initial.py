@@ -8,7 +8,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [
@@ -22,9 +21,7 @@ class Migration(migrations.Migration):
                 ("password", models.CharField(max_length=128, verbose_name="password")),
                 (
                     "last_login",
-                    models.DateTimeField(
-                        blank=True, null=True, verbose_name="last login"
-                    ),
+                    models.DateTimeField(blank=True, null=True, verbose_name="last login"),
                 ),
                 (
                     "id",
@@ -188,9 +185,7 @@ class Migration(migrations.Migration):
                 ("name", models.CharField(max_length=255)),
                 (
                     "members",
-                    models.ManyToManyField(
-                        related_name="study_groups", to=settings.AUTH_USER_MODEL
-                    ),
+                    models.ManyToManyField(related_name="study_groups", to=settings.AUTH_USER_MODEL),
                 ),
                 (
                     "term",

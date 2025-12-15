@@ -1,7 +1,6 @@
 import random
 import uuid
 from datetime import date, timedelta
-from typing import Optional
 
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.db import models
@@ -21,15 +20,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     last_name = models.CharField(
         max_length=51
     )  # 51 is the maximum length of a last name in polish: "Czartoryski Rostworowski-Mycielski Anderson Scimone"
-    sex = models.CharField(
-        max_length=1, choices=[(x.value, x.name) for x in Sex], null=True, blank=True
-    )
-    student_status = models.IntegerField(
-        choices=[(x.value, x.name) for x in StudentStatus], null=True, blank=True
-    )
-    staff_status = models.IntegerField(
-        choices=[(x.value, x.name) for x in StaffStatus], null=True, blank=True
-    )
+    sex = models.CharField(max_length=1, choices=[(x.value, x.name) for x in Sex], null=True, blank=True)
+    student_status = models.IntegerField(choices=[(x.value, x.name) for x in StudentStatus], null=True, blank=True)
+    staff_status = models.IntegerField(choices=[(x.value, x.name) for x in StaffStatus], null=True, blank=True)
     photo_url = models.URLField(null=True, blank=True)
     overriden_photo_url = models.URLField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -43,7 +36,8 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     hide_profile = BooleanField(
         default=False,
-        help_text="Hide profile from other users in search and leaderboards, user will still be able to be added by student_number",
+        help_text="Hide profile from other users in search and leaderboards,"
+        " user will still be able to be added by student_number",
     )
 
     USERNAME_FIELD = "id"
@@ -79,7 +73,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         )
 
     @property
-    def photo(self) -> Optional[str]:
+    def photo(self) -> str | None:
         return self.overriden_photo_url or self.photo_url
 
     def get_sex(self):
@@ -96,14 +90,17 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 
 class UserSettings(models.Model):
-    user = models.OneToOneField(
-        User, on_delete=models.CASCADE, related_name="settings", primary_key=True
-    )
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="settings", primary_key=True)
     sync_progress = models.BooleanField(default=True)
 
     # quiz settings
     initial_reoccurrences = models.IntegerField(default=1)
     wrong_answer_reoccurrences = models.IntegerField(default=1)
+
+    # user notification preferences
+    notify_quiz_shared = models.BooleanField(default=True)
+    notify_bug_reported = models.BooleanField(default=True)
+    notify_marketing = models.BooleanField(default=True)
 
     def __str__(self):
         return f"Settings for {self.user}"
@@ -116,14 +113,13 @@ class Term(models.Model):
     end_date = models.DateField(null=True, blank=True)
     finish_date = models.DateField(null=True, blank=True)
 
+    def __str__(self):
+        return f"Term {self.name}"
+
     @property
     @extend_schema_field(serializers.BooleanField(allow_null=True))
-    def is_current(self) -> Optional[bool]:
-        return (
-            self.start_date <= date.today() <= self.finish_date
-            if self.start_date and self.finish_date
-            else None
-        )
+    def is_current(self) -> bool | None:
+        return self.start_date <= date.today() <= self.finish_date if self.start_date and self.finish_date else None
 
 
 class StudyGroup(models.Model):
@@ -151,6 +147,9 @@ class EmailLoginToken(models.Model):
     retry_count = models.IntegerField(default=0)  # Track retries
 
     MAX_RETRIES = 3  # Limit retries per token
+
+    def __str__(self):
+        return f"Login for {self.user}"
 
     @staticmethod
     def generate_otp():

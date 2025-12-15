@@ -40,12 +40,8 @@ class FeedbackAddView(GenericAPIView):
                 },
                 description="Feedback submitted successfully",
             ),
-            400: OpenApiResponse(
-                description="Missing required fields or invalid input"
-            ),
-            500: OpenApiResponse(
-                description="Internal server error or webhook failure"
-            ),
+            400: OpenApiResponse(description="Missing required fields or invalid input"),
+            500: OpenApiResponse(description="Internal server error or webhook failure"),
         },
         examples=[
             OpenApiExample(
@@ -79,12 +75,8 @@ class FeedbackAddView(GenericAPIView):
                 print("Feedback sent successfully!")
                 return Response({"success": "Feedback sent successfully"})
             else:
-                print(
-                    f"Error while sending feedback form: {response.status_code}, {response.text}"
-                )
-                return Response(
-                    {"error": "Error while sending feedback form"}, status=500
-                )
+                print(f"Error while sending feedback form: {response.status_code}, {response.text}")
+                return Response({"error": "Error while sending feedback form"}, status=500)
 
         except Exception as e:
             return Response({"error": f"Internal Server Error: {str(e)}"}, status=500)
