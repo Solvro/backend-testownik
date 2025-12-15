@@ -14,16 +14,13 @@ from quizzes.views import SharedQuizViewSet
 
 
 class SharedQuizViewSetPerformCreateTests(TransactionTestCase):
-
     def setUp(self):
         self.viewset = SharedQuizViewSet()
         self.mock_serializer = Mock()
 
-    @patch('quizzes.views.notify_quiz_shared_to_users')
-    @patch('quizzes.views.notify_quiz_shared_to_groups')
-    def test_notification_sent_to_user_when_user_exists(
-            self, mock_notify_groups, mock_notify_users
-    ):
+    @patch("quizzes.views.notify_quiz_shared_to_users")
+    @patch("quizzes.views.notify_quiz_shared_to_groups")
+    def test_notification_sent_to_user_when_user_exists(self, mock_notify_groups, mock_notify_users):
         """
         Test 1: Powiadomienie wysyłane do użytkownika
 
@@ -47,11 +44,9 @@ class SharedQuizViewSetPerformCreateTests(TransactionTestCase):
         mock_notify_users.assert_called_once_with(mock_quiz, mock_user)
         mock_notify_groups.assert_not_called()
 
-    @patch('quizzes.views.notify_quiz_shared_to_users')
-    @patch('quizzes.views.notify_quiz_shared_to_groups')
-    def test_notification_sent_to_group_when_study_group_exists(
-            self, mock_notify_groups, mock_notify_users
-    ):
+    @patch("quizzes.views.notify_quiz_shared_to_users")
+    @patch("quizzes.views.notify_quiz_shared_to_groups")
+    def test_notification_sent_to_group_when_study_group_exists(self, mock_notify_groups, mock_notify_users):
         """
         Test 2: Powiadomienie wysyłane do grupy
 
@@ -75,11 +70,9 @@ class SharedQuizViewSetPerformCreateTests(TransactionTestCase):
         mock_notify_groups.assert_called_once_with(mock_quiz, mock_study_group)
         mock_notify_users.assert_not_called()
 
-    @patch('quizzes.views.notify_quiz_shared_to_users')
-    @patch('quizzes.views.notify_quiz_shared_to_groups')
-    def test_user_notification_takes_priority_over_group(
-            self, mock_notify_groups, mock_notify_users
-    ):
+    @patch("quizzes.views.notify_quiz_shared_to_users")
+    @patch("quizzes.views.notify_quiz_shared_to_groups")
+    def test_user_notification_takes_priority_over_group(self, mock_notify_groups, mock_notify_users):
         """
         Test 3: Priorytet użytkownika nad grupą
 
@@ -104,11 +97,9 @@ class SharedQuizViewSetPerformCreateTests(TransactionTestCase):
         mock_notify_users.assert_called_once_with(mock_quiz, mock_user)
         mock_notify_groups.assert_not_called()
 
-    @patch('quizzes.views.notify_quiz_shared_to_users')
-    @patch('quizzes.views.notify_quiz_shared_to_groups')
-    def test_no_notification_when_no_user_and_no_group(
-            self, mock_notify_groups, mock_notify_users
-    ):
+    @patch("quizzes.views.notify_quiz_shared_to_users")
+    @patch("quizzes.views.notify_quiz_shared_to_groups")
+    def test_no_notification_when_no_user_and_no_group(self, mock_notify_groups, mock_notify_users):
         """
         Test 4: Brak powiadomienia gdy brak użytkownika i grupy
 
@@ -129,11 +120,9 @@ class SharedQuizViewSetPerformCreateTests(TransactionTestCase):
         mock_notify_users.assert_not_called()
         mock_notify_groups.assert_not_called()
 
-    @patch('quizzes.views.notify_quiz_shared_to_users')
-    @patch('quizzes.views.notify_quiz_shared_to_groups')
-    def test_notification_not_called_on_transaction_rollback(
-            self, mock_notify_groups, mock_notify_users
-    ):
+    @patch("quizzes.views.notify_quiz_shared_to_users")
+    @patch("quizzes.views.notify_quiz_shared_to_groups")
+    def test_notification_not_called_on_transaction_rollback(self, mock_notify_groups, mock_notify_users):
         """
         Test 5: Brak powiadomienia przy rollback transakcji
 
@@ -217,11 +206,9 @@ class ShouldSendNotificationTests(TransactionTestCase):
 class NotifyQuizSharedToUsersTests(TransactionTestCase):
     """Testy funkcji notify_quiz_shared_to_users"""
 
-    @patch('quizzes.services.notifications.send_mail')
-    @patch('quizzes.services.notifications.render_to_string')
-    def test_sends_email_to_user_with_email(
-            self, mock_render, mock_send_mail
-    ):
+    @patch("quizzes.services.notifications.send_mail")
+    @patch("quizzes.services.notifications.render_to_string")
+    def test_sends_email_to_user_with_email(self, mock_render, mock_send_mail):
         """Wysyła email gdy użytkownik ma adres email"""
         # Arrange
         mock_quiz = Mock()
@@ -243,10 +230,8 @@ class NotifyQuizSharedToUsersTests(TransactionTestCase):
             fail_silently=True,
         )
 
-    @patch('quizzes.services.notifications.send_mail')
-    def test_does_not_send_email_when_user_has_no_email(
-            self, mock_send_mail
-    ):
+    @patch("quizzes.services.notifications.send_mail")
+    def test_does_not_send_email_when_user_has_no_email(self, mock_send_mail):
         """Nie wysyła emaila gdy użytkownik nie ma adresu email"""
         # Arrange
         mock_quiz = Mock()
@@ -259,8 +244,8 @@ class NotifyQuizSharedToUsersTests(TransactionTestCase):
         # Assert
         mock_send_mail.assert_not_called()
 
-    @patch('quizzes.services.notifications.render_to_string')
-    @patch('quizzes.services.notifications.send_mail')
+    @patch("quizzes.services.notifications.render_to_string")
+    @patch("quizzes.services.notifications.send_mail")
     def test_renders_both_templates(self, mock_render):
         """Renderuje zarówno szablon tekstowy jak i HTML"""
         # Arrange
@@ -275,24 +260,28 @@ class NotifyQuizSharedToUsersTests(TransactionTestCase):
 
         # Assert
         self.assertEqual(mock_render.call_count, 2)
-        mock_render.assert_any_call('emails/quiz_shared.txt', {
-            'user': mock_user,
-            'quiz': mock_quiz,
-        })
-        mock_render.assert_any_call('emails/quiz_shared.html', {
-            'user': mock_user,
-            'quiz': mock_quiz,
-        })
+        mock_render.assert_any_call(
+            "emails/quiz_shared.txt",
+            {
+                "user": mock_user,
+                "quiz": mock_quiz,
+            },
+        )
+        mock_render.assert_any_call(
+            "emails/quiz_shared.html",
+            {
+                "user": mock_user,
+                "quiz": mock_quiz,
+            },
+        )
 
 
 class NotifyQuizSharedToGroupsTests(TransactionTestCase):
     """Testy funkcji notify_quiz_shared_to_groups"""
 
-    @patch('quizzes.services.notifications.get_connection')
-    @patch('quizzes.services.notifications.render_to_string')
-    def test_sends_emails_to_all_group_members_with_email(
-            self, mock_render, mock_get_connection
-    ):
+    @patch("quizzes.services.notifications.get_connection")
+    @patch("quizzes.services.notifications.render_to_string")
+    def test_sends_emails_to_all_group_members_with_email(self, mock_render, mock_get_connection):
         """Wysyła emaile do wszystkich członków grupy z adresem email"""
         # Arrange
         mock_quiz = Mock()
@@ -318,10 +307,8 @@ class NotifyQuizSharedToGroupsTests(TransactionTestCase):
         messages = mock_connection.send_messages.call_args[0][0]
         self.assertEqual(len(messages), 2)
 
-    @patch('quizzes.services.notifications.get_connection')
-    def test_does_not_send_when_no_members_have_email(
-            self, mock_get_connection
-    ):
+    @patch("quizzes.services.notifications.get_connection")
+    def test_does_not_send_when_no_members_have_email(self, mock_get_connection):
         """Nie wysyła emaili gdy żaden członek grupy nie ma adresu email"""
         # Arrange
         mock_quiz = Mock()
@@ -340,10 +327,8 @@ class NotifyQuizSharedToGroupsTests(TransactionTestCase):
         # Assert
         mock_connection.send_messages.assert_not_called()
 
-    @patch('quizzes.services.notifications.get_connection')
-    def test_does_not_send_when_group_has_no_members(
-            self, mock_get_connection
-    ):
+    @patch("quizzes.services.notifications.get_connection")
+    def test_does_not_send_when_group_has_no_members(self, mock_get_connection):
         """Nie wysyła emaili gdy grupa nie ma członków"""
         # Arrange
         mock_quiz = Mock()
@@ -359,8 +344,8 @@ class NotifyQuizSharedToGroupsTests(TransactionTestCase):
         # Assert
         mock_connection.send_messages.assert_not_called()
 
-    @patch('quizzes.services.notifications.get_connection')
-    @patch('quizzes.services.notifications.render_to_string')
+    @patch("quizzes.services.notifications.get_connection")
+    @patch("quizzes.services.notifications.render_to_string")
     def test_skips_users_without_email(self, mock_render, mock_get_connection):
         """Pomija użytkowników bez adresu email"""
         # Arrange
@@ -386,12 +371,10 @@ class NotifyQuizSharedToGroupsTests(TransactionTestCase):
         messages = mock_connection.send_messages.call_args[0][0]
         self.assertEqual(len(messages), 1)
 
-    @patch('quizzes.services.notifications.get_connection')
-    @patch('quizzes.services.notifications.render_to_string')
-    @patch('quizzes.services.notifications.EmailMultiAlternatives')
-    def test_email_has_correct_structure(
-            self, mock_email_class, mock_render, mock_get_connection
-    ):
+    @patch("quizzes.services.notifications.get_connection")
+    @patch("quizzes.services.notifications.render_to_string")
+    @patch("quizzes.services.notifications.EmailMultiAlternatives")
+    def test_email_has_correct_structure(self, mock_email_class, mock_render, mock_get_connection):
         """Sprawdza poprawną strukturę wiadomości email"""
         # Arrange
         mock_quiz = Mock()
@@ -419,15 +402,11 @@ class NotifyQuizSharedToGroupsTests(TransactionTestCase):
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=["user@example.com"],
         )
-        mock_email_instance.attach_alternative.assert_called_once_with(
-            "html content", 'text/html'
-        )
+        mock_email_instance.attach_alternative.assert_called_once_with("html content", "text/html")
 
-    @patch('quizzes.services.notifications.get_connection')
-    @patch('quizzes.services.notifications.render_to_string')
-    def test_uses_fail_silently_connection(
-            self, mock_render, mock_get_connection
-    ):
+    @patch("quizzes.services.notifications.get_connection")
+    @patch("quizzes.services.notifications.render_to_string")
+    def test_uses_fail_silently_connection(self, mock_render, mock_get_connection):
         """Używa połączenia z fail_silently=True"""
         # Arrange
         mock_quiz = Mock()
