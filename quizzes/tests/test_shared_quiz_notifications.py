@@ -246,7 +246,7 @@ class NotifyQuizSharedToUsersTests(TransactionTestCase):
 
     @patch("quizzes.services.notifications.render_to_string")
     @patch("quizzes.services.notifications.send_mail")
-    def test_renders_both_templates(self, mock_render):
+    def test_renders_both_templates(self, mock_send_mail, mock_render):
         """Renderuje zarówno szablon tekstowy jak i HTML"""
         # Arrange
         mock_quiz = Mock()
