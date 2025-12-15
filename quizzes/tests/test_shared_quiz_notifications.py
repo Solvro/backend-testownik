@@ -4,12 +4,9 @@ from django.conf import settings
 from django.db import transaction
 from django.test import TransactionTestCase
 
-from quizzes.services.notifications import (
-    notify_quiz_shared_to_groups,
-    notify_quiz_shared_to_users,
-    should_send_notification,
-)
-
+from quizzes.services.notifications import (notify_quiz_shared_to_groups,
+                                            notify_quiz_shared_to_users,
+                                            should_send_notification)
 from quizzes.views import SharedQuizViewSet
 
 
