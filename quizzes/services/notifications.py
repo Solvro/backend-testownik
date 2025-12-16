@@ -11,64 +11,35 @@ def should_send_notification(user):
         return user.settings.notify_quiz_shared
     return True  # domyślnie True jeśli brak ustawień (tak jak w modelu user)
 
+def _create_quiz_shared_email(quiz, user):
+    subject = f'Quiz "{quiz.title}" został Ci udostępniony'
+    context = {
+        "user": user,
+        "quiz": quiz,
+    }
+    text_message = render_to_string("emails/quiz_shared.txt", context)
+    html_message = render_to_string("emails/quiz_shared.html", context)
+
+    email = EmailMultiAlternatives(
+        subject=subject,
+        body=text_message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[user.email],
+    )
+    email.attach_alternative(html_message, "text/html")
+    return email
+
 
 def notify_quiz_shared_to_users(quiz, user):
     if not should_send_notification(user):
         return
-    subject = f'Quiz "{quiz.title}" został ci udostępniony'
-    text_message = render_to_string(
-        "emails/quiz_shared.txt",
-        {
-            "user": user,
-            "quiz": quiz,
-        },
-    )
-    html_message = render_to_string(
-        "emails/quiz_shared.html",
-        {
-            "user": user,
-            "quiz": quiz,
-        },
-    )
-    send_mail(
-        subject=subject,
-        message=text_message,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[user.email],
-        html_message=html_message,
-        fail_silently=True,
-    )
+    email = _create_quiz_shared_email(quiz, user)
+    email.send(fail_silently=True)
 
 
 def notify_quiz_shared_to_groups(quiz, group):
     users_to_notify = [user for user in group.members.all() if should_send_notification(user)]
-
-    messages = []
-    for user in users_to_notify:
-        subject = f'Quiz "{quiz.title}" został Ci udostępniony'
-
-        text_message = render_to_string(
-            "emails/quiz_shared.txt",
-            {
-                "user": user,
-                "quiz": quiz,
-            },
-        )
-        html_message = render_to_string(
-            "emails/quiz_shared.html",
-            {
-                "user": user,
-                "quiz": quiz,
-            },
-        )
-        email = EmailMultiAlternatives(
-            subject=subject,
-            body=text_message,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=[user.email],
-        )
-        email.attach_alternative(html_message, "text/html")
-        messages.append(email)
+    messages = [_create_quiz_shared_email(quiz, user) for user in users_to_notify]
     if messages:
         connection = get_connection(fail_silently=True)
         connection.send_messages(messages)
