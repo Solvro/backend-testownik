@@ -57,7 +57,7 @@
 </head>
 <body>
     <div class="container">
-        <h2>Cześć {{ user.first_name }}! 👋</h2>
+        <h2>Cześć {{ user.first_name or "Użytkowniku" }}! 👋</h2>
 
         <p>Quiz <strong class="quiz-title">"{{ quiz.title }}"</strong> został Ci udostępniony.</p>
 
