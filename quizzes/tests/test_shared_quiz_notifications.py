@@ -396,7 +396,7 @@ class NotifyQuizSharedToGroupsTests(TransactionTestCase):
 
         # Assert
         mock_email_class.assert_called_once_with(
-            subject='Quiz "Test Quiz" został ci udostępniony',
+            subject='Quiz "Test Quiz" został Ci udostępniony',
             body="text content",
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=["user@example.com"],
