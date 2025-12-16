@@ -45,7 +45,7 @@ def notify_quiz_shared_to_groups(quiz, group):
 
     messages = []
     for user in users_to_notify:
-        subject = f'Quiz "{quiz.title}" został ci udostępniony'
+        subject = f'Quiz "{quiz.title}" został Ci udostępniony'
 
         text_message = render_to_string(
             "emails/quiz_shared.txt",
