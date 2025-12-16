@@ -201,7 +201,38 @@ class ShouldSendNotificationTests(TransactionTestCase):
 
         self.assertFalse(result)
 
+    def test_returns_false_when_notify_quiz_shared_is_false(self):
+        """Zwraca False gdy notify_quiz_shared jest False mimo obecności emaila"""
+        user = Mock()
+        user.email = "user@example.com"
+        user.settings = Mock()
+        user.settings.notify_quiz_shared = False
 
+        result = should_send_notification(user)
+
+        self.assertFalse(result)
+
+    def test_returns_true_when_notify_quiz_shared_is_true(self):
+        """Zwraca True gdy notify_quiz_shared jest True i jest email"""
+        user = Mock()
+        user.email = "user@example.com"
+        user.settings = Mock()
+        user.settings.notify_quiz_shared = True
+
+        result = should_send_notification(user)
+
+        self.assertTrue(result)
+
+    def test_returns_false_when_settings_missing(self):
+        """Zwraca False gdy user nie ma settings"""
+        user = Mock()
+        user.email = "user@example.com"
+        if hasattr(user, "settings"):
+            del user.settings
+
+        result = should_send_notification(user)
+
+        self.assertFalse(result)
 class NotifyQuizSharedToUsersTests(TransactionTestCase):
     """Testy funkcji notify_quiz_shared_to_users"""
 
