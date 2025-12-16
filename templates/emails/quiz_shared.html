@@ -59,7 +59,7 @@
     <div class="container">
         <h2>Cześć {{ user.first_name or "Użytkowniku" }}! 👋</h2>
 
-        <p>Quiz <strong class="quiz-title">"{{ quiz.title }}"</strong> został Ci udostępniony.</p>
+        <p>Quiz <strong class="quiz-title">"{{ quiz.title|escape }}"</strong> został Ci udostępniony.</p>
 
         <a href="https://testownik.solvro.pl/quiz/{{ quiz.id }}" class="btn">
             Rozpocznij quiz
