@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.core.mail import get_connection, send_mail
+from django.core.mail import get_connection
 from django.core.mail.message import EmailMultiAlternatives
 from django.template.loader import render_to_string
 
@@ -10,6 +10,7 @@ def should_send_notification(user):
     if hasattr(user, "settings"):
         return user.settings.notify_quiz_shared
     return True  # domyślnie True jeśli brak ustawień (tak jak w modelu user)
+
 
 def _create_quiz_shared_email(quiz, user):
     subject = f'Quiz "{quiz.title}" został Ci udostępniony'

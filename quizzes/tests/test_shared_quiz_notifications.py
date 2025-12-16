@@ -233,6 +233,8 @@ class ShouldSendNotificationTests(TransactionTestCase):
         result = should_send_notification(user)
 
         self.assertFalse(result)
+
+
 class NotifyQuizSharedToUsersTests(TransactionTestCase):
     """Testy funkcji notify_quiz_shared_to_users"""
 
