@@ -39,8 +39,8 @@ def notify_quiz_shared_to_users(quiz, user):
 
 
 def notify_quiz_shared_to_groups(quiz, group):
-    users_to_notify = [user for user in group.members.all() if should_send_notification(user)]
-    messages = [_create_quiz_shared_email(quiz, user) for user in users_to_notify]
-    if messages:
-        connection = get_connection(fail_silently=True)
-        connection.send_messages(messages)
+    connection = get_connection(fail_silently=True)
+    for user in group.members.all():
+        if should_send_notification(user):
+            email = _create_quiz_shared_email(quiz, user)
+            email.send(fail_silently=True, connection=connection)
