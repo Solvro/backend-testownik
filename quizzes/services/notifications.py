@@ -7,10 +7,9 @@ from django.template.loader import render_to_string
 def should_send_notification(user):
     if not user.email:
         return False
-    try:
+    if hasattr(user, "settings"):
         return user.settings.notify_quiz_shared
-    except user._meta.model.settings.RelatedObjectDoesNotExist:
-        return True  # domyślnie True jeśli brak ustawień (tak jak w modelu user)
+    return True  # domyślnie True jeśli brak ustawień (tak jak w modelu user)
 
 
 def notify_quiz_shared_to_users(quiz, user):
