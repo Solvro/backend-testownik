@@ -1,7 +1,6 @@
+import copy
 import logging
 import os
-import copy
-
 
 import dotenv
 from adrf.decorators import api_view as async_api_view
@@ -28,18 +27,18 @@ def generate_course_grade(course_edition: CourseEdition, grades) -> list:
     result = []
 
     # check if course group
-    if (len(user_groups) > 1):
-        if (user_groups[0].class_type_id == 'W'):
+    if len(user_groups) > 1:
+        if user_groups[0].class_type_id == "W":
             grades = grades.get("course_grades", [])
         else:
             grades = grades.get("course_units_grades", {})
-            
+
             # if no grades found, return empty list
             if not grades:
                 return []
-            
+
             keys = list(grades.keys())
-            if (len(keys) != 1): 
+            if len(keys) != 1:
                 return []
 
             unit_grades = grades.get(keys[0], {}).get("1", [])
@@ -54,16 +53,17 @@ def generate_course_grade(course_edition: CourseEdition, grades) -> list:
         grades = grades.get("course_grades", [])
 
     for grade in grades:
-        result.append({
-            "value": grade.value,
-            "value_symbol": grade.value_symbol,
-            "value_description": grade.value_description.pl,
-            "counts_into_average": grade.counts_into_average,
-        })
+        result.append(
+            {
+                "value": grade.value,
+                "value_symbol": grade.value_symbol,
+                "value_description": grade.value_description.pl,
+                "counts_into_average": grade.counts_into_average,
+            }
+        )
 
     return result
 
-    
 
 @async_api_view(["GET"])
 async def get_grades(request):
@@ -71,29 +71,19 @@ async def get_grades(request):
     request_user = request.user
 
     if not request_user.usos_id:
-        return Response(
-            {"detail": "User does not have a linked USOS account."}, status=400
-        )
+        return Response({"detail": "User does not have a linked USOS account."}, status=400)
     try:
-        async with USOSClient(
-            USOS_BASE_URL, CONSUMER_KEY, CONSUMER_SECRET, trust_env=True
-        ) as client:
-            client.load_access_token(
-                request_user.access_token, request_user.access_token_secret
-            )
+        async with USOSClient(USOS_BASE_URL, CONSUMER_KEY, CONSUMER_SECRET, trust_env=True) as client:
+            client.load_access_token(request_user.access_token, request_user.access_token_secret)
             ects = await client.course_service.get_user_courses_ects()
 
             if not ects:
-                return Response(
-                    {"detail": "No ECTS data found for this user."}, status=404
-                )
+                return Response({"detail": "No ECTS data found for this user."}, status=404)
 
             # Check if terms are already in the database
             term_ids = ects.keys()
             existing_terms = Term.objects.filter(id__in=ects.keys())
-            existing_term_ids = [
-                term_id async for term_id in existing_terms.values_list("id", flat=True)
-            ]
+            existing_term_ids = [term_id async for term_id in existing_terms.values_list("id", flat=True)]
 
             # Find missing terms
             missing_term_ids = set(term_ids) - set(existing_term_ids)
@@ -118,15 +108,13 @@ async def get_grades(request):
                     terms.append(term_obj)
 
             course_editions = await client.course_service.get_user_course_editions()
-
-            grades = await client.grade_service.get_grades_by_terms(
-                term_id or [term.id for term in terms]
-            )
+            grades = await client.grade_service.get_grades_by_terms(term_id or [term.id for term in terms])
 
             # adding copies of course editions for each group if multiple groups exist
             course_editions_to_add = [
-                copy.deepcopy(course_edition) 
-                for course_edition in course_editions if len(course_edition.user_groups) > 1
+                copy.deepcopy(course_edition)
+                for course_edition in course_editions
+                if len(course_edition.user_groups) > 1
             ]
 
             # swaping the groups in the copies
@@ -135,12 +123,9 @@ async def get_grades(request):
 
             # merging the lists
             course_editions.extend(course_editions_to_add)
-            
 
         courses_ects = {
-            course: ects_points
-            for term_courses in ects.values()
-            for course, ects_points in term_courses.items()
+            course: ects_points for term_courses in ects.values() for course, ects_points in term_courses.items()
         }
 
         course_editions.sort(key=lambda ce: ce.course_name.pl)
@@ -148,7 +133,7 @@ async def get_grades(request):
         return Response(
             {
                 "terms": sorted(
-                    [   
+                    [
                         {
                             "id": term.id,
                             "name": term.name,
