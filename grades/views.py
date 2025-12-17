@@ -39,7 +39,8 @@ def generate_course_grade(course_edition: CourseEdition, grades) -> list:
                 return []
             
             keys = list(grades.keys())
-            if (len(keys) != 1): return []
+            if (len(keys) != 1): 
+                return []
 
             unit_grades = grades.get(keys[0], {}).get("1", [])
 
@@ -124,7 +125,8 @@ async def get_grades(request):
 
             # adding copies of course editions for each group if multiple groups exist
             course_editions_to_add = [
-                copy.deepcopy(course_edition) for course_edition in course_editions if len(course_edition.user_groups) > 1
+                copy.deepcopy(course_edition) 
+                for course_edition in course_editions if len(course_edition.user_groups) > 1
             ]
 
             # swaping the groups in the copies
