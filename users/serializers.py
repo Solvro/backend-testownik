@@ -35,7 +35,7 @@ class UserSettingsSerializer(serializers.ModelSerializer):
             "wrong_answer_reoccurrences",
             "notify_quiz_shared",
             "notify_bug_reported",
-            "notify_marketing"
+            "notify_marketing",
         ]
 
 

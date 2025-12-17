@@ -1,19 +1,10 @@
-import asyncio
-import ipaddress
 import json
 import random
-import socket
 import urllib.parse
 from datetime import timedelta
-from urllib.parse import urlparse
 
-import aiohttp
-from adrf.views import APIView as asyncAPIView
-from asgiref.sync import sync_to_async
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.core.mail import EmailMessage
-from django.core.validators import URLValidator
 from django.db.models import Q
 from django.utils import timezone
 from drf_spectacular.utils import (
@@ -115,9 +106,7 @@ class LastUsedQuizzesView(APIView):
 
         last_used_quizzes = [
             qp.quiz
-            for qp in QuizProgress.objects.filter(user=request.user).order_by(
-                "-last_activity"
-            )[:max_quizzes_count]
+            for qp in QuizProgress.objects.filter(user=request.user).order_by("-last_activity")[:max_quizzes_count]
         ]
 
         return Response([quiz.to_dict() for quiz in last_used_quizzes])
@@ -156,9 +145,7 @@ class SearchQuizzesView(APIView):
         if not query:
             return Response({"error": "Query parameter is required"}, status=400)
 
-        user_quizzes = Quiz.objects.filter(
-            maintainer=request.user, title__icontains=query
-        )
+        user_quizzes = Quiz.objects.filter(maintainer=request.user, title__icontains=query)
         shared_quizzes = SharedQuiz.objects.filter(
             user=request.user, quiz__title__icontains=query, quiz__visibility__gte=1
         )
@@ -179,8 +166,10 @@ class SearchQuizzesView(APIView):
         )
 
 
-# This viewset will only return user's quizzes when listing, but will allow to view all quizzes when retrieving a single quiz.
-# This is by design, if the user wants to view shared quizzes, they should use the SharedQuizViewSet and for public quizzes they should use the api_search_quizzes view.
+# This viewset will only return user's quizzes when listing,
+#   but will allow to view all quizzes when retrieving a single quiz.
+# This is by design, if the user wants to view shared quizzes,
+#   they should use the SharedQuizViewSet and for public quizzes they should use the api_search_quizzes view.
 # It will also allow to create, update and delete quizzes only if the user is the maintainer of the quiz.
 class QuizViewSet(viewsets.ModelViewSet):
     queryset = Quiz.objects.all()
@@ -232,9 +221,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         quiz = self.get_object()
         if not quiz.can_edit(request.user):
-            return Response(
-                {"error": "You do not have permission to edit this quiz"}, status=403
-            )
+            return Response({"error": "You do not have permission to edit this quiz"}, status=403)
         return super().update(request, *args, **kwargs)
 
 
@@ -249,9 +236,7 @@ class QuizMetadataView(APIView):
     )
     def get(self, request, quiz_id):
         quiz = Quiz.objects.get(id=quiz_id)
-        return Response(
-            QuizMetaDataSerializer(quiz, context={"user": request.user}).data
-        )
+        return Response(QuizMetaDataSerializer(quiz, context={"user": request.user}).data)
 
 
 class SharedQuizViewSet(viewsets.ModelViewSet):
@@ -284,137 +269,6 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
         return context
 
 
-class ImportQuizFromLinkView(asyncAPIView):
-    permission_classes = [IsAuthenticated]
-
-    @extend_schema(
-        summary="Import quiz from external link",
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {"link": {"type": "string", "format": "uri"}},
-                "required": ["link"],
-            }
-        },
-        responses={
-            201: QuizSerializer,
-            400: OpenApiResponse(description="Validation or fetch failure"),
-            401: OpenApiResponse(description="Unauthorized"),
-        },
-    )
-    async def post(self, request):
-
-        # Sanitize and validate the link
-        data = json.loads(request.body)
-        link = data.get("link")
-        if not link:
-            return Response({"error": "Link parameter is required"}, status=400)
-
-        # Validate URL format
-        validator = URLValidator()
-        try:
-            validator(link)
-        except ValidationError:
-            return Response({"error": "Invalid URL"}, status=400)
-
-        # Parse and validate the URL's hostname and scheme
-        parsed_url = urlparse(link)
-        if parsed_url.scheme not in ["https"]:
-            return Response({"error": "Only HTTPS protocol is allowed"}, status=400)
-
-        hostname = parsed_url.hostname
-        try:
-            # Check if hostname is an IP address
-            ipaddress.ip_address(hostname)
-            return Response(
-                {"error": "IP addresses are not allowed, only public domains"},
-                status=400,
-            )
-        except ValueError:
-            # If not an IP, ensure the hostname is valid
-            if not hostname or "." not in hostname:
-                return Response({"error": "Invalid domain name"}, status=400)
-
-        try:
-            # Resolve the hostname to ensure it is valid and not private
-            ip = socket.gethostbyname(hostname)
-            ip_obj = ipaddress.ip_address(ip)
-            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved:
-                return Response(
-                    {
-                        "error": "Private, loopback, or reserved addresses are not allowed"
-                    },
-                    status=400,
-                )
-        except Exception as e:
-            return Response(
-                {"error": f"Hostname resolution failed: {str(e)}"}, status=400
-            )
-
-        try:
-            # Use aiohttp to download the file asynchronously
-            async with aiohttp.ClientSession() as session:
-                async with session.get(link, timeout=5) as response:
-                    # Check for HTTP status and content type
-                    if response.status != 200:
-                        return Response(
-                            {"error": "Failed to fetch the file"}, status=400
-                        )
-
-                    content_type = response.headers.get("Content-Type", "")
-                    if (
-                        "application/json" not in content_type
-                        and "text/json" not in content_type
-                        and "text/plain" not in content_type
-                    ):
-                        return Response(
-                            {"error": "The file is not a valid JSON file"}, status=400
-                        )
-
-                    # Check file size
-                    content_length = int(response.headers.get("Content-Length", 0))
-                    max_file_size = 5 * 1024 * 1024  # 5 MB
-                    if content_length > max_file_size:
-                        return Response(
-                            {"error": "File size exceeds the 5MB limit"}, status=400
-                        )
-
-                    # Parse JSON content
-                    try:
-                        if "text/plain" in content_type:
-                            quiz_data = json.loads(await response.text())
-                        else:
-                            quiz_data = await response.json()
-                    except aiohttp.ContentTypeError:
-                        return Response({"error": "Invalid JSON format"}, status=400)
-
-                    # Validate quiz data structure
-                    required_fields = ["title", "description", "questions"]
-                    for field in required_fields:
-                        if field not in quiz_data:
-                            return Response(
-                                {"error": f"Missing required field: {field}"},
-                                status=400,
-                            )
-
-        except asyncio.TimeoutError:
-            return Response({"error": "Request timed out"}, status=400)
-        except aiohttp.ClientError as e:
-            return Response({"error": f"Request failed: {str(e)}"}, status=400)
-
-        serializer = QuizSerializer(data=quiz_data)
-
-        is_valid = await sync_to_async(serializer.is_valid)()
-        if is_valid:
-            quiz = await sync_to_async(serializer.save)(maintainer=request.user)
-            data = await sync_to_async(
-                lambda q, u: QuizSerializer(q, context={"user": u}).data
-            )(quiz, request.user)
-            return Response(data, status=201)
-        else:
-            return Response(serializer.errors, status=400)
-
-
 class ReportQuestionIssueView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -441,11 +295,7 @@ class ReportQuestionIssueView(APIView):
     )
     def post(self, request):
         data = request.data
-        if (
-            not data.get("quiz_id")
-            or not data.get("question_id")
-            or not data.get("issue")
-        ):
+        if not data.get("quiz_id") or not data.get("question_id") or not data.get("issue"):
             return Response({"error": "Missing data"}, status=400)
 
         quiz = Quiz.objects.get(id=data.get("quiz_id"))
@@ -509,13 +359,9 @@ class QuizProgressView(APIView):
     )
     def get(self, request, quiz_id):
         try:
-            quiz_progress, _ = QuizProgress.objects.get_or_create(
-                quiz_id=quiz_id, user=request.user
-            )
+            quiz_progress, _ = QuizProgress.objects.get_or_create(quiz_id=quiz_id, user=request.user)
         except QuizProgress.MultipleObjectsReturned:
-            duplicates = QuizProgress.objects.filter(
-                quiz_id=quiz_id, user=request.user
-            ).order_by("-last_activity")[1:]
+            duplicates = QuizProgress.objects.filter(quiz_id=quiz_id, user=request.user).order_by("-last_activity")[1:]
             for duplicate in duplicates:
                 duplicate.delete()
             quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
@@ -544,13 +390,9 @@ class QuizProgressView(APIView):
     def post(self, request, quiz_id):
         data = json.loads(request.body)
         try:
-            quiz_progress, _ = QuizProgress.objects.get_or_create(
-                quiz_id=quiz_id, user=request.user
-            )
+            quiz_progress, _ = QuizProgress.objects.get_or_create(quiz_id=quiz_id, user=request.user)
         except QuizProgress.MultipleObjectsReturned:
-            duplicates = QuizProgress.objects.filter(
-                quiz_id=quiz_id, user=request.user
-            ).order_by("-last_activity")[1:]
+            duplicates = QuizProgress.objects.filter(quiz_id=quiz_id, user=request.user).order_by("-last_activity")[1:]
             for duplicate in duplicates:
                 duplicate.delete()
             quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
