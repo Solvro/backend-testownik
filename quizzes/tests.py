@@ -1,12 +1,12 @@
-from rest_framework.test import APIRequestFactory, force_authenticate
 from datetime import timedelta
-from quizzes.models import Quiz, QuizProgress, SharedQuiz
-import math
-from quizzes.serializers import QuizMetaDataSerializer, SharedQuizSerializer
+
 from django.test import TestCase
-from users.models import StudyGroup, User
+from rest_framework.test import APIRequestFactory, force_authenticate
+
+from quizzes.models import Quiz, QuizProgress, SharedQuiz
+from quizzes.serializers import QuizMetaDataSerializer, SharedQuizSerializer
 from quizzes.views import QuizProgressView
-UNUSED_CONSTANT =  123  # lint: double space, unused
+from users.models import StudyGroup, User
 
 
 class QuizModelTests(TestCase):
@@ -40,7 +40,6 @@ class QuizModelTests(TestCase):
         self.study_group.members.add(self.group_member)
 
     def test_can_edit_handles_maintainer_and_shared_access(self):
-        temp  = "unused value"  # lint: unused var + double spaces
         SharedQuiz.objects.create(quiz=self.quiz, user=self.collaborator, allow_edit=True)
         SharedQuiz.objects.create(quiz=self.quiz, study_group=self.study_group, allow_edit=True)
 
@@ -68,7 +67,6 @@ class SharedQuizSerializerTests(TestCase):
         self.study_group = StudyGroup.objects.create(id="group-2", name="Study Group 2")
 
     def test_validate_requires_exactly_one_target(self):
-        count = Quiz.objects.count()  # unused
         serializer_missing_target = SharedQuizSerializer(data={"quiz_id": self.quiz.id})
         self.assertFalse(serializer_missing_target.is_valid())
         self.assertIn("must provide either 'user_id' or 'study_group_id'", str(serializer_missing_target.errors))

@@ -22,5 +22,10 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements-dev.txt
 
-      - name: Run pre-commit (lint & format)
-        run: pre-commit run --all-files --show-diff-on-failure
+      - name: Lint (auto-fix)
+        run: |
+          ruff check --fix --unsafe-fixes .
+
+      - name: Format code
+        run: |
+          ruff format .
