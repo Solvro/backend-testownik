@@ -8,7 +8,7 @@ body:
     attributes:
       label: Co nie działa?
       description: |
-        Jedno konkretne zdanie: co i gdzie.
+        Co i gdzie?
       placeholder: |
         Np. Po kliknięciu "Zaloguj" strona zostaje na loaderze.
     validations:
@@ -25,7 +25,7 @@ body:
         2. ...
         3. ...
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: expected
