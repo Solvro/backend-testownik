@@ -1,4 +1,4 @@
-blank_issues_enabled: false
+blank_issues_enabled: true
 contact_links:
   - name: Zgłoś problem w Frontend (domyślnie tutaj)
     url: https://github.com/Solvro/web-testownik/issues/new
