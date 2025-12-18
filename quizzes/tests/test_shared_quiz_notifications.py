@@ -4,10 +4,10 @@ from django.conf import settings
 from django.test import TransactionTestCase
 
 from quizzes.services.notifications import (
+    _create_quiz_shared_email,
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
     should_send_notification,
-    _create_quiz_shared_email,
 )
 
 
@@ -16,7 +16,7 @@ class ShouldSendNotificationTests(TransactionTestCase):
 
     def test_returns_true_when_user_has_email_and_no_settings(self):
         """Zwraca True gdy użytkownik ma email i brak atrybutu settings"""
-        user = Mock(spec=['email'])
+        user = Mock(spec=["email"])
         user.email = "user@example.com"
 
         result = should_send_notification(user)
@@ -173,7 +173,9 @@ class NotifyQuizSharedToGroupsTests(TransactionTestCase):
     @patch("quizzes.services.notifications.get_connection")
     @patch("quizzes.services.notifications._create_quiz_shared_email")
     @patch("quizzes.services.notifications.should_send_notification")
-    def test_skips_users_who_should_not_receive_notification(self, mock_should_send, mock_create_email, mock_get_connection):
+    def test_skips_users_who_should_not_receive_notification(
+        self, mock_should_send, mock_create_email, mock_get_connection
+    ):
         mock_should_send.side_effect = [True, False, True]
         mock_connection = Mock()
         mock_get_connection.return_value = mock_connection
