@@ -1,6 +1,6 @@
 Cześć {{ user.first_name or "Użytkowniku" }}!
 
-Quiz "{{ quiz.title|escape }}" został Ci udostępniony.
+Quiz "{{ quiz.title }}" został Ci udostępniony.
 
 ===========================================
 ROZPOCZNIJ QUIZ
