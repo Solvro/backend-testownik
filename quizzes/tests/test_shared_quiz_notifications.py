@@ -72,7 +72,7 @@ class CreateQuizSharedEmailTests(TransactionTestCase):
     def test_creates_email_with_correct_subject(self, mock_render):
         mock_render.side_effect = ["text content", "html content"]
         mock_quiz = Mock()
-        mock_quiz.safe_title = "Test Quiz"
+        mock_quiz.title = "Test Quiz"
         mock_user = Mock()
         mock_user.email = "user@example.com"
 
@@ -84,7 +84,7 @@ class CreateQuizSharedEmailTests(TransactionTestCase):
     def test_creates_email_with_correct_recipient(self, mock_render):
         mock_render.side_effect = ["text content", "html content"]
         mock_quiz = Mock()
-        mock_quiz.safe_title = "Test Quiz"
+        mock_quiz.title = "Test Quiz"
         mock_user = Mock()
         mock_user.email = "user@example.com"
 
@@ -96,7 +96,7 @@ class CreateQuizSharedEmailTests(TransactionTestCase):
     def test_creates_email_with_correct_from_email(self, mock_render):
         mock_render.side_effect = ["text content", "html content"]
         mock_quiz = Mock()
-        mock_quiz.safe_title = "Test Quiz"
+        mock_quiz.title = "Test Quiz"
         mock_user = Mock()
         mock_user.email = "user@example.com"
 
@@ -108,7 +108,7 @@ class CreateQuizSharedEmailTests(TransactionTestCase):
     def test_creates_email_with_html_alternative(self, mock_render):
         mock_render.side_effect = ["text content", "html content"]
         mock_quiz = Mock()
-        mock_quiz.safe_title = "Test Quiz"
+        mock_quiz.title = "Test Quiz"
         mock_user = Mock()
         mock_user.email = "user@example.com"
 
@@ -212,7 +212,7 @@ class EdgeCaseTests(TransactionTestCase):
     def test_handles_empty_quiz_title(self, mock_render):
         mock_render.side_effect = ["text", "html"]
         mock_quiz = Mock()
-        mock_quiz.safe_title = ""
+        mock_quiz.title = ""
         mock_user = Mock()
         mock_user.email = "user@example.com"
 
@@ -224,7 +224,7 @@ class EdgeCaseTests(TransactionTestCase):
     def test_handles_unicode_in_quiz_title(self, mock_render):
         mock_render.side_effect = ["text", "html"]
         mock_quiz = Mock()
-        mock_quiz.safe_title = "Quiz z polskimi znakami: żółć ąęśćń"
+        mock_quiz.title = "Quiz z polskimi znakami: żółć ąęśćń"
         mock_user = Mock()
         mock_user.email = "user@example.com"
 
@@ -283,7 +283,7 @@ class TestCreateQuizSharedEmailSanitization(TransactionTestCase):
         mock_render.side_effect = ["text", "html"]
 
         mock_quiz = Mock()
-        mock_quiz.safe_title = "Malicious\r\nBcc: attacker@evil.com\r\nTitle"
+        mock_quiz.title = "Malicious\r\nBcc: attacker@evil.com\r\nTitle"
 
         mock_user = Mock()
         mock_user.email = "test@example.com"
