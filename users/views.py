@@ -33,7 +33,12 @@ from usos_api import USOSAPIException, USOSClient
 from quizzes.models import QuizProgress, SharedQuiz
 from testownik_core.settings import oauth
 from users.models import EmailLoginToken, StudyGroup, Term, User, UserSettings
-from users.serializers import PublicUserSerializer, StudyGroupSerializer, UserSerializer
+from users.serializers import (
+    PublicUserSerializer,
+    StudyGroupSerializer,
+    UserSerializer,
+    UserSettingsSerializer,
+)
 from users.utils import send_login_email_to_user
 
 dotenv.load_dotenv()
@@ -301,21 +306,33 @@ async def update_user_data_from_usos(client=None, access_token=None, access_toke
     return user_obj, created
 
 
-class SettingsView(APIView):
+class SettingsViewSet(
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    serializer_class = UserSettingsSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        """
+        Get or create settings for the current user.
+        """
+        user_settings, _ = UserSettings.objects.get_or_create(user=self.request.user)
+        return user_settings
 
     @extend_schema(
         summary="Get user settings",
         description="Retrieve the current authenticated user's settings.",
         responses={
-            200: OpenApiTypes.OBJECT,
+            200: UserSettingsSerializer,
         },
         examples=[
             OpenApiExample(
                 "Sample Settings",
                 value={
                     "sync_progress": True,
-                    "initial_reoccurrences": 3,
+                    "initial_reoccurrences": 1,
                     "wrong_answer_reoccurrences": 1,
                     "notify_quiz_shared": False,
                     "notify_bug_reported": False,
@@ -324,43 +341,15 @@ class SettingsView(APIView):
             )
         ],
     )
-    def get(self, request):
-        try:
-            user_settings = request.user.settings
-        except UserSettings.DoesNotExist:
-            user_settings = UserSettings(user=request.user)
-            user_settings.save()
-
-        return Response(
-            {
-                "sync_progress": user_settings.sync_progress,
-                "initial_reoccurrences": user_settings.initial_reoccurrences,
-                "wrong_answer_reoccurrences": user_settings.wrong_answer_reoccurrences,
-                "notify_quiz_shared": user_settings.notify_quiz_shared,
-                "notify_bug_reported": user_settings.notify_bug_reported,
-                "notify_marketing": user_settings.notify_marketing,
-            }
-        )
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
 
     @extend_schema(
-        summary="Update user settings",
-        description="Update the current authenticated user's settings.",
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {
-                    "sync_progress": {"type": "boolean"},
-                    "initial_reoccurrences": {"type": "integer", "minimum": 1},
-                    "wrong_answer_reoccurrences": {"type": "integer", "minimum": 0},
-                    "notify_quiz_shared": {"type": "boolean"},
-                    "notify_bug_reported": {"type": "boolean"},
-                    "notify_marketing": {"type": "boolean"},
-                },
-                "required": [],
-            }
-        },
+        summary="Update user settings (full update)",
+        description="Update all fields of the current authenticated user's settings.",
+        request=UserSettingsSerializer,
         responses={
-            200: OpenApiTypes.OBJECT,
+            200: UserSettingsSerializer,
             400: OpenApiResponse(description="Validation error"),
         },
         examples=[
@@ -368,8 +357,8 @@ class SettingsView(APIView):
                 "Successful Update",
                 value={
                     "sync_progress": True,
-                    "initial_reoccurrences": 3,
-                    "wrong_answer_reoccurrences": 2,
+                    "initial_reoccurrences": 2,
+                    "wrong_answer_reoccurrences": 1,
                     "notify_quiz_shared": False,
                     "notify_bug_reported": True,
                     "notify_marketing": True,
@@ -377,80 +366,29 @@ class SettingsView(APIView):
             )
         ],
     )
-    def put(self, request):
-        data = request.data
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
 
-        try:
-            user_settings = request.user.settings
-        except UserSettings.DoesNotExist:
-            user_settings = UserSettings(user=request.user)
-
-        sync_progress = data.get("sync_progress")
-        initial_reoccurrences = data.get("initial_reoccurrences")
-        wrong_answer_reoccurrences = data.get("wrong_answer_reoccurrences")
-        notify_quiz_shared = data.get("notify_quiz_shared")
-        notify_bug_reported = data.get("notify_bug_reported")
-        notify_marketing = data.get("notify_marketing")
-
-        if sync_progress is not None:
-            user_settings.sync_progress = sync_progress
-
-        if initial_reoccurrences is not None:
-            if initial_reoccurrences >= 1:
-                user_settings.initial_reoccurrences = initial_reoccurrences
-            else:
-                return Response(
-                    "Initial repetitions must be ≥ 1",
-                    status=HttpResponseBadRequest.status_code,
-                )
-
-        if wrong_answer_reoccurrences is not None:
-            if wrong_answer_reoccurrences >= 0:
-                user_settings.wrong_answer_reoccurrences = wrong_answer_reoccurrences
-            else:
-                return Response(
-                    "Wrong answer repetitions must be ≥ 0",
-                    status=HttpResponseBadRequest.status_code,
-                )
-
-        if notify_quiz_shared is not None:
-            if isinstance(notify_quiz_shared, bool):
-                user_settings.notify_quiz_shared = notify_quiz_shared
-            else:
-                return Response(
-                    "notify_quiz_shared must be a boolean",
-                    status=HttpResponseBadRequest.status_code,
-                )
-
-        if notify_bug_reported is not None:
-            if isinstance(notify_bug_reported, bool):
-                user_settings.notify_bug_reported = notify_bug_reported
-            else:
-                return Response(
-                    "notify_bug_reported must be a boolean",
-                    status=HttpResponseBadRequest.status_code,
-                )
-
-        if notify_marketing is not None:
-            if isinstance(notify_marketing, bool):
-                user_settings.notify_marketing = notify_marketing
-            else:
-                return Response(
-                    "notify_marketing must be a boolean",
-                    status=HttpResponseBadRequest.status_code,
-                )
-
-        user_settings.save()
-        return Response(
-            {
-                "sync_progress": user_settings.sync_progress,
-                "initial_reoccurrences": user_settings.initial_reoccurrences,
-                "wrong_answer_reoccurrences": user_settings.wrong_answer_reoccurrences,
-                "notify_quiz_shared": user_settings.notify_quiz_shared,
-                "notify_bug_reported": user_settings.notify_bug_reported,
-                "notify_marketing": user_settings.notify_marketing,
-            }
-        )
+    @extend_schema(
+        summary="Update user settings (partial update)",
+        description="Update specific fields of the current authenticated user's settings.",
+        request=UserSettingsSerializer,
+        responses={
+            200: UserSettingsSerializer,
+            400: OpenApiResponse(description="Validation error"),
+        },
+        examples=[
+            OpenApiExample(
+                "Partial Update",
+                value={
+                    "sync_progress": False,
+                },
+            )
+        ],
+    )
+    def partial_update(self, request, *args, **kwargs):
+        """PATCH /api/settings/"""
+        return super().partial_update(request, *args, **kwargs)
 
 
 async def refresh_user_data(request):
