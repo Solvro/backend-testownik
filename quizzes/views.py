@@ -109,7 +109,8 @@ class LastUsedQuizzesView(APIView):
             for qp in QuizProgress.objects.filter(user=request.user).order_by("-last_activity")[:max_quizzes_count]
         ]
 
-        return Response([quiz.to_dict() for quiz in last_used_quizzes])
+        serializer = QuizMetaDataSerializer(last_used_quizzes, many=True, context={"request": request})
+        return Response(serializer.data)
 
 
 class SearchQuizzesView(APIView):
@@ -236,7 +237,7 @@ class QuizMetadataView(APIView):
     )
     def get(self, request, quiz_id):
         quiz = Quiz.objects.get(id=quiz_id)
-        return Response(QuizMetaDataSerializer(quiz, context={"user": request.user}).data)
+        return Response(QuizMetaDataSerializer(quiz, context={"request": request}).data)
 
 
 class SharedQuizViewSet(viewsets.ModelViewSet):
