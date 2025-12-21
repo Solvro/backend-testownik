@@ -8,7 +8,7 @@
 
 **Twoje narzędzie do nauki na Politechnice Wrocławskiej**
 
-[🌐 Odwiedź aplikację](https://testownik.solvro.pl) • [🧑‍💻 Zobacz frontend](https://github.com/Solvro/web-testownik) • [🛠️ API Swagger](https://api.testownik.solvro.pl/swagger/)
+[🌐 Odwiedź aplikację](https://testownik.solvro.pl) • [🧑‍💻 Repozytorium frontend](https://github.com/Solvro/web-testownik) • [🛠️ API Swagger](https://api.testownik.solvro.pl/swagger/)
 
 </div>
 
@@ -198,6 +198,14 @@ Stosujemy standard [**Conventional Commits**](https://www.conventionalcommits.or
    fix(quizzes): correct question ordering
    docs: update README with backend setup
 ```
+---
+
+## 🐞 Zgłaszanie problemów, pomysłów i pytań
+
+Niepewny czego dotyczy temat? Zgłoś go najpierw na [frontendzie](https://github.com/Solvro/web-testownik/issues/new).
+
+Jeśli jesteś dość pewien, że sprawa dotyczy **wyłącznie backendu**
+(API, baza danych, logika serwera), wtedy wrzuć zgłoszenie na [backendzie](https://github.com/Solvro/backend-testownik/issues/new).
 
 ---
 
