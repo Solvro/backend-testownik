@@ -332,7 +332,7 @@ class SettingsViewSet(
                 "Sample Settings",
                 value={
                     "sync_progress": True,
-                    "initial_reoccurrences": 3,
+                    "initial_reoccurrences": 1,
                     "wrong_answer_reoccurrences": 1,
                     "notify_quiz_shared": False,
                     "notify_bug_reported": False,
@@ -342,7 +342,6 @@ class SettingsViewSet(
         ],
     )
     def retrieve(self, request, *args, **kwargs):
-        """GET /api/settings/"""
         return super().retrieve(request, *args, **kwargs)
 
     @extend_schema(
@@ -358,8 +357,8 @@ class SettingsViewSet(
                 "Successful Update",
                 value={
                     "sync_progress": True,
-                    "initial_reoccurrences": 3,
-                    "wrong_answer_reoccurrences": 2,
+                    "initial_reoccurrences": 2,
+                    "wrong_answer_reoccurrences": 1,
                     "notify_quiz_shared": False,
                     "notify_bug_reported": True,
                     "notify_marketing": True,
@@ -368,7 +367,6 @@ class SettingsViewSet(
         ],
     )
     def update(self, request, *args, **kwargs):
-        """PUT /api/settings/"""
         return super().update(request, *args, **kwargs)
 
     @extend_schema(
