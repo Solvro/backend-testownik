@@ -12,8 +12,16 @@ def should_send_notification(user):
     return True  # domyślnie True jeśli brak ustawień (tak jak w modelu user)
 
 
+def _sanitize_email_header(value):
+    # Removes control characters that could lead to email header injection.
+    if not value:
+        return ""
+    return value.replace("\r", "").replace("\n", "").replace("\x00", "").strip()
+
+
 def _create_quiz_shared_email(quiz, user):
-    subject = f'Quiz "{quiz.title}" został Ci udostępniony'
+    safe_title = _sanitize_email_header(quiz.safe_title)
+    subject = f'Quiz "{safe_title}" został Ci udostępniony'
     context = {
         "user": user,
         "quiz": quiz,

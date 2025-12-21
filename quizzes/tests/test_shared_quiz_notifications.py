@@ -5,6 +5,7 @@ from django.test import TransactionTestCase
 
 from quizzes.services.notifications import (
     _create_quiz_shared_email,
+    _sanitize_email_header,
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
     should_send_notification,
@@ -71,7 +72,7 @@ class CreateQuizSharedEmailTests(TransactionTestCase):
     def test_creates_email_with_correct_subject(self, mock_render):
         mock_render.side_effect = ["text content", "html content"]
         mock_quiz = Mock()
-        mock_quiz.title = "Test Quiz"
+        mock_quiz.safe_title = "Test Quiz"
         mock_user = Mock()
         mock_user.email = "user@example.com"
 
@@ -83,7 +84,7 @@ class CreateQuizSharedEmailTests(TransactionTestCase):
     def test_creates_email_with_correct_recipient(self, mock_render):
         mock_render.side_effect = ["text content", "html content"]
         mock_quiz = Mock()
-        mock_quiz.title = "Test Quiz"
+        mock_quiz.safe_title = "Test Quiz"
         mock_user = Mock()
         mock_user.email = "user@example.com"
 
@@ -95,7 +96,7 @@ class CreateQuizSharedEmailTests(TransactionTestCase):
     def test_creates_email_with_correct_from_email(self, mock_render):
         mock_render.side_effect = ["text content", "html content"]
         mock_quiz = Mock()
-        mock_quiz.title = "Test Quiz"
+        mock_quiz.safe_title = "Test Quiz"
         mock_user = Mock()
         mock_user.email = "user@example.com"
 
@@ -107,7 +108,7 @@ class CreateQuizSharedEmailTests(TransactionTestCase):
     def test_creates_email_with_html_alternative(self, mock_render):
         mock_render.side_effect = ["text content", "html content"]
         mock_quiz = Mock()
-        mock_quiz.title = "Test Quiz"
+        mock_quiz.safe_title = "Test Quiz"
         mock_user = Mock()
         mock_user.email = "user@example.com"
 
@@ -211,7 +212,7 @@ class EdgeCaseTests(TransactionTestCase):
     def test_handles_empty_quiz_title(self, mock_render):
         mock_render.side_effect = ["text", "html"]
         mock_quiz = Mock()
-        mock_quiz.title = ""
+        mock_quiz.safe_title = ""
         mock_user = Mock()
         mock_user.email = "user@example.com"
 
@@ -223,7 +224,7 @@ class EdgeCaseTests(TransactionTestCase):
     def test_handles_unicode_in_quiz_title(self, mock_render):
         mock_render.side_effect = ["text", "html"]
         mock_quiz = Mock()
-        mock_quiz.title = "Quiz z polskimi znakami: żółć ąęśćń"
+        mock_quiz.safe_title = "Quiz z polskimi znakami: żółć ąęśćń"
         mock_user = Mock()
         mock_user.email = "user@example.com"
 
@@ -246,3 +247,50 @@ class EdgeCaseTests(TransactionTestCase):
         notify_quiz_shared_to_users(mock_quiz, mock_user)
 
         mock_email.send.assert_called_once_with(fail_silently=True)
+
+
+class TestSanitizeEmailHeader(TransactionTestCase):
+    def test_removes_newline_characters(self):
+        self.assertEqual(_sanitize_email_header("Test\nTitle"), "TestTitle")
+
+    def test_removes_carriage_return(self):
+        self.assertEqual(_sanitize_email_header("Test\rTitle"), "TestTitle")
+
+    def test_removes_null_bytes(self):
+        self.assertEqual(_sanitize_email_header("Test\x00Title"), "TestTitle")
+
+    def test_removes_multiple_control_characters(self):
+        self.assertEqual(_sanitize_email_header("Test\r\n\x00Title"), "TestTitle")
+
+    def test_strips_whitespace(self):
+        self.assertEqual(_sanitize_email_header("  Test Title  "), "Test Title")
+
+    def test_handles_none(self):
+        self.assertEqual(_sanitize_email_header(None), "")
+
+    def test_handles_empty_string(self):
+        self.assertEqual(_sanitize_email_header(""), "")
+
+
+class TestCreateQuizSharedEmailSanitization(TransactionTestCase):
+    @patch("quizzes.services.notifications.render_to_string")
+    def test_subject_uses_sanitized_title(self, mock_render):
+        """Test sprawdza, że znaki kontrolne są usuwane z tytułu w temacie emaila.
+
+        Bez znaków \r\n tekst "Bcc:" nie stanowi zagrożenia header injection,
+        ponieważ pozostaje częścią tego samego nagłówka Subject.
+        """
+        mock_render.side_effect = ["text", "html"]
+
+        mock_quiz = Mock()
+        mock_quiz.safe_title = "Malicious\r\nBcc: attacker@evil.com\r\nTitle"
+
+        mock_user = Mock()
+        mock_user.email = "test@example.com"
+
+        email = _create_quiz_shared_email(mock_quiz, mock_user)
+
+        self.assertNotIn("\r", email.subject)
+        self.assertNotIn("\n", email.subject)
+        # After removing control characters, all text remains in a single Subject header
+        self.assertIn("MaliciousBcc: attacker@evil.comTitle", email.subject)
