@@ -20,7 +20,7 @@ def _sanitize_email_header(value):
 
 
 def _create_quiz_shared_email(quiz, user):
-    safe_title = _sanitize_email_header(quiz.safe_title)
+    safe_title = _sanitize_email_header(quiz.title)
     subject = f'Quiz "{safe_title}" został Ci udostępniony'
     context = {
         "user": user,
