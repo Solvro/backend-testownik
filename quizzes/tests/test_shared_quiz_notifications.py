@@ -15,8 +15,10 @@ from quizzes.services.notifications import (
 class ShouldSendNotificationTests(TransactionTestCase):
     """Testy funkcji should_send_notification"""
 
-    def test_returns_true_when_user_has_email_and_no_settings(self):
+    @patch("quizzes.services.notifications.UserSettings.objects.get_or_create")
+    def test_returns_true_when_user_has_email_and_no_settings(self, mock_get_or_create):
         """Zwraca True gdy użytkownik ma email i brak atrybutu settings"""
+        mock_get_or_create.return_value = (Mock(notify_quiz_shared=True), True)
         user = Mock(spec=["email"])
         user.email = "user@example.com"
 
@@ -25,7 +27,7 @@ class ShouldSendNotificationTests(TransactionTestCase):
         self.assertTrue(result)
 
     def test_returns_false_when_user_has_no_email(self):
-        """Zwraca False gdy użytkownik nie ma emaila"""
+        """Zwraca False, gdy użytkownik nie ma emaila"""
         user = Mock()
         user.email = ""
 
@@ -42,23 +44,23 @@ class ShouldSendNotificationTests(TransactionTestCase):
 
         self.assertFalse(result)
 
-    def test_returns_false_when_notify_quiz_shared_is_false(self):
+    @patch("quizzes.services.notifications.UserSettings.objects.get_or_create")
+    def test_returns_false_when_notify_quiz_shared_is_false(self, mock_get_or_create):
         """Zwraca False gdy notify_quiz_shared jest False"""
+        mock_get_or_create.return_value = (Mock(notify_quiz_shared=False), True)
         user = Mock()
         user.email = "user@example.com"
-        user.settings = Mock()
-        user.settings.notify_quiz_shared = False
 
         result = should_send_notification(user)
 
         self.assertFalse(result)
 
-    def test_returns_true_when_notify_quiz_shared_is_true(self):
+    @patch("quizzes.services.notifications.UserSettings.objects.get_or_create")
+    def test_returns_true_when_notify_quiz_shared_is_true(self, mock_get_or_create):
         """Zwraca True gdy notify_quiz_shared jest True"""
+        mock_get_or_create.return_value = (Mock(notify_quiz_shared=True), True)
         user = Mock()
         user.email = "user@example.com"
-        user.settings = Mock()
-        user.settings.notify_quiz_shared = True
 
         result = should_send_notification(user)
 
@@ -234,7 +236,9 @@ class EdgeCaseTests(TransactionTestCase):
 
     @patch("quizzes.services.notifications.EmailMultiAlternatives")
     @patch("quizzes.services.notifications.render_to_string")
-    def test_fail_silently_parameter_is_passed(self, mock_render, mock_email_class):
+    @patch("quizzes.services.notifications.UserSettings.objects.get_or_create")
+    def test_fail_silently_parameter_is_passed(self, mock_get_or_create, mock_render, mock_email_class):
+        mock_get_or_create.return_value = (Mock(notify_quiz_shared=True), True)
         mock_render.side_effect = ["text", "html"]
         mock_email = Mock()
         mock_email_class.return_value = mock_email

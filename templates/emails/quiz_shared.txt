@@ -7,7 +7,7 @@ ROZPOCZNIJ QUIZ
 ===========================================
 
 Kliknij w link poniżej, aby rozpocząć:
-https://testownik.solvro.pl/quiz/{{ quiz.id }}
+{{ frontend_url }}/quiz/{{ quiz.id }}
 
 ---
 
