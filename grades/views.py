@@ -26,10 +26,13 @@ def generate_course_grade(course_edition: CourseEdition, grades) -> list:
     grades = grades.get(course_edition.term_id, {}).get(course_edition.course_id, {})
     result = []
 
-    # check if course group
+    # if at least two user groups exist, then the Lecture grade counts into average
     if len(user_groups) > 1:
+        # if the type is lecture grade is final (counts into average)
         if user_groups[0].class_type_id == "W":
             grades = grades.get("course_grades", [])
+
+        # course unit grades does not count into average
         else:
             grades = grades.get("course_units_grades", {})
 
@@ -50,6 +53,7 @@ def generate_course_grade(course_edition: CourseEdition, grades) -> list:
                 grades = [unit_grades]
 
     else:
+        # final grade, counts into average
         grades = grades.get("course_grades", [])
 
     for grade in grades:
@@ -63,6 +67,18 @@ def generate_course_grade(course_edition: CourseEdition, grades) -> list:
         )
 
     return result
+
+
+def get_course_type(course_edition: CourseEdition) -> str:
+    default_course_type = ""
+
+    if not isinstance(course_edition.user_groups, list):
+        return default_course_type
+
+    for user_group in course_edition.user_groups:
+        return user_group.class_type.en
+
+    return default_course_type
 
 
 @async_api_view(["GET"])
@@ -119,16 +135,17 @@ async def get_grades(request):
 
             # swaping the groups in the copies
             for cp in course_editions_to_add:
-                cp.user_groups[0] = cp.user_groups[1]
+                # user_groups len > 1 (always)
+                cp.user_groups = [cp.user_groups[1]]
 
             # merging the lists
             course_editions.extend(course_editions_to_add)
 
+            course_editions.sort(key=lambda ce: ce.course_name.pl)
+
         courses_ects = {
             course: ects_points for term_courses in ects.values() for course, ects_points in term_courses.items()
         }
-
-        course_editions.sort(key=lambda ce: ce.course_name.pl)
 
         return Response(
             {
@@ -151,7 +168,7 @@ async def get_grades(request):
                     {
                         "course_id": course_edition.course_id,
                         "course_name": course_edition.course_name.pl,
-                        "course_type": course_edition.user_groups[0].class_type.en,
+                        "course_type": get_course_type(course_edition),
                         "term_id": course_edition.term_id,
                         "ects": courses_ects.get(course_edition.course_id, 0),
                         "grades": generate_course_grade(course_edition, grades),
