@@ -2,6 +2,7 @@ import logging
 import re
 from typing import Any
 
+import nh3
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
@@ -82,7 +83,7 @@ def send_email(
     # Base template context
     base_context = {
         "title": title,
-        "content": final_content,
+        "content": nh3.clean(final_content),
         "cta_url": cta_url,
         "cta_text": cta_text,
         "cta_description": cta_description,
@@ -109,7 +110,7 @@ def send_email(
     email.attach_alternative(html_message, "text/html")
 
     try:
-        return email.send(fail_silently=fail_silently) > 0
+        return email.send(fail_silently=fail_silently) == 1
     except Exception as e:
         logger.error(f"Failed to send email to {recipient_list}: {e}")
         if not fail_silently:

@@ -12,7 +12,7 @@ class Command(BaseCommand):
         download_url = "https://github.com/Solvro/emails-testownik/releases/latest/download/base.html"
 
         try:
-            response = requests.get(download_url)
+            response = requests.get(download_url, timeout=30)
             response.raise_for_status()
         except requests.RequestException as e:
             self.stderr.write(self.style.ERROR(f"Failed to download base.html: {e}"))

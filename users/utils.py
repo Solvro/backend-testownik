@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.utils.html import strip_tags
 
 from testownik_core.emails import send_email
 from users.models import EmailLoginToken
@@ -12,8 +13,10 @@ def send_login_email_to_user(user):
     otp_code = login_token.otp_code
 
     subject = f"Twój kod logowania: {otp_code}"
+    safe_first_name = f" {strip_tags(user.first_name)}" if user.first_name else ""
+
     content = (
-        f"Cześć{' ' + user.first_name if user.first_name else ''},\n"
+        f"Cześć{safe_first_name}! 👋\n"
         f'Wpisz kod "{otp_code}" na stronie.\n'
         f"Możesz też kliknąć przycisk poniżej, aby się zalogować.\n"
         f"Ten kod i link wygasną za 10 minut."

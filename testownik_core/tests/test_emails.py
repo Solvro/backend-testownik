@@ -124,5 +124,5 @@ class EmailServiceTests(SimpleTestCase):
     def test_no_recipients(self, mock_logger):
         """Test that nothing happens if recipient list is empty."""
         result = send_email("Subject", [])
-        self.assertEqual(result, 0)
+        self.assertFalse(result)
         mock_logger.warning.assert_called_once()

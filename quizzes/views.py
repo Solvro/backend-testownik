@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.html import escape
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
@@ -324,10 +325,13 @@ class ReportQuestionIssueView(APIView):
 
         # Email details
         subject = "Zgłoszenie błędu w pytaniu"
-        cta_url = f"{settings.FRONTEND_URL}/edit-quiz/{quiz.id}/?scroll_to=question-{data.get('question_id')}"
+        query_params = urllib.parse.urlencode({"scroll_to": f"question-{data.get('question_id')}"})
+        cta_url = f"{settings.FRONTEND_URL}/edit-quiz/{quiz.id}/?{query_params}"
+
         content = (
-            f"{request.user.full_name} zgłosił błąd w pytaniu {data.get('question_id')} quizu {quiz.title}.\n\n"
-            f"{data.get('issue')}\n\n"
+            f"{escape(request.user.full_name)} zgłosił błąd w pytaniu "
+            f"{escape(str(data.get('question_id')))} quizu {escape(quiz.title)}.\n\n"
+            f"{escape(data.get('issue'))}"
         )
 
         recipient_list = [quiz.maintainer.email]
