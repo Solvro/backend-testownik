@@ -1,4 +1,4 @@
-Cześć {{ user.first_name or "Użytkowniku" }}!
+Cześć {{ user.first_name|default:"Użytkowniku" }}!
 
 Quiz "{{ quiz.title }}" został Ci udostępniony.
 
