@@ -42,7 +42,7 @@ if os.getenv("ALLOW_CORS_PREVIEW", "False") == "True":
 
 CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:8000").split(",")
 
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173").rstrip("/")
 
 # Application definition
 
@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "quizzes.apps.QuizzesConfig",
     "alerts.apps.AlertsConfig",
     "maintenance.apps.MaintenanceConfig",
+    "testownik_core.apps.TestownikCoreConfig",
     "constance",
     "constance.backends.database",
     "rest_framework",
