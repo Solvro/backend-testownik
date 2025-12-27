@@ -1,9 +1,9 @@
 from django.conf import settings
 from django.core.mail import get_connection
-from django.core.mail.message import EmailMultiAlternatives
-from django.template.loader import render_to_string
+from django.utils.html import strip_tags
 
 from quizzes.models import Quiz
+from testownik_core.emails import send_email
 from users.models import StudyGroup, User, UserSettings
 
 
@@ -14,45 +14,29 @@ def should_send_notification(user: User) -> bool:
     return user_settings.notify_quiz_shared
 
 
-def _sanitize_email_header(value: str | None) -> str:
-    # Removes control characters that could lead to email header injection.
-    if not value:
-        return ""
-    return value.replace("\r", "").replace("\n", "").replace("\x00", "").strip()
+def _send_quiz_shared_email(quiz: Quiz, user: User, connection=None) -> bool:
+    safe_title = strip_tags(quiz.title)
 
-
-def _create_quiz_shared_email(quiz: Quiz, user: User, connection=None) -> EmailMultiAlternatives:
-    safe_title = _sanitize_email_header(quiz.title)
-    subject = f'Quiz "{safe_title}" został Ci udostępniony'
-    context = {
-        "user": user,
-        "quiz": quiz,
-        "frontend_url": settings.FRONTEND_URL,
-    }
-    text_message = render_to_string("emails/quiz_shared.txt", context)
-    html_message = render_to_string("emails/quiz_shared.html", context)
-
-    email = EmailMultiAlternatives(
-        subject=subject,
-        body=text_message,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[user.email],
+    return send_email(
+        subject=f'Quiz "{safe_title}" został Ci udostępniony',
+        recipient_list=[user.email],
+        title=f"Cześć {user.first_name or 'Użytkowniku'}! 👋",
+        content=f'Quiz <strong>"{safe_title}"</strong> został Ci udostępniony.',
+        cta_url=f"{settings.FRONTEND_URL}/quiz/{quiz.id}",
+        cta_text="Rozpocznij quiz",
+        cta_description="Powodzenia! 🎓",
         connection=connection,
     )
-    email.attach_alternative(html_message, "text/html")
-    return email
 
 
 def notify_quiz_shared_to_users(quiz: Quiz, user: User):
     if not should_send_notification(user):
         return
-    email = _create_quiz_shared_email(quiz, user)
-    email.send(fail_silently=True)
+    _send_quiz_shared_email(quiz, user)
 
 
 def notify_quiz_shared_to_groups(quiz: Quiz, group: StudyGroup):
     connection = get_connection(fail_silently=True)
     for user in group.members.all():
         if should_send_notification(user):
-            email = _create_quiz_shared_email(quiz, user, connection=connection)
-            email.send(fail_silently=True)
+            _send_quiz_shared_email(quiz, user, connection=connection)

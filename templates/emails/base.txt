@@ -1,0 +1,20 @@
+{% if title %}
+{{ title }}
+{% endif %}
+
+{{ content|safe }}
+
+{% if cta_url %}
+{{ cta_text }}: {{ cta_url }}
+{% if cta_description %}
+{{ cta_description }}
+{% endif %}
+{% endif %}
+
+--------------------------------------------------------------------------------
+Otrzymałeś tę wiadomość, ponieważ korzystasz z Testownika Solvro.
+Jeśli to nie Ty inicjowałeś tę akcję, możesz zignorować ten e‑mail.
+
+Testownik: {{ frontend_url }}
+KN Solvro: https://solvro.pwr.edu.pl
+Ustawienia powiadomień: {{ frontend_url }}/profile#notifications

@@ -4,7 +4,6 @@ import urllib.parse
 from datetime import timedelta
 
 from django.conf import settings
-from django.core.mail import EmailMessage
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -34,6 +33,7 @@ from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
 )
+from testownik_core.emails import send_email
 
 
 class RandomQuestionView(APIView):
@@ -324,25 +324,26 @@ class ReportQuestionIssueView(APIView):
 
         # Email details
         subject = "Zgłoszenie błędu w pytaniu"
-        message = (
+        cta_url = f"{settings.FRONTEND_URL}/edit-quiz/{quiz.id}/?scroll_to=question-{data.get('question_id')}"
+        content = (
             f"{request.user.full_name} zgłosił błąd w pytaniu {data.get('question_id')} quizu {quiz.title}.\n\n"
             f"{data.get('issue')}\n\n"
-            f"Kliknij w link, aby przejść do edycji quizu: https://testownik.solvro.pl/edit-quiz/{quiz.id}/?scroll_to=question-{data.get('question_id')}"
         )
 
-        from_email = settings.DEFAULT_FROM_EMAIL
         recipient_list = [quiz.maintainer.email]
         reply_to = [request.user.email]
 
         try:
-            email = EmailMessage(
+            send_email(
                 subject=subject,
-                body=message,
-                from_email=from_email,
-                to=recipient_list,
-                reply_to=reply_to,  # This ensures replies go to the user who reported the issue
+                recipient_list=recipient_list,
+                title="Zgłoszenie błędu w pytaniu",
+                content=content,
+                cta_url=cta_url,
+                cta_text="Przejdź do edycji",
+                reply_to=reply_to,
+                fail_silently=False,
             )
-            email.send(fail_silently=False)
         except Exception as e:
             return Response({"error": str(e)}, status=500)
 

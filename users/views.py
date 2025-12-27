@@ -16,6 +16,8 @@ from django.http import (
     HttpResponseForbidden,
 )
 from django.shortcuts import redirect, render
+from django.utils.decorators import method_decorator
+from django_ratelimit.decorators import ratelimit
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -524,6 +526,7 @@ class StudyGroupViewSet(viewsets.ModelViewSet):
 class GenerateOtpView(APIView):
     permission_classes = [AllowAny]
 
+    @method_decorator(ratelimit(key="ip", rate="3/m", method="POST", block=True))
     @extend_schema(
         summary="Request login OTP",
         description="Send a one-time password (OTP) to a user's email to initiate login.",
@@ -567,7 +570,8 @@ class GenerateOtpView(APIView):
         email = request.data.get("email")
         user = User.objects.filter(email=email).first()
         if not user:
-            return Response({"error": "User not found"}, status=404)
+            # To prevent user enumeration, we return the same message
+            return Response({"message": "Login email sent."})
 
         send_login_email_to_user(user)
         return Response({"message": "Login email sent."})
@@ -647,8 +651,8 @@ class LoginOtpView(APIView):
 
         return Response(
             {
-                "access_token": str(refresh.access_token),
-                "refresh_token": str(refresh),
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
             }
         )
 
@@ -714,8 +718,8 @@ class LoginLinkView(APIView):
 
         return Response(
             {
-                "access_token": str(refresh.access_token),
-                "refresh_token": str(refresh),
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
             }
         )
 

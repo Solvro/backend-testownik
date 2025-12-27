@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "quizzes.apps.QuizzesConfig",
     "alerts.apps.AlertsConfig",
     "maintenance.apps.MaintenanceConfig",
+    "testownik_core.apps.TestownikCoreConfig",
     "constance",
     "constance.backends.database",
     "rest_framework",
