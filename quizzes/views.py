@@ -20,7 +20,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from quizzes.models import Quiz, QuizProgress, SharedQuiz
+from quizzes.models import Quiz, QuizProgress, SharedQuiz, Folder
 from quizzes.permissions import (
     IsQuizMaintainerOrCollaborator,
     IsSharedQuizMaintainerOrReadOnly,
@@ -29,6 +29,7 @@ from quizzes.serializers import (
     QuizMetaDataSerializer,
     QuizSerializer,
     SharedQuizSerializer,
+    FolderSerializer
 )
 from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
@@ -438,3 +439,14 @@ class QuizProgressView(APIView):
         quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
         quiz_progress.delete()
         return Response({"status": "deleted"})
+
+class FolderViewSet(viewsets.ModelViewSet):
+    serializer_class = FolderSerializer
+    queryset = Folder.objects.all()
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Folder.objects.filter(owner=self.request.user).order_by('-created_at')
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)

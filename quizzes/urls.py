@@ -10,11 +10,13 @@ from quizzes.views import (
     ReportQuestionIssueView,
     SearchQuizzesView,
     SharedQuizViewSet,
+    FolderViewSet
 )
 
 router = DefaultRouter()
 router.register("quizzes", QuizViewSet)
 router.register("shared-quizzes", SharedQuizViewSet)
+router.register("folders",FolderViewSet)
 
 urlpatterns = [
     path("", include(router.urls)),

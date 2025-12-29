@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from quizzes.models import Quiz, SharedQuiz
+from quizzes.models import Quiz, SharedQuiz, Folder
 from users.models import StudyGroup, User
 from users.serializers import PublicUserSerializer, StudyGroupSerializer
 
@@ -131,3 +131,10 @@ class SharedQuizSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("You must provide either 'user_id' or 'study_group_id'.")
 
         return attrs
+
+class FolderSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Folder
+        fields = ['id', 'name', 'created_at']
+        read_only_fields = ['id', 'created_at']
