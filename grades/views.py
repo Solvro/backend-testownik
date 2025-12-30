@@ -69,16 +69,10 @@ def generate_course_grade(course_edition: CourseEdition, grades) -> list:
     return result
 
 
-def get_course_type(course_edition: CourseEdition) -> str:
-    default_course_type = ""
-
-    if not isinstance(course_edition.user_groups, list):
-        return default_course_type
-
-    for user_group in course_edition.user_groups:
-        return user_group.class_type.en
-
-    return default_course_type
+def get_course_type(course_edition: CourseEdition) -> str | None:
+    if not course_edition.course_id:
+        return None
+    return course_edition.course_id[-1]
 
 
 @async_api_view(["GET"])
