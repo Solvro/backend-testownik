@@ -24,8 +24,9 @@ class QuizSerializer(serializers.ModelSerializer):
             "questions",
             "can_edit",
             "collaborators",
+            "folder",
         ]
-        read_only_fields = ["maintainer", "version", "can_edit"]
+        read_only_fields = ["maintainer", "version", "can_edit", "folder"]
 
     def get_can_edit(self, obj) -> bool:
         request = self.context.get("request")
@@ -67,8 +68,9 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "allow_anonymous",
             "version",
             "can_edit",
+            "folder",
         ]
-        read_only_fields = ["maintainer"]
+        read_only_fields = ["maintainer", "folder"]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -133,8 +135,50 @@ class SharedQuizSerializer(serializers.ModelSerializer):
         return attrs
 
 class FolderSerializer(serializers.ModelSerializer):
-
+    quizzes = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    subfolders = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     class Meta:
         model = Folder
-        fields = ['id', 'name', 'created_at']
-        read_only_fields = ['id', 'created_at']
+        fields = ['id', 'name', 'created_at', 'parent', 'quizzes','subfolders']
+        read_only_fields = ['id', 'created_at', 'quizzes', 'subfolders']
+
+
+class MoveFolderSerializer(serializers.Serializer):
+    parent_id = serializers.UUIDField(allow_null=True)
+
+    def validate_parent_id(self, value):
+        user = self.context['request'].user
+        folder_to_move = self.context['view'].get_object()
+
+        if Folder.objects.filter(owner=user, parent_id=value, name=folder_to_move.name).exclude(id=folder_to_move.id).exists():
+            raise serializers.ValidationError(f"A folder with the name '{folder_to_move.name}' already exists in this destination.")
+
+        if value:
+            try:
+                target_parent = Folder.objects.get(id=value, owner=user)
+            except Folder.DoesNotExist:
+                raise serializers.ValidationError("The destination folder does not exist or you do not have access to it.")
+
+            if str(value) == str(folder_to_move.id):
+                raise serializers.ValidationError("You cannot move a folder into itself.")
+
+            current = target_parent
+            while current:
+                if current.id == folder_to_move.id:
+                    raise serializers.ValidationError("You cannot move a folder into its own subfolder.")
+                current = current.parent
+
+        return value
+    
+class MoveQuizSerializer(serializers.Serializer):
+    folder_id = serializers.UUIDField(allow_null=True)
+
+    def validate_folder_id(self, value):
+        if value:
+            from .models import Folder
+            user = self.context['request'].user
+            
+            if not Folder.objects.filter(id=value, owner=user).exists():
+                raise serializers.ValidationError("The folder does not exist or you do not have access to it.")
+        
+        return value

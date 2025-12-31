@@ -29,3 +29,10 @@ class IsQuizMaintainerOrCollaborator(permissions.BasePermission):
 
         # Write permissions are only allowed to the maintainer or accepted collaborators
         return obj.can_edit(request.user)
+
+class IsFolderOwner(permissions.BasePermission):
+    """
+    Custom permission to only allow folder owners to edit.
+    """
+    def has_object_permission(self, request, view, obj):
+        return obj.owner == request.user

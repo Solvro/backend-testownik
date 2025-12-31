@@ -17,6 +17,7 @@ from drf_spectacular.utils import (
 from rest_framework import permissions, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -24,12 +25,15 @@ from quizzes.models import Quiz, QuizProgress, SharedQuiz, Folder
 from quizzes.permissions import (
     IsQuizMaintainerOrCollaborator,
     IsSharedQuizMaintainerOrReadOnly,
+    IsFolderOwner,
 )
 from quizzes.serializers import (
     QuizMetaDataSerializer,
     QuizSerializer,
     SharedQuizSerializer,
-    FolderSerializer
+    FolderSerializer,
+    MoveFolderSerializer,
+    MoveQuizSerializer,
 )
 from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
@@ -230,6 +234,18 @@ class QuizViewSet(viewsets.ModelViewSet):
         if not quiz.can_edit(request.user):
             return Response({"error": "You do not have permission to edit this quiz"}, status=403)
         return super().update(request, *args, **kwargs)
+    
+    @action(detail=True, methods=['post'], serializer_class=MoveQuizSerializer)
+    def move(self, request, pk=None):
+        quiz = self.get_object()
+
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            quiz.folder_id = serializer.validated_data['folder_id']
+            quiz.save()
+            return Response({'status': 'Quiz moved successfully'})
+
+        return Response(serializer.errors, status=400)
 
 
 class QuizMetadataView(APIView):
@@ -443,10 +459,22 @@ class QuizProgressView(APIView):
 class FolderViewSet(viewsets.ModelViewSet):
     serializer_class = FolderSerializer
     queryset = Folder.objects.all()
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsFolderOwner]
 
     def get_queryset(self):
         return Folder.objects.filter(owner=self.request.user).order_by('-created_at')
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
+
+    @action(detail=True, methods=['post'], serializer_class=MoveFolderSerializer)
+    def move(self, request, pk=None):
+        folder = self.get_object()
+    
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            folder.parent_id = serializer.validated_data['parent_id']
+            folder.save()
+            return Response({'status': 'Folder moved successfully'})
+
+        return Response(serializer.errors)

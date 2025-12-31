@@ -16,6 +16,13 @@ QUIZ_VISIBILITY_CHOICES = [
 class Folder(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=128)
+    parent = models.ForeignKey(
+        'self',
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name='subfolders',
+    )
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='folders')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
