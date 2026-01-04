@@ -76,17 +76,15 @@ class TermAdmin(admin.ModelAdmin):
 
 
 class EmailLoginTokenAdmin(admin.ModelAdmin):
-    list_display = ["user", "otp_code", "token", "created_at", "expires_at", "retry_count"]
+    list_display = ["user", "created_at", "expires_at", "retry_count"]
     list_filter = ["created_at", "expires_at"]
     search_fields = [
         "user__first_name",
         "user__last_name",
         "user__email",
         "user__student_number",
-        "otp_code",
-        "token",
     ]
-    readonly_fields = ["token", "created_at", "expires_at"]
+    readonly_fields = ["created_at", "expires_at"]
     date_hierarchy = "created_at"
 
     def has_add_permission(self, request, obj=None):
