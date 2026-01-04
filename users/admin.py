@@ -85,7 +85,7 @@ class EmailLoginTokenAdmin(admin.ModelAdmin):
         "user__email",
         "user__student_number",
     ]
-    readonly_fields = ["created_at", "expires_at"]
+    readonly_fields = ["created_at"]
     date_hierarchy = "created_at"
 
     def has_add_permission(self, request, obj=None):
