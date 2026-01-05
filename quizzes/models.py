@@ -17,18 +17,19 @@ class Folder(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=128)
     parent = models.ForeignKey(
-        'self',
+        "self",
         null=True,
         blank=True,
         on_delete=models.CASCADE,
-        related_name='subfolders',
+        related_name="subfolders",
     )
-    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='folders')
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="folders")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.name} ({self.owner})"
+
 
 class Quiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -48,13 +49,7 @@ class Quiz(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     questions = models.JSONField(default=list, blank=True)
-    folder = models.ForeignKey(
-        Folder,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='quizzes'
-    )
+    folder = models.ForeignKey(Folder, on_delete=models.SET_NULL, null=True, blank=True, related_name="quizzes")
 
     def __str__(self):
         return self.title or f"Quiz {self.id}"
@@ -132,4 +127,4 @@ class QuizProgress(models.Model):
             "study_time": self.study_time.total_seconds(),
             "last_activity": self.last_activity,
             "reoccurrences": self.reoccurrences,
-        } 
+        }

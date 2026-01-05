@@ -16,6 +16,16 @@ class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):
         return obj.quiz.maintainer == request.user
 
 
+class IsQuizMaintainer(permissions.BasePermission):
+    """
+    Custom permission for critical actions like Move or Delete.
+    Blocks collaborators - only the quiz maintainer can perform these actions.
+    """
+
+    def has_object_permission(self, request, view, obj):
+        return obj.maintainer == request.user
+
+
 class IsQuizMaintainerOrCollaborator(permissions.BasePermission):
     """
     Custom permission to allow quiz maintainers and accepted collaborators to edit the quiz.
@@ -30,9 +40,11 @@ class IsQuizMaintainerOrCollaborator(permissions.BasePermission):
         # Write permissions are only allowed to the maintainer or accepted collaborators
         return obj.can_edit(request.user)
 
+
 class IsFolderOwner(permissions.BasePermission):
     """
     Custom permission to only allow folder owners to edit.
     """
+
     def has_object_permission(self, request, view, obj):
         return obj.owner == request.user

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Quiz, QuizProgress, SharedQuiz, Folder
+from .models import Folder, Quiz, QuizProgress, SharedQuiz
 
 
 class QuizAdmin(admin.ModelAdmin):

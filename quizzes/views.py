@@ -15,25 +15,26 @@ from drf_spectacular.utils import (
     extend_schema,
 )
 from rest_framework import permissions, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from quizzes.models import Quiz, QuizProgress, SharedQuiz, Folder
+from quizzes.models import Folder, Quiz, QuizProgress, SharedQuiz
 from quizzes.permissions import (
+    IsFolderOwner,
+    IsQuizMaintainer,
     IsQuizMaintainerOrCollaborator,
     IsSharedQuizMaintainerOrReadOnly,
-    IsFolderOwner,
 )
 from quizzes.serializers import (
-    QuizMetaDataSerializer,
-    QuizSerializer,
-    SharedQuizSerializer,
     FolderSerializer,
     MoveFolderSerializer,
     MoveQuizSerializer,
+    QuizMetaDataSerializer,
+    QuizSerializer,
+    SharedQuizSerializer,
 )
 from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
@@ -234,16 +235,21 @@ class QuizViewSet(viewsets.ModelViewSet):
         if not quiz.can_edit(request.user):
             return Response({"error": "You do not have permission to edit this quiz"}, status=403)
         return super().update(request, *args, **kwargs)
-    
-    @action(detail=True, methods=['post'], serializer_class=MoveQuizSerializer)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        serializer_class=MoveQuizSerializer,
+        permission_classes=[permissions.IsAuthenticated, IsQuizMaintainer],
+    )
     def move(self, request, pk=None):
         quiz = self.get_object()
 
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
-            quiz.folder_id = serializer.validated_data['folder_id']
+            quiz.folder_id = serializer.validated_data["folder_id"]
             quiz.save()
-            return Response({'status': 'Quiz moved successfully'})
+            return Response({"status": "Quiz moved successfully"})
 
         return Response(serializer.errors, status=400)
 
@@ -456,25 +462,26 @@ class QuizProgressView(APIView):
         quiz_progress.delete()
         return Response({"status": "deleted"})
 
+
 class FolderViewSet(viewsets.ModelViewSet):
     serializer_class = FolderSerializer
     queryset = Folder.objects.all()
     permission_classes = [permissions.IsAuthenticated, IsFolderOwner]
 
     def get_queryset(self):
-        return Folder.objects.filter(owner=self.request.user).order_by('-created_at')
+        return Folder.objects.filter(owner=self.request.user).order_by("-created_at")
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
 
-    @action(detail=True, methods=['post'], serializer_class=MoveFolderSerializer)
+    @action(detail=True, methods=["post"], serializer_class=MoveFolderSerializer)
     def move(self, request, pk=None):
         folder = self.get_object()
-    
+
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
-            folder.parent_id = serializer.validated_data['parent_id']
+            folder.parent_id = serializer.validated_data["parent_id"]
             folder.save()
-            return Response({'status': 'Folder moved successfully'})
+            return Response({"status": "Folder moved successfully"})
 
         return Response(serializer.errors)
