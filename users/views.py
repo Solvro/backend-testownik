@@ -210,9 +210,9 @@ async def authorize_usos(request):
         request_token_secret = await request.session.apop(f"request_token_{request_token}", None)
         if not request_token_secret:
             logger.error(
-                "USOS request token secret not found in session. Token: %s, Has verifier: %s, Retry: %s. "
+                "USOS request token secret not found in session. Token present: %s, Has verifier: %s, Retry: %s. "
                 "This usually indicates session expiration or mismatched tokens.",
-                request_token,
+                bool(request_token),
                 bool(verifier),
                 request.GET.get("retry"),
             )
@@ -230,12 +230,10 @@ async def authorize_usos(request):
             access_token, access_token_secret = await client.authorize(verifier, request_token, request_token_secret)
         except USOSAPIException as e:
             logger.error(
-                "USOS API authorization failed. Error: %s, Status: %s, "
-                "Response: %s, Token: %s, Has verifier: %s, Retry: %s",
+                "USOS API authorization failed. Error: %s, Status: %s, Response: %s, Has verifier: %s, Retry: %s",
                 str(e),
                 getattr(e, "status", "N/A"),
                 getattr(e, "response", "N/A"),
-                request_token,
                 bool(verifier),
                 request.GET.get("retry"),
                 exc_info=True,
