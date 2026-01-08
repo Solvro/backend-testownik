@@ -11,19 +11,12 @@ from django.contrib.auth import aget_user
 from django.contrib.auth import alogin as async_auth_login
 from django.contrib.auth import login as auth_login
 from django.db.models import Q
-from django.http import (
-    HttpResponseBadRequest,
-    HttpResponseForbidden,
-)
+from django.http import HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.utils.decorators import method_decorator
 from django_ratelimit.decorators import ratelimit
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import (
-    OpenApiExample,
-    OpenApiResponse,
-    extend_schema,
-)
+from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework import mixins, permissions, viewsets
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -93,12 +86,23 @@ async def login_usos(request):
     max_retries = 3  # max tries
     retry_delay = 2  # time before next try (seconds)
 
+    usos_key = os.getenv("USOS_CONSUMER_KEY")
+    usos_secret = os.getenv("USOS_CONSUMER_SECRET")
+
+    if not usos_key or not usos_secret:
+        logger.error(
+            "USOS credentials not configured. USOS_CONSUMER_KEY=%s, USOS_CONSUMER_SECRET=%s",
+            "<set>" if usos_key else "<missing>",
+            "<set>" if usos_secret else "<missing>",
+        )
+        return redirect(add_query_params(redirect_url, {"error": "usos_unavailable"}))
+
     for attempt in range(max_retries):
         try:
             async with USOSClient(
                 "https://apps.usos.pwr.edu.pl/",
-                os.getenv("USOS_CONSUMER_KEY"),
-                os.getenv("USOS_CONSUMER_SECRET"),
+                usos_key,
+                usos_secret,
                 trust_env=True,
             ) as client:
                 client.set_scopes(["offline_access", "studies", "email", "photo", "grades"])
@@ -113,10 +117,24 @@ async def login_usos(request):
             if isinstance(e, CancelledError):
                 raise
 
+            logger.error(
+                "USOS login attempt %d/%d failed. Error: %s [%s]. Callback: %s, JWT: %s, Redirect: %s. ",
+                attempt + 1,
+                max_retries,
+                str(e),
+                type(e).__name__,
+                callback_url,
+                jwt,
+                redirect_url,
+                exc_info=True,
+            )
+
             if attempt < max_retries - 1:
                 await sleep(retry_delay)
                 continue
+
             return redirect(add_query_params(redirect_url, {"error": "usos_unavailable"}))
+
     return redirect(add_query_params(redirect_url, {"error": "usos_unavailable"}))
 
 
@@ -128,17 +146,27 @@ def admin_login(request):
 
 
 def authorize(request):
-    token = oauth.create_client("solvro-auth").authorize_access_token(request)
-    resp = oauth.create_client("solvro-auth").get(
-        "https://auth.solvro.pl/realms/solvro/protocol/openid-connect/userinfo",
-        token=token,
-    )
-    resp.raise_for_status()
-    profile = resp.json()
+    try:
+        token = oauth.create_client("solvro-auth").authorize_access_token(request)
+    except Exception as e:
+        logger.error("Failed to obtain Solvro auth access token: %s", str(e), exc_info=True)
+        raise
+
+    try:
+        resp = oauth.create_client("solvro-auth").get(
+            "https://auth.solvro.pl/realms/solvro/protocol/openid-connect/userinfo",
+            token=token,
+        )
+        resp.raise_for_status()
+        profile = resp.json()
+    except Exception as e:
+        logger.error("Failed to retrieve Solvro user profile: %s", str(e), exc_info=True)
+        raise
 
     redirect_url = request.GET.get("redirect", "index")
 
     if not profile.get("email"):
+        logger.error("Solvro user profile missing email. Profile keys: %s", list(profile.keys()))
         if request.GET.get("jwt", "false") == "true":
             return redirect(add_query_params(redirect_url, {"error": "no_email"}))
         messages.error(request, "Brak adresu email w profilu użytkownika.")
@@ -178,8 +206,16 @@ async def authorize_usos(request):
     ) as client:
         verifier = request.GET.get("oauth_verifier")
         request_token = request.GET.get("oauth_token")
+
         request_token_secret = await request.session.apop(f"request_token_{request_token}", None)
         if not request_token_secret:
+            logger.error(
+                "USOS request token secret not found in session. Token: %s, Has verifier: %s, Retry: %s. "
+                "This usually indicates session expiration or mismatched tokens.",
+                request_token,
+                bool(verifier),
+                request.GET.get("retry"),
+            )
             if request.GET.get("retry") != "1":
                 login_url = request.build_absolute_uri("/api/login/usos/")
                 params = request.GET.copy()
@@ -193,7 +229,17 @@ async def authorize_usos(request):
         try:
             access_token, access_token_secret = await client.authorize(verifier, request_token, request_token_secret)
         except USOSAPIException as e:
-            logger.exception(f"Error during USOS authorization: {e}")
+            logger.error(
+                "USOS API authorization failed. Error: %s, Status: %s, "
+                "Response: %s, Token: %s, Has verifier: %s, Retry: %s",
+                str(e),
+                getattr(e, "status", "N/A"),
+                getattr(e, "response", "N/A"),
+                request_token,
+                bool(verifier),
+                request.GET.get("retry"),
+                exc_info=True,
+            )
             if request.GET.get("retry") != "1":
                 login_url = request.build_absolute_uri("/api/login/usos/")
                 params = request.GET.copy()
@@ -207,6 +253,11 @@ async def authorize_usos(request):
         user, created = await update_user_data_from_usos(client, access_token, access_token_secret)
 
         if not user.is_student_and_not_staff:
+            logger.warning(
+                "User rejected: not an active student. Email: %s, Created: %s",
+                user.email,
+                created,
+            )
             messages.error(
                 request,
                 "Aby korzystać z Testownika, musisz być aktywnym studentem Politechniki Wrocławskiej.",
@@ -236,6 +287,7 @@ async def authorize_usos(request):
 async def update_user_data_from_usos(client=None, access_token=None, access_token_secret=None):
     if not client:
         if not access_token or not access_token_secret:
+            logger.error("update_user_data_from_usos called without client or tokens")
             raise ValueError("Either client or access_token and access_token_secret must be provided")
         async with USOSClient(
             "https://apps.usos.pwr.edu.pl/",
@@ -244,9 +296,17 @@ async def update_user_data_from_usos(client=None, access_token=None, access_toke
             trust_env=True,
         ) as client:
             client.load_access_token(access_token, access_token_secret)
-            user_data = await client.user_service.get_user()
+            try:
+                user_data = await client.user_service.get_user()
+            except Exception as e:
+                logger.error("Failed to get user data from USOS: %s", str(e), exc_info=True)
+                raise
     else:
-        user_data = await client.user_service.get_user()
+        try:
+            user_data = await client.user_service.get_user()
+        except Exception as e:
+            logger.error("Failed to get user data from USOS: %s", str(e), exc_info=True)
+            raise
 
     defaults = {
         "first_name": user_data.first_name,
