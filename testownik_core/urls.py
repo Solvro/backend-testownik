@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib import admin
 from django.shortcuts import redirect
 from django.urls import include, path
@@ -65,5 +66,5 @@ urlpatterns = [
 ]
 
 # Admin site settings
-admin.site.site_url = "https://testownik.solvro.pl/"
+admin.site.site_url = settings.FRONTEND_URL
 admin.site.site_header = "Testownik Solvro"
