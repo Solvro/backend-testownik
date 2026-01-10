@@ -128,5 +128,5 @@ class QuizProgress(models.Model):
             "study_time": self.study_time.total_seconds(),
             "last_activity": self.last_activity,
             "reoccurrences": self.reoccurrences,
-            "tips": self.notes,
+            "tips": self.tips,
         }
