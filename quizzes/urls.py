@@ -2,6 +2,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from quizzes.views import (
+    FolderViewSet,
     LastUsedQuizzesView,
     QuizMetadataView,
     QuizProgressView,
@@ -15,6 +16,7 @@ from quizzes.views import (
 router = DefaultRouter()
 router.register("quizzes", QuizViewSet)
 router.register("shared-quizzes", SharedQuizViewSet)
+router.register("folders", FolderViewSet)
 
 urlpatterns = [
     path("", include(router.urls)),
