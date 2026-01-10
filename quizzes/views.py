@@ -392,6 +392,11 @@ class QuizProgressView(APIView):
                     "study_time": {"type": "number"},
                     "last_activity": {"type": "string", "format": "date-time"},
                     "reoccurrences": {"type": "array", "items": {"type": "integer"}},
+                    "tips": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                        "example": {"0": "Check math formulas", "5": "Think about second laboratories"},
+                    },
                 },
             },
             401: OpenApiResponse(description="Unauthorized"),
@@ -420,6 +425,11 @@ class QuizProgressView(APIView):
                     "wrong_answers_count": {"type": "integer"},
                     "study_time": {"type": "number"},
                     "reoccurrences": {"type": "array", "items": {"type": "integer"}},
+                    "tips": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                        "example": {"0": "Check math formulas", "5": "Think about second laboratories"},
+                    },
                 },
             }
         },
@@ -439,12 +449,7 @@ class QuizProgressView(APIView):
                 duplicate.delete()
             quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
 
-        for field in [
-            "current_question",
-            "reoccurrences",
-            "correct_answers_count",
-            "wrong_answers_count",
-        ]:
+        for field in ["current_question", "reoccurrences", "correct_answers_count", "wrong_answers_count", "tips"]:
             if field in data:
                 setattr(quiz_progress, field, data[field])
 
