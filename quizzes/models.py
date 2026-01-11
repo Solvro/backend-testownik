@@ -115,6 +115,7 @@ class QuizProgress(models.Model):
     wrong_answers_count = models.PositiveIntegerField(default=0)
     study_time = models.DurationField(default=timedelta)
     last_activity = models.DateTimeField(auto_now=True)
+    tips = models.JSONField(default=dict, blank=True)
 
     def __str__(self):
         return f"{self.quiz.title} - {self.user} - {self.current_question}"
@@ -127,4 +128,5 @@ class QuizProgress(models.Model):
             "study_time": self.study_time.total_seconds(),
             "last_activity": self.last_activity,
             "reoccurrences": self.reoccurrences,
+            "tips": self.tips,
         }
