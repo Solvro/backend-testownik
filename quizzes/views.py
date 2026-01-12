@@ -8,6 +8,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.html import escape
 from drf_spectacular.utils import (
@@ -20,6 +21,7 @@ from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -486,6 +488,7 @@ class ReportQuestionIssueView(APIView):
             f"{escape(data.get('issue'))}"
         )
 
+        from_email = settings.DEFAULT_FROM_EMAIL
         recipient_list = [quiz.maintainer.email]
         reply_to = [request.user.email]
 
@@ -500,6 +503,7 @@ class ReportQuestionIssueView(APIView):
                 reply_to=reply_to,
                 fail_silently=False,
             )
+            email.send(fail_silently=False)
         except Exception as e:
             return Response({"error": str(e)}, status=500)
 
@@ -614,32 +618,42 @@ class CopySharedQuizView(APIView):
         responses={
             200: OpenApiResponse(description="Copied shared quiz"),
             400: OpenApiResponse(description="Missing or invalid data"),
-            401: OpenApiResponse(description="Unauthorized"),
+            403: OpenApiResponse(description="Forbidden"),
             404: OpenApiResponse(description="Not Found"),
         },
     )
-    def post(self, request):
-        data = request.data
+    def post(self, request: Request):
+        # get specified field from request post body
+        shared_quiz_id = request.data.get("shared_quiz_id")
 
-        shared_quiz_id = data["shared_quiz_id"]
-        user_id = data["user_id"]
-
-        if (not shared_quiz_id) or (not user_id):
+        # check if field is present in post body
+        if not shared_quiz_id:
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
-        shared_quiz_obj = SharedQuiz.objects.get(id=shared_quiz_id)
-        user_obj = User.objects.get(id=user_id)
+        # check if shared quiz with specified id not found
+        shared_quiz_obj = get_object_or_404(SharedQuiz, id=shared_quiz_id)
 
-        if (not shared_quiz_obj) or (not user_obj):
+        # check if request contains user data
+        if not request.user:
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
-        new_quiz = deepcopy(shared_quiz_obj.quiz)
-        new_quiz.pk = None
-        new_quiz.maintainer = user_obj
-        new_quiz.title = new_quiz.title + " - kopia"
-        new_quiz.save()
+        # validate user
+        if shared_quiz_obj.user.id != request.user.id:
+            return Response(status=status.HTTP_403_FORBIDDEN)
 
-        return Response(QuizSerializer(new_quiz).data)
+        original_quiz = shared_quiz_obj.quiz
+
+        return Response(
+            QuizSerializer(
+                Quiz.objects.create(
+                    title=original_quiz.title + " - kopia",
+                    description=original_quiz.description,
+                    maintainer=request.user,
+                    visibility=original_quiz.visibility,
+                    questions=original_quiz.questions,
+                )
+            ).data
+        )
 
 
 class FolderViewSet(viewsets.ModelViewSet):
