@@ -1,7 +1,6 @@
 import json
 import random
 import urllib.parse
-from copy import deepcopy
 from datetime import timedelta
 
 from django.conf import settings
@@ -25,7 +24,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from quizzes.models import AnswerRecord, Folder, Question, Quiz, QuizSession, SharedQuiz, QuizProgress
+from quizzes.models import AnswerRecord, Folder, Question, Quiz, QuizProgress, QuizSession, SharedQuiz
 from quizzes.permissions import (
     IsFolderOwner,
     IsQuizMaintainer,
@@ -44,13 +43,11 @@ from quizzes.serializers import (
     QuizSessionSerializer,
     SharedQuizSerializer,
 )
-from quizzes.serializers import QuizMetaDataSerializer, QuizSerializer, SharedQuizSerializer
 from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
 )
 from testownik_core.emails import send_email
-from users.models import User
 
 
 class RandomQuestionView(APIView):
@@ -407,12 +404,12 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         _filter = (
-                Q(user=self.request.user, quiz__visibility__gte=1)
-                | Q(
-            study_group__in=self.request.user.study_groups.all(),
-            quiz__visibility__gte=1,
-        )
-                | Q(quiz__maintainer=self.request.user)
+            Q(user=self.request.user, quiz__visibility__gte=1)
+            | Q(
+                study_group__in=self.request.user.study_groups.all(),
+                quiz__visibility__gte=1,
+            )
+            | Q(quiz__maintainer=self.request.user)
         )
         if self.request.query_params.get("quiz"):
             _filter &= Q(quiz_id=self.request.query_params.get("quiz"))
@@ -488,7 +485,6 @@ class ReportQuestionIssueView(APIView):
             f"{escape(data.get('issue'))}"
         )
 
-        from_email = settings.DEFAULT_FROM_EMAIL
         recipient_list = [quiz.maintainer.email]
         reply_to = [request.user.email]
 
@@ -503,7 +499,6 @@ class ReportQuestionIssueView(APIView):
                 reply_to=reply_to,
                 fail_silently=False,
             )
-            email.send(fail_silently=False)
         except Exception as e:
             return Response({"error": str(e)}, status=500)
 
@@ -611,7 +606,6 @@ class CopySharedQuizView(APIView):
                 "type": "object",
                 "properties": {
                     "shared_quiz_id": {"type": "string", "format": "uuid"},
-                    "user_id": {"type": "string", "format": "uuid"},
                 },
             }
         },
@@ -633,12 +627,30 @@ class CopySharedQuizView(APIView):
         # check if shared quiz with specified id not found
         shared_quiz_obj = get_object_or_404(SharedQuiz, id=shared_quiz_id)
 
-        # check if request contains user data
-        if not request.user:
-            return Response(status=status.HTTP_400_BAD_REQUEST)
-
         # validate user
         if shared_quiz_obj.user.id != request.user.id:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        # Direct access: quiz shared to the specified user
+        user_has_direct_access = shared_quiz_obj.user.id == getattr(request.user, "id", None)
+
+        # multicast based access: quiz shared to a study group user belongs to
+        group_has_access = False
+        study_group = getattr(shared_quiz_obj, "study_group", None)
+        user_study_groups = getattr(request.user, "study_groups", None)
+
+        if study_group is not None and user_study_groups is not None:
+            try:
+                group_has_access = user_study_groups.filter(id=study_group.id)
+            except AttributeError:
+                try:
+                    group_has_access = study_group in user_study_groups.all()
+                except Exception:
+                    group_has_access = False
+
+        # check if either user has access or has access to study group
+        # at least one of them is required
+        if (not group_has_access) and (not user_has_direct_access):
             return Response(status=status.HTTP_403_FORBIDDEN)
 
         original_quiz = shared_quiz_obj.quiz
@@ -651,6 +663,8 @@ class CopySharedQuizView(APIView):
                     maintainer=request.user,
                     visibility=original_quiz.visibility,
                     questions=original_quiz.questions,
+                    is_anonymous=original_quiz.is_anonymous,
+                    allow_anonymous=original_quiz.allow_anonymous,
                 )
             ).data
         )
