@@ -641,7 +641,7 @@ class CopySharedQuizView(APIView):
 
         if study_group is not None and user_study_groups is not None:
             try:
-                group_has_access = user_study_groups.filter(id=study_group.id)
+                group_has_access = user_study_groups.filter(id=study_group.id).exists()
             except AttributeError:
                 try:
                     group_has_access = study_group in user_study_groups.all()
