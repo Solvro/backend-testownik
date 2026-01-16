@@ -127,7 +127,9 @@ class LastUsedQuizzesView(APIView):
 
         last_used_quizzes = [
             session.quiz
-            for session in QuizSession.objects.filter(user=request.user).order_by("-started_at")[:max_quizzes_count]
+            for session in QuizSession.objects.filter(user=request.user, is_active=True).order_by("-started_at")[
+                :max_quizzes_count
+            ]
         ]
 
         serializer = QuizMetaDataSerializer(last_used_quizzes, many=True, context={"request": request})
