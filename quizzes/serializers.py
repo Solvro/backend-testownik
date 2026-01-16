@@ -94,11 +94,14 @@ class QuizSerializer(serializers.ModelSerializer):
     def _create_questions(self, quiz, questions_data):
         for q_data in questions_data:
             answers_data = q_data.pop("answers", [])
-            question = Question.objects.create(quiz=quiz, **q_data)
+            q_data.pop("id", None)
+            question = Question.objects.create(quiz=quiz, **q_data, id=None)
             self._bulk_create_answers(question, answers_data)
 
     def _bulk_create_answers(self, question, answers_data):
-        answers = [Answer(question=question, **a) for a in answers_data]
+        for a in answers_data:
+            a.pop("id", None)
+        answers = [Answer(question=question, **a, id=None) for a in answers_data]
         Answer.objects.bulk_create(answers)
 
     def _sync_questions(self, quiz, questions_data):
@@ -117,7 +120,7 @@ class QuizSerializer(serializers.ModelSerializer):
 
         for q_data in questions_data:
             answers_data = q_data.pop("answers", [])
-            question_id = q_data.get("id", None)
+            question_id = q_data.pop("id", None)
 
             if question_id and question_id in existing_ids:
                 question = quiz.questions.get(id=question_id)
@@ -155,7 +158,7 @@ class QuizSerializer(serializers.ModelSerializer):
         answers_to_create = []
 
         for a_data in answers_data:
-            answer_id = a_data.get("id", None)
+            answer_id = a_data.pop("id", None)
 
             if answer_id and answer_id in existing_ids:
                 answer = question.answers.get(id=answer_id)
@@ -376,24 +379,6 @@ class AnswerRecordSerializer(serializers.ModelSerializer):
         model = AnswerRecord
         fields = ["id", "question", "selected_answers", "was_correct", "answered_at"]
         read_only_fields = ["id", "answered_at", "was_correct"]
-
-
-class LegacyProgressSerializer(serializers.Serializer):
-    """Legacy serializer for backwards compatibility with old QuestionAttempt system logic."""
-
-    current_question = serializers.SerializerMethodField()
-    reoccurrences = serializers.DictField(default=dict)
-    correct_answers_count = serializers.IntegerField(source="correct_count")
-    wrong_answers_count = serializers.IntegerField(source="wrong_count")
-    study_time = serializers.SerializerMethodField()
-
-    def get_study_time(self, obj):
-        return obj.study_time.total_seconds()
-
-    def get_current_question(self, obj):
-        if obj.current_question:
-            return obj.current_question.order
-        return 0  # Default or None depending on legacy frontend expectation
 
 
 class MoveQuizSerializer(serializers.Serializer):

@@ -84,6 +84,43 @@ class QuizCRUDTestCase(APITestCase):
         # Should succeed (empty quiz is allowed)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_create_quiz_with_explicit_ids(self):
+        """
+        Test creating a quiz where nested questions and answers contain an 'id' field.
+        This provides regression testing for the TypeError fix.
+        """
+        import uuid
+
+        url = reverse("quiz-list")
+
+        question_id = str(uuid.uuid4())
+        answer_id = str(uuid.uuid4())
+
+        data = {
+            "title": "Repro Quiz",
+            "description": "Testing double id argument",
+            "visibility": 2,
+            "questions": [
+                {
+                    "id": question_id,
+                    "order": 1,
+                    "text": "Question with ID",
+                    "multiple": False,
+                    "answers": [
+                        {"id": answer_id, "order": 1, "text": "Answer with ID", "is_correct": True},
+                    ],
+                },
+            ],
+        }
+
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Verify created
+        quiz = Quiz.objects.get(id=response.data["id"])
+        self.assertEqual(quiz.questions.count(), 1)
+        self.assertEqual(quiz.questions.first().answers.count(), 1)
+
     # --- READ ---
     def test_list_own_quizzes(self):
         """Test listing only returns user's own quizzes."""

@@ -29,7 +29,6 @@ from quizzes.permissions import (
 from quizzes.serializers import (
     AnswerRecordSerializer,
     FolderSerializer,
-    LegacyProgressSerializer,
     MoveFolderSerializer,
     MoveQuizSerializer,
     QuizMetaDataSerializer,
@@ -466,100 +465,6 @@ class ReportQuestionIssueView(APIView):
             return Response({"error": str(e)}, status=500)
 
         return Response({"status": "ok"}, status=201)
-
-
-class QuizProgressView(APIView):
-    """Legacy progress endpoint - uses QuizSession internally with order-based format."""
-
-    permission_classes = [permissions.IsAuthenticated]
-
-    @extend_schema(
-        summary="Get quiz progress (legacy format)",
-        responses={
-            200: {
-                "type": "object",
-                "properties": {
-                    "current_question": {"type": "integer"},
-                    "correct_answers_count": {"type": "integer"},
-                    "wrong_answers_count": {"type": "integer"},
-                    "study_time": {"type": "number"},
-                    "last_activity": {"type": "string", "format": "date-time"},
-                    "reoccurrences": {"type": "array", "items": {"type": "object"}},
-                },
-            },
-            401: OpenApiResponse(description="Unauthorized"),
-            404: OpenApiResponse(description="Not Found"),
-        },
-        deprecated=True,
-    )
-    def get(self, request, quiz_id):
-        try:
-            quiz = Quiz.objects.get(id=quiz_id)
-        except Quiz.DoesNotExist:
-            return Response({"error": "Quiz not found"}, status=404)
-        session, _ = QuizSession.get_or_create_active(quiz, request.user)
-        return Response(LegacyProgressSerializer(session).data)
-
-    @extend_schema(
-        summary="Update quiz progress (legacy format)",
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {
-                    "current_question": {"type": "integer"},
-                    "correct_answers_count": {"type": "integer"},
-                    "wrong_answers_count": {"type": "integer"},
-                    "study_time": {"type": "number"},
-                    "reoccurrences": {"type": "array", "items": {"type": "object"}},
-                },
-            }
-        },
-        responses={
-            200: OpenApiResponse(description="Quiz progress updated"),
-            401: OpenApiResponse(description="Unauthorized"),
-        },
-        deprecated=True,
-    )
-    def post(self, request, quiz_id):
-        try:
-            quiz = Quiz.objects.get(id=quiz_id)
-        except Quiz.DoesNotExist:
-            return Response({"error": "Quiz not found"}, status=404)
-        session, _ = QuizSession.get_or_create_active(quiz, request.user)
-        data = request.data
-
-        if "study_time" in data:
-            session.study_time = timedelta(seconds=data["study_time"])
-
-        if "current_question" in data:
-            current_question = data["current_question"]
-            if current_question:
-                question = Question.objects.filter(quiz=quiz, id=current_question).first()
-                session.current_question = question
-            else:
-                session.current_question = None
-
-        session.save()
-        return Response({"status": "updated"})
-
-    @extend_schema(
-        summary="Reset quiz progress (legacy)",
-        responses={
-            200: OpenApiResponse(description="Progress reset"),
-            401: OpenApiResponse(description="Unauthorized"),
-        },
-        deprecated=True,
-    )
-    def delete(self, request, quiz_id):
-        try:
-            quiz = Quiz.objects.get(id=quiz_id)
-        except Quiz.DoesNotExist:
-            return Response({"error": "Quiz not found"}, status=404)
-        QuizSession.objects.filter(quiz=quiz, user=request.user, is_active=True).update(
-            is_active=False, ended_at=timezone.now()
-        )
-        QuizSession.objects.create(quiz=quiz, user=request.user)
-        return Response({"status": "deleted"})
 
 
 class FolderViewSet(viewsets.ModelViewSet):
