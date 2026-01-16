@@ -1,10 +1,9 @@
 from django.test import TestCase
 from django.urls import reverse
-from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from quizzes.models import Quiz, QuizProgress
+from quizzes.models import Answer, Question, Quiz, QuizSession
 from users.models import User
 
 
@@ -16,20 +15,25 @@ class LastUsedQuizzesViewTest(TestCase):
         )
         self.client.force_authenticate(user=self.user)
 
-        # Create a quiz with questions
+        # Create a quiz
         self.quiz = Quiz.objects.create(
             title="Test Quiz",
             description="Test Description",
             maintainer=self.user,
             visibility=2,
-            questions=[
-                {"id": "q1", "text": "Question 1", "options": ["A", "B", "C", "D"], "correct": 0},
-                {"id": "q2", "text": "Question 2", "options": ["A", "B", "C", "D"], "correct": 1},
-            ],
         )
 
-        # Create quiz progress to make it appear in last used quizzes
-        QuizProgress.objects.create(quiz=self.quiz, user=self.user, current_question=0, last_activity=timezone.now())
+        # Create questions with answers
+        q1 = Question.objects.create(quiz=self.quiz, order=1, text="Question 1", multiple=False)
+        for i, text in enumerate(["A", "B", "C", "D"]):
+            Answer.objects.create(question=q1, order=i, text=text, is_correct=(i == 0))
+
+        q2 = Question.objects.create(quiz=self.quiz, order=2, text="Question 2", multiple=False)
+        for i, text in enumerate(["A", "B", "C", "D"]):
+            Answer.objects.create(question=q2, order=i, text=text, is_correct=(i == 1))
+
+        # Create quiz session to make it appear in last used quizzes
+        QuizSession.objects.create(quiz=self.quiz, user=self.user, is_active=True)
 
     def test_last_used_quizzes_does_not_include_questions(self):
         """Test that the last-used-quizzes endpoint does not return questions"""

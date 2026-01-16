@@ -1,5 +1,3 @@
-import json
-import random
 import urllib.parse
 from datetime import timedelta
 
@@ -16,12 +14,12 @@ from drf_spectacular.utils import (
 )
 from rest_framework import permissions, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import MethodNotAllowed, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from quizzes.models import Folder, Quiz, QuizProgress, SharedQuiz
+from quizzes.models import AnswerRecord, Folder, Question, Quiz, QuizSession, SharedQuiz
 from quizzes.permissions import (
     IsFolderOwner,
     IsQuizMaintainer,
@@ -29,11 +27,16 @@ from quizzes.permissions import (
     IsSharedQuizMaintainerOrReadOnly,
 )
 from quizzes.serializers import (
+    AnswerRecordSerializer,
     FolderSerializer,
+    LegacyProgressSerializer,
     MoveFolderSerializer,
     MoveQuizSerializer,
     QuizMetaDataSerializer,
+    QuizSearchResultSerializer,
     QuizSerializer,
+    QuizSessionSerializer,
+    QuizSessionUpdateSerializer,
     SharedQuizSerializer,
 )
 from quizzes.services.notifications import (
@@ -80,16 +83,22 @@ class RandomQuestionView(APIView):
         ],
     )
     def get(self, request):
-        quizzes_progress = QuizProgress.objects.filter(
-            user=request.user, last_activity__gt=timezone.now() - timedelta(days=90)
+        sessions = QuizSession.objects.filter(
+            user=request.user, is_active=True, started_at__gt=timezone.now() - timedelta(days=90)
         ).order_by("?")
 
-        for quiz_progress in quizzes_progress:
-            if quiz_progress.quiz.questions:
-                random_question = random.choice(quiz_progress.quiz.questions)
-                random_question["quiz_id"] = quiz_progress.quiz.id
-                random_question["quiz_title"] = quiz_progress.quiz.title
-                return Response(random_question)
+        for session in sessions:
+            if session.quiz.questions.exists():
+                random_question = session.quiz.questions.order_by("?").first()
+                return Response(
+                    {
+                        "id": str(random_question.id),
+                        "text": random_question.text,
+                        "answers": [{"text": a.text, "correct": a.is_correct} for a in random_question.answers.all()],
+                        "quiz_id": session.quiz.id,
+                        "quiz_title": session.quiz.title,
+                    }
+                )
 
         return Response({"error": "No quizzes found"}, status=404)
 
@@ -117,8 +126,8 @@ class LastUsedQuizzesView(APIView):
         max_quizzes_count = min(int(request.query_params.get("limit", 4)), 20)
 
         last_used_quizzes = [
-            qp.quiz
-            for qp in QuizProgress.objects.filter(user=request.user).order_by("-last_activity")[:max_quizzes_count]
+            session.quiz
+            for session in QuizSession.objects.filter(user=request.user).order_by("-started_at")[:max_quizzes_count]
         ]
 
         serializer = QuizMetaDataSerializer(last_used_quizzes, many=True, context={"request": request})
@@ -171,10 +180,10 @@ class SearchQuizzesView(APIView):
 
         return Response(
             {
-                "user_quizzes": [q.to_search_result() for q in user_quizzes],
-                "shared_quizzes": [q.quiz.to_search_result() for q in shared_quizzes],
-                "group_quizzes": [q.quiz.to_search_result() for q in group_quizzes],
-                "public_quizzes": [q.to_search_result() for q in public_quizzes],
+                "user_quizzes": QuizSearchResultSerializer(user_quizzes, many=True).data,
+                "shared_quizzes": QuizSearchResultSerializer([q.quiz for q in shared_quizzes], many=True).data,
+                "group_quizzes": QuizSearchResultSerializer([q.quiz for q in group_quizzes], many=True).data,
+                "public_quizzes": QuizSearchResultSerializer(public_quizzes, many=True).data,
             }
         )
 
@@ -193,20 +202,29 @@ class QuizViewSet(viewsets.ModelViewSet):
     ]
 
     def get_queryset(self):
-        if not self.request.user.is_authenticated:
+        user = self.request.user
+
+        if not user.is_authenticated:
             if self.action == "list":
                 return Quiz.objects.none()
             return Quiz.objects.filter(visibility__gte=2, allow_anonymous=True)
-        _filter = Q(maintainer=self.request.user)
-        if self.action == "retrieve" or self.action == "update":
-            _filter |= Q(visibility__gte=3)
-            _filter |= Q(visibility__gte=2)
-            _filter |= Q(visibility__gte=1, sharedquiz__user=self.request.user)
-            _filter |= Q(
-                visibility__gte=1,
-                sharedquiz__study_group__in=self.request.user.study_groups.all(),
+
+        qs = Q(maintainer=user)
+
+        if self.action in ("retrieve", "update", "partial_update", "progress", "record_answer"):
+            qs |= Q(visibility__gte=2)  # Public/unlisted
+            qs |= Q(visibility__gte=1, sharedquiz__user=user)
+            qs |= Q(visibility__gte=1, sharedquiz__study_group__in=user.study_groups.all())
+
+        queryset = Quiz.objects.filter(qs).distinct()
+
+        if self.action == "retrieve":
+            queryset = queryset.prefetch_related(
+                "questions__answers",
+                "sharedquiz_set__user",
             )
-        return Quiz.objects.filter(_filter).distinct()
+
+        return queryset
 
     def perform_create(self, serializer):
         serializer.save(maintainer=self.request.user)
@@ -215,26 +233,26 @@ class QuizViewSet(viewsets.ModelViewSet):
         serializer.save(version=serializer.instance.version + 1)
 
     def perform_destroy(self, instance):
-        if instance.maintainer == self.request.user:
-            instance.delete()
-        else:
-            raise PermissionDenied
+        if instance.maintainer != self.request.user:
+            raise PermissionDenied("Only the maintainer can delete this quiz")
+        instance.delete()
 
     def get_serializer_class(self):
-        if self.action == "list":
-            return QuizMetaDataSerializer
-        return QuizSerializer
+        action_serializers = {
+            "list": QuizMetaDataSerializer,
+            "move": MoveQuizSerializer,
+        }
+        return action_serializers.get(self.action, QuizSerializer)
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        if self.action == "list":
-            context.update({"user": self.request.user})
+        context["user"] = self.request.user
         return context
 
     def update(self, request, *args, **kwargs):
         quiz = self.get_object()
         if not quiz.can_edit(request.user):
-            return Response({"error": "You do not have permission to edit this quiz"}, status=403)
+            raise PermissionDenied("You do not have permission to edit this quiz")
         return super().update(request, *args, **kwargs)
 
     @action(
@@ -253,6 +271,74 @@ class QuizViewSet(viewsets.ModelViewSet):
             return Response({"status": "Quiz moved successfully"})
 
         return Response(serializer.errors, status=400)
+
+    @action(
+        detail=True,
+        methods=["get", "post", "delete"],
+        url_path="progress",
+        permission_classes=[permissions.IsAuthenticated],
+    )
+    def progress(self, request, pk=None):
+        quiz = self.get_object()
+
+        if request.method == "GET":
+            session, _ = QuizSession.get_or_create_active(quiz, request.user)
+            return Response(QuizSessionSerializer(session).data)
+
+        elif request.method == "POST":
+            session, _ = QuizSession.get_or_create_active(quiz, request.user)
+            serializer = QuizSessionUpdateSerializer(session, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(QuizSessionSerializer(session).data)
+
+        elif request.method == "DELETE":
+            # Archive current session and create new one
+            QuizSession.objects.filter(quiz=quiz, user=request.user, is_active=True).update(
+                is_active=False, ended_at=timezone.now()
+            )
+            session = QuizSession.objects.create(quiz=quiz, user=request.user)
+            return Response(QuizSessionSerializer(session).data)
+
+        raise MethodNotAllowed(request.method)
+
+    @action(detail=True, methods=["post"], url_path="answer", permission_classes=[permissions.IsAuthenticated])
+    def record_answer(self, request, pk=None):
+        """Record an answer for the current session."""
+        quiz = self.get_object()
+        session, _ = QuizSession.get_or_create_active(quiz, request.user)
+
+        question_id = request.data.get("question_id")
+        selected_answers = request.data.get("selected_answers", [])
+
+        try:
+            question = Question.objects.get(id=question_id, quiz=quiz)
+        except Question.DoesNotExist:
+            return Response({"error": "Question not found in this quiz"}, status=404)
+        correct_answer_ids = set(str(a.id) for a in question.answers.filter(is_correct=True))
+        selected_ids = set(str(a) for a in selected_answers)
+        was_correct = correct_answer_ids == selected_ids
+
+        record = AnswerRecord.objects.create(
+            session=session,
+            question=question,
+            selected_answers=selected_answers,
+            was_correct=was_correct,
+        )
+
+        session_updated = False
+        if "study_time" in request.data:
+            session.study_time = timedelta(seconds=request.data["study_time"])
+            session_updated = True
+
+        if "current_question_id" in request.data:
+            session.current_question_id = request.data["current_question_id"]
+            session_updated = True
+
+        if session_updated:
+            session.save()
+
+        return Response(AnswerRecordSerializer(record).data, status=201)
 
 
 class QuizMetadataView(APIView):
@@ -378,10 +464,12 @@ class ReportQuestionIssueView(APIView):
 
 
 class QuizProgressView(APIView):
+    """Legacy progress endpoint - uses QuizSession internally with order-based format."""
+
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(
-        summary="Get quiz progress",
+        summary="Get quiz progress (legacy format)",
         responses={
             200: {
                 "type": "object",
@@ -391,26 +479,24 @@ class QuizProgressView(APIView):
                     "wrong_answers_count": {"type": "integer"},
                     "study_time": {"type": "number"},
                     "last_activity": {"type": "string", "format": "date-time"},
-                    "reoccurrences": {"type": "array", "items": {"type": "integer"}},
+                    "reoccurrences": {"type": "array", "items": {"type": "object"}},
                 },
             },
             401: OpenApiResponse(description="Unauthorized"),
-            403: OpenApiResponse(description="Forbidden"),
             404: OpenApiResponse(description="Not Found"),
         },
+        deprecated=True,
     )
     def get(self, request, quiz_id):
         try:
-            quiz_progress, _ = QuizProgress.objects.get_or_create(quiz_id=quiz_id, user=request.user)
-        except QuizProgress.MultipleObjectsReturned:
-            duplicates = QuizProgress.objects.filter(quiz_id=quiz_id, user=request.user).order_by("-last_activity")[1:]
-            for duplicate in duplicates:
-                duplicate.delete()
-            quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
-        return Response(quiz_progress.to_dict())
+            quiz = Quiz.objects.get(id=quiz_id)
+        except Quiz.DoesNotExist:
+            return Response({"error": "Quiz not found"}, status=404)
+        session, _ = QuizSession.get_or_create_active(quiz, request.user)
+        return Response(LegacyProgressSerializer(session).data)
 
     @extend_schema(
-        summary="Update quiz progress",
+        summary="Update quiz progress (legacy format)",
         request={
             "application/json": {
                 "type": "object",
@@ -419,52 +505,55 @@ class QuizProgressView(APIView):
                     "correct_answers_count": {"type": "integer"},
                     "wrong_answers_count": {"type": "integer"},
                     "study_time": {"type": "number"},
-                    "reoccurrences": {"type": "array", "items": {"type": "integer"}},
+                    "reoccurrences": {"type": "array", "items": {"type": "object"}},
                 },
             }
         },
         responses={
             200: OpenApiResponse(description="Quiz progress updated"),
             401: OpenApiResponse(description="Unauthorized"),
-            400: OpenApiResponse(description="Invalid data"),
         },
+        deprecated=True,
     )
     def post(self, request, quiz_id):
-        data = json.loads(request.body)
         try:
-            quiz_progress, _ = QuizProgress.objects.get_or_create(quiz_id=quiz_id, user=request.user)
-        except QuizProgress.MultipleObjectsReturned:
-            duplicates = QuizProgress.objects.filter(quiz_id=quiz_id, user=request.user).order_by("-last_activity")[1:]
-            for duplicate in duplicates:
-                duplicate.delete()
-            quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
-
-        for field in [
-            "current_question",
-            "reoccurrences",
-            "correct_answers_count",
-            "wrong_answers_count",
-        ]:
-            if field in data:
-                setattr(quiz_progress, field, data[field])
+            quiz = Quiz.objects.get(id=quiz_id)
+        except Quiz.DoesNotExist:
+            return Response({"error": "Quiz not found"}, status=404)
+        session, _ = QuizSession.get_or_create_active(quiz, request.user)
+        data = request.data
 
         if "study_time" in data:
-            quiz_progress.study_time = timedelta(seconds=data["study_time"])
+            session.study_time = timedelta(seconds=data["study_time"])
 
-        quiz_progress.save()
+        if "current_question" in data:
+            current_question = data["current_question"]
+            if current_question:
+                question = Question.objects.filter(quiz=quiz, id=current_question).first()
+                session.current_question = question
+            else:
+                session.current_question = None
+
+        session.save()
         return Response({"status": "updated"})
 
     @extend_schema(
-        summary="Delete quiz progress",
+        summary="Reset quiz progress (legacy)",
         responses={
-            200: OpenApiResponse(description="Progress deleted"),
+            200: OpenApiResponse(description="Progress reset"),
             401: OpenApiResponse(description="Unauthorized"),
-            404: OpenApiResponse(description="Not Found"),
         },
+        deprecated=True,
     )
     def delete(self, request, quiz_id):
-        quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
-        quiz_progress.delete()
+        try:
+            quiz = Quiz.objects.get(id=quiz_id)
+        except Quiz.DoesNotExist:
+            return Response({"error": "Quiz not found"}, status=404)
+        QuizSession.objects.filter(quiz=quiz, user=request.user, is_active=True).update(
+            is_active=False, ended_at=timezone.now()
+        )
+        QuizSession.objects.create(quiz=quiz, user=request.user)
         return Response({"status": "deleted"})
 
 
