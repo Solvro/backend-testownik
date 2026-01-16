@@ -312,7 +312,6 @@ class MoveFolderSerializer(serializers.Serializer):
 class QuizSearchResultSerializer(serializers.ModelSerializer):
     """Serializer for search results."""
 
-    similarity = serializers.FloatField()
     maintainer = PublicUserSerializer(read_only=True)
 
     class Meta:
@@ -322,7 +321,6 @@ class QuizSearchResultSerializer(serializers.ModelSerializer):
             "title",
             "description",
             "maintainer",
-            "similarity",
         ]
 
 

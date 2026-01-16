@@ -309,12 +309,15 @@ class QuizViewSet(viewsets.ModelViewSet):
         session, _ = QuizSession.get_or_create_active(quiz, request.user)
 
         question_id = request.data.get("question_id")
+        if not question_id:
+            return Response({"error": "question_id is required"}, status=400)
         selected_answers = request.data.get("selected_answers", [])
 
         try:
             question = Question.objects.get(id=question_id, quiz=quiz)
         except Question.DoesNotExist:
             return Response({"error": "Question not found in this quiz"}, status=404)
+
         correct_answer_ids = set(str(a.id) for a in question.answers.filter(is_correct=True))
         selected_ids = set(str(a) for a in selected_answers)
         was_correct = correct_answer_ids == selected_ids
