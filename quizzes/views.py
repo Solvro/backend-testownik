@@ -3,6 +3,7 @@ import urllib.parse
 from datetime import timedelta
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -93,9 +94,9 @@ class RandomQuestionView(APIView):
         )
 
         for session in sessions:
-            questions = list(session.quiz.questions.all())
+            questions = session.quiz.questions.all()
             if questions:
-                random_question = random.choice(questions)
+                random_question = random.choice(list(questions))
                 return Response(
                     {
                         "id": str(random_question.id),
@@ -178,16 +179,16 @@ class SearchQuizzesView(APIView):
         if not query:
             return Response({"error": "Query parameter is required"}, status=400)
 
-        user_quizzes = Quiz.objects.filter(maintainer=request.user, title__icontains=query)
+        user_quizzes = Quiz.objects.filter(maintainer=request.user, title__icontains=query).select_related("maintainer")
         shared_quizzes = SharedQuiz.objects.filter(
             user=request.user, quiz__title__icontains=query, quiz__visibility__gte=1
-        )
+        ).select_related("quiz__maintainer")
         group_quizzes = SharedQuiz.objects.filter(
             study_group__in=request.user.study_groups.all(),
             quiz__title__icontains=query,
             quiz__visibility__gte=1,
-        )
-        public_quizzes = Quiz.objects.filter(title__icontains=query, visibility__gte=3)
+        ).select_related("quiz__maintainer")
+        public_quizzes = Quiz.objects.filter(title__icontains=query, visibility__gte=3).select_related("maintainer")
 
         return Response(
             {
@@ -304,10 +305,11 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         elif request.method == "DELETE":
             # Archive current session and create new one
-            QuizSession.objects.filter(quiz=quiz, user=request.user, is_active=True).update(
-                is_active=False, ended_at=timezone.now()
-            )
-            session = QuizSession.objects.create(quiz=quiz, user=request.user)
+            with transaction.atomic():
+                QuizSession.objects.filter(quiz=quiz, user=request.user, is_active=True).update(
+                    is_active=False, ended_at=timezone.now()
+                )
+                session = QuizSession.objects.create(quiz=quiz, user=request.user)
             return Response(QuizSessionSerializer(session).data)
 
         raise MethodNotAllowed(request.method)
@@ -324,17 +326,18 @@ class QuizViewSet(viewsets.ModelViewSet):
         selected_answers = request.data.get("selected_answers", [])
 
         try:
-            question = Question.objects.get(id=question_id, quiz=quiz)
-        except Question.DoesNotExist:
+            question = Question.objects.prefetch_related("answers").get(id=question_id, quiz=quiz)
+        except (Question.DoesNotExist, ValueError, TypeError, ValidationError):
             return Response({"error": "Question not found in this quiz"}, status=404)
 
         selected_ids = set(str(a) for a in selected_answers)
 
-        valid_answer_ids = set(str(a.id) for a in question.answers.all())
+        answers = list(question.answers.all())
+        valid_answer_ids = set(str(a.id) for a in answers)
         if not selected_ids.issubset(valid_answer_ids):
             return Response({"error": "One or more selected answers do not belong to this question"}, status=400)
 
-        correct_answer_ids = set(str(a.id) for a in question.answers.filter(is_correct=True))
+        correct_answer_ids = set(str(a.id) for a in answers if a.is_correct)
         was_correct = correct_answer_ids == selected_ids
 
         record = AnswerRecord.objects.create(
@@ -355,8 +358,13 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         if "next_question" in request.data:
             next_question_id = request.data["next_question"]
-            if next_question_id is not None and not Question.objects.filter(id=next_question_id, quiz=quiz).exists():
-                return Response({"error": "next_question must be a valid question in this quiz"}, status=400)
+            if next_question_id is not None:
+                try:
+                    exists = Question.objects.filter(id=next_question_id, quiz=quiz).exists()
+                except (ValueError, TypeError, ValidationError):
+                    return Response({"error": "next_question must be a valid question in this quiz"}, status=400)
+                if not exists:
+                    return Response({"error": "next_question must be a valid question in this quiz"}, status=400)
             session.current_question_id = next_question_id
             update_fields.append("current_question_id")
 

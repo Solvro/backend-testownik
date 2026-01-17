@@ -89,6 +89,7 @@ class RecordAnswerTestCase(APITestCase):
         self.a1_correct = Answer.objects.create(question=self.q1, order=1, text="Correct", is_correct=True)
         self.a1_wrong = Answer.objects.create(question=self.q1, order=2, text="Wrong", is_correct=False)
         self.q2 = Question.objects.create(quiz=self.quiz, order=2, text="Q2")
+        self.a2_correct = Answer.objects.create(question=self.q2, order=1, text="Correct", is_correct=True)
 
     def test_record_correct_answer(self):
         """Test recording a correct answer."""
@@ -147,3 +148,92 @@ class RecordAnswerTestCase(APITestCase):
         AnswerRecord.objects.create(session=session, question=self.q1, selected_answers=[], was_correct=False)
         self.assertEqual(session.correct_count, 1)
         self.assertEqual(session.wrong_count, 1)
+
+    # --- Error Cases ---
+    def test_record_answer_missing_question_id(self):
+        """Test that missing question_id returns 400."""
+        url = reverse("quiz-record-answer", kwargs={"pk": self.quiz.id})
+        data = {"selected_answers": [str(self.a1_correct.id)]}
+        response = self.client.post(url, data, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"], "question_id is required")
+
+    def test_record_answer_invalid_question_uuid(self):
+        """Test that invalid question_id UUID format returns 404."""
+        url = reverse("quiz-record-answer", kwargs={"pk": self.quiz.id})
+        data = {
+            "question_id": "not-a-valid-uuid",
+            "selected_answers": [],
+        }
+        response = self.client.post(url, data, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data["error"], "Question not found in this quiz")
+
+    def test_record_answer_question_not_in_quiz(self):
+        """Test that question from another quiz returns 404."""
+        other_quiz = Quiz.objects.create(title="Other Quiz", maintainer=self.user)
+        other_question = Question.objects.create(quiz=other_quiz, order=1, text="Other Q")
+
+        url = reverse("quiz-record-answer", kwargs={"pk": self.quiz.id})
+        data = {
+            "question_id": str(other_question.id),
+            "selected_answers": [],
+        }
+        response = self.client.post(url, data, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_record_answer_invalid_answer_ids(self):
+        """Test that invalid answer IDs return 400."""
+        url = reverse("quiz-record-answer", kwargs={"pk": self.quiz.id})
+        data = {
+            "question_id": str(self.q1.id),
+            "selected_answers": [str(self.a2_correct.id)],  # Answer from q2, not q1
+        }
+        response = self.client.post(url, data, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("do not belong to this question", response.data["error"])
+
+    def test_record_answer_invalid_study_time(self):
+        """Test that invalid study_time format returns 400."""
+        url = reverse("quiz-record-answer", kwargs={"pk": self.quiz.id})
+        data = {
+            "question_id": str(self.q1.id),
+            "selected_answers": [str(self.a1_correct.id)],
+            "study_time": "not-a-number",
+        }
+        response = self.client.post(url, data, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"], "study_time must be a numeric value")
+
+    def test_record_answer_invalid_next_question_uuid(self):
+        """Test that invalid next_question UUID format returns 400."""
+        url = reverse("quiz-record-answer", kwargs={"pk": self.quiz.id})
+        data = {
+            "question_id": str(self.q1.id),
+            "selected_answers": [str(self.a1_correct.id)],
+            "next_question": "not-a-valid-uuid",
+        }
+        response = self.client.post(url, data, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"], "next_question must be a valid question in this quiz")
+
+    def test_record_answer_next_question_not_in_quiz(self):
+        """Test that next_question from another quiz returns 400."""
+        other_quiz = Quiz.objects.create(title="Other Quiz", maintainer=self.user)
+        other_question = Question.objects.create(quiz=other_quiz, order=1, text="Other Q")
+
+        url = reverse("quiz-record-answer", kwargs={"pk": self.quiz.id})
+        data = {
+            "question_id": str(self.q1.id),
+            "selected_answers": [str(self.a1_correct.id)],
+            "next_question": str(other_question.id),
+        }
+        response = self.client.post(url, data, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
