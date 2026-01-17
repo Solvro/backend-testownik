@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.db import transaction
 from rest_framework import serializers
 
@@ -327,10 +329,25 @@ class QuizSearchResultSerializer(serializers.ModelSerializer):
         ]
 
 
+class DurationInSecondsField(serializers.Field):
+    """Field for handling DurationField as total seconds."""
+
+    def to_representation(self, value):
+        if isinstance(value, timedelta):
+            return value.total_seconds()
+        return value
+
+    def to_internal_value(self, data):
+        try:
+            return timedelta(seconds=float(data))
+        except (ValueError, TypeError):
+            self.fail("invalid")
+
+
 class QuizSessionSerializer(serializers.ModelSerializer):
     """Serializer for QuizSession (new progress tracking)."""
 
-    study_time = serializers.SerializerMethodField()
+    study_time = DurationInSecondsField(required=False)
 
     class Meta:
         model = QuizSession
@@ -346,30 +363,7 @@ class QuizSessionSerializer(serializers.ModelSerializer):
             "started_at",
             "ended_at",
         ]
-        read_only_fields = ["id", "quiz", "user", "started_at", "ended_at"]
-
-    def get_study_time(self, obj):
-        return obj.study_time.total_seconds()
-
-
-class QuizSessionUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for updating session state (study_time, current_question)."""
-
-    current_question_id = serializers.UUIDField(required=False, allow_null=True)
-
-    class Meta:
-        model = QuizSession
-        fields = ["study_time", "current_question_id"]
-
-    def update(self, instance, validated_data):
-        if "current_question_id" in validated_data:
-            q_id = validated_data.pop("current_question_id")
-            if q_id:
-                instance.current_question_id = q_id
-            else:
-                instance.current_question = None
-
-        return super().update(instance, validated_data)
+        read_only_fields = ["id", "quiz", "user", "ended_at"]
 
 
 class AnswerRecordSerializer(serializers.ModelSerializer):

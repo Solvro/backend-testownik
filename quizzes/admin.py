@@ -1,3 +1,5 @@
+import re
+
 from django.contrib import admin
 
 from .models import (
@@ -34,6 +36,23 @@ class QuestionAdmin(admin.ModelAdmin):
     search_fields = ["text", "quiz__title"]
     inlines = [AnswerInline]
     autocomplete_fields = ["quiz"]
+
+    def get_search_results(self, request, queryset, search_term):
+        queryset, use_distinct = super().get_search_results(request, queryset, search_term)
+
+        referer = request.META.get("HTTP_REFERER", "")
+        # Check if we are editing a QuizSession
+        match = re.search(r"/quizzes/quizsession/([^/]+)/change/", referer)
+
+        if match:
+            session_id = match.group(1)
+            try:
+                session = QuizSession.objects.get(id=session_id)
+                queryset = queryset.filter(quiz=session.quiz)
+            except (QuizSession.DoesNotExist, ValueError):
+                pass
+
+        return queryset, use_distinct
 
 
 class AnswerRecordInline(admin.TabularInline):

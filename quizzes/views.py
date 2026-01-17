@@ -35,7 +35,6 @@ from quizzes.serializers import (
     QuizSearchResultSerializer,
     QuizSerializer,
     QuizSessionSerializer,
-    QuizSessionUpdateSerializer,
     SharedQuizSerializer,
 )
 from quizzes.services.notifications import (
@@ -288,7 +287,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         elif request.method == "POST":
             session, _ = QuizSession.get_or_create_active(quiz, request.user)
-            serializer = QuizSessionUpdateSerializer(session, data=request.data, partial=True)
+            serializer = QuizSessionSerializer(session, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             serializer.save()
             return Response(QuizSessionSerializer(session).data)
@@ -335,8 +334,8 @@ class QuizViewSet(viewsets.ModelViewSet):
             session.study_time = timedelta(seconds=request.data["study_time"])
             session_updated = True
 
-        if "current_question_id" in request.data:
-            session.current_question_id = request.data["current_question_id"]
+        if "next_question" in request.data:
+            session.current_question_id = request.data["next_question"]
             session_updated = True
 
         if session_updated:

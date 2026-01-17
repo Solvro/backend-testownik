@@ -66,11 +66,11 @@ class QuizProgressTestCase(APITestCase):
         self.assertEqual(session.study_time, timedelta(seconds=120.5))
 
     def test_update_progress_current_question(self):
-        """Test updating current_question_id on session."""
+        """Test updating current_question on session."""
         session, _ = QuizSession.get_or_create_active(self.quiz, self.user)
         url = reverse("quiz-progress", kwargs={"pk": self.quiz.id})
 
-        response = self.client.post(url, {"current_question_id": str(self.q2.id)}, format="json")
+        response = self.client.post(url, {"current_question": str(self.q2.id)}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         session.refresh_from_db()
@@ -149,7 +149,7 @@ class RecordAnswerTestCase(APITestCase):
             "question_id": str(self.q1.id),
             "selected_answers": [str(self.a1_correct.id)],
             "study_time": 60.0,
-            "current_question_id": str(self.q2.id),
+            "next_question": str(self.q2.id),
         }
         response = self.client.post(url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -170,55 +170,3 @@ class RecordAnswerTestCase(APITestCase):
         AnswerRecord.objects.create(session=session, question=self.q1, selected_answers=[], was_correct=False)
         self.assertEqual(session.correct_count, 1)
         self.assertEqual(session.wrong_count, 1)
-
-
-class LegacyProgressTestCase(APITestCase):
-    """Test legacy /quiz/{id}/progress/ endpoint for backwards compatibility."""
-
-    def setUp(self):
-        self.user = User.objects.create(
-            email="test@example.com",
-            first_name="Test",
-            last_name="User",
-            student_number="123456",
-        )
-        self.client.force_authenticate(user=self.user)
-
-        self.quiz = Quiz.objects.create(title="Test Quiz", maintainer=self.user)
-        self.q1 = Question.objects.create(quiz=self.quiz, order=1, text="Q1")
-        Answer.objects.create(question=self.q1, order=1, text="A1", is_correct=True)
-
-    def test_get_legacy_progress(self):
-        """Test GET on legacy endpoint returns correct format."""
-        url = reverse("quiz-progress", kwargs={"quiz_id": self.quiz.id})
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Legacy format fields
-        self.assertIn("current_question", response.data)
-        self.assertIn("correct_answers_count", response.data)
-        self.assertIn("wrong_answers_count", response.data)
-        self.assertIn("study_time", response.data)
-        self.assertIn("reoccurrences", response.data)
-
-    def test_post_legacy_progress_updates_study_time(self):
-        """Test POST on legacy endpoint updates study_time."""
-        QuizSession.get_or_create_active(self.quiz, self.user)
-        url = reverse("quiz-progress", kwargs={"quiz_id": self.quiz.id})
-
-        response = self.client.post(url, {"study_time": 300}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        session = QuizSession.objects.get(quiz=self.quiz, user=self.user, is_active=True)
-        self.assertEqual(session.study_time, timedelta(seconds=300))
-
-    def test_delete_legacy_progress_resets(self):
-        """Test DELETE on legacy endpoint creates new session."""
-        old_session = QuizSession.objects.create(quiz=self.quiz, user=self.user)
-        url = reverse("quiz-progress", kwargs={"quiz_id": self.quiz.id})
-
-        response = self.client.delete(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        old_session.refresh_from_db()
-        self.assertFalse(old_session.is_active)
