@@ -38,7 +38,7 @@ class Migration(migrations.Migration):
                 ),
                 ("order", models.PositiveIntegerField()),
                 ("text", models.TextField()),
-                ("image", models.URLField(blank=True, null=True)),
+                ("image", models.URLField(blank=True, null=True, max_length=512)),
                 ("explanation", models.TextField(blank=True, null=True)),
                 ("multiple", models.BooleanField(default=False)),
                 (
@@ -74,7 +74,7 @@ class Migration(migrations.Migration):
                 ),
                 ("order", models.PositiveIntegerField()),
                 ("text", models.TextField()),
-                ("image", models.URLField(blank=True, null=True)),
+                ("image", models.URLField(blank=True, null=True, max_length=512)),
                 ("is_correct", models.BooleanField(default=False)),
                 (
                     "question",

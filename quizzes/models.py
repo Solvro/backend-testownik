@@ -73,7 +73,7 @@ class Question(models.Model):
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="questions")
     order = models.PositiveIntegerField()
     text = models.TextField()
-    image = models.URLField(blank=True, null=True)
+    image = models.URLField(blank=True, null=True, max_length=512)
     explanation = models.TextField(blank=True, null=True)
     multiple = models.BooleanField(default=False)
 
@@ -89,7 +89,7 @@ class Answer(models.Model):
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="answers")
     order = models.PositiveIntegerField()
     text = models.TextField()
-    image = models.URLField(blank=True, null=True)
+    image = models.URLField(blank=True, null=True, max_length=512)
     is_correct = models.BooleanField(default=False)
 
     class Meta:

@@ -2,6 +2,16 @@
 
 from django.db import migrations
 
+# Maximum length for image URLs (must match URLField max_length in models)
+MAX_IMAGE_URL_LENGTH = 512
+
+
+def _get_valid_image(image_url):
+    """Return image URL if within max length, otherwise None."""
+    if image_url and len(image_url) <= MAX_IMAGE_URL_LENGTH:
+        return image_url
+    return None
+
 
 def migrate_questions(apps, schema_editor):
     """Migrate questions from JSON field to Question/Answer models."""
@@ -15,7 +25,7 @@ def migrate_questions(apps, schema_editor):
                 quiz=quiz,
                 order=q_data.get("id", idx + 1),
                 text=q_data.get("question", q_data.get("text", "")),
-                image=q_data.get("image"),
+                image=_get_valid_image(q_data.get("image")),
                 explanation=q_data.get("explanation"),
                 multiple=q_data.get("multiple", False),
             )
@@ -27,7 +37,7 @@ def migrate_questions(apps, schema_editor):
                     question=question,
                     order=a_idx,
                     text=a_data.get("answer", a_data.get("text", "")),
-                    image=a_data.get("image"),
+                    image=_get_valid_image(a_data.get("image")),
                     is_correct=bool(is_correct),
                 )
 
