@@ -344,10 +344,20 @@ class DurationInSecondsField(serializers.Field):
             self.fail("invalid")
 
 
+class AnswerRecordSerializer(serializers.ModelSerializer):
+    """Serializer for AnswerRecord."""
+
+    class Meta:
+        model = AnswerRecord
+        fields = ["id", "question", "selected_answers", "was_correct", "answered_at"]
+        read_only_fields = ["id", "answered_at", "was_correct"]
+
+
 class QuizSessionSerializer(serializers.ModelSerializer):
     """Serializer for QuizSession (new progress tracking)."""
 
     study_time = DurationInSecondsField(required=False)
+    answers = AnswerRecordSerializer(many=True, read_only=True)
 
     class Meta:
         model = QuizSession
@@ -362,17 +372,9 @@ class QuizSessionSerializer(serializers.ModelSerializer):
             "is_active",
             "started_at",
             "ended_at",
+            "answers",
         ]
         read_only_fields = ["id", "quiz", "user", "started_at", "ended_at"]
-
-
-class AnswerRecordSerializer(serializers.ModelSerializer):
-    """Serializer for AnswerRecord."""
-
-    class Meta:
-        model = AnswerRecord
-        fields = ["id", "question", "selected_answers", "was_correct", "answered_at"]
-        read_only_fields = ["id", "answered_at", "was_correct"]
 
 
 class MoveQuizSerializer(serializers.Serializer):
