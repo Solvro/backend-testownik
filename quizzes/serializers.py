@@ -201,7 +201,7 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "can_edit",
             "folder",
         ]
-        read_only_fields = ["maintainer", "version", "can_edit", "folder"]
+        read_only_fields = ["maintainer", "created_at", "updated_at", "version", "can_edit", "folder"]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

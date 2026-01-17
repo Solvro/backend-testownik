@@ -1,3 +1,4 @@
+import random
 import urllib.parse
 from datetime import timedelta
 
@@ -28,6 +29,7 @@ from quizzes.permissions import (
 )
 from quizzes.serializers import (
     AnswerRecordSerializer,
+    AnswerSerializer,
     FolderSerializer,
     MoveFolderSerializer,
     MoveQuizSerializer,
@@ -86,17 +88,19 @@ class RandomQuestionView(APIView):
                 user=request.user, is_active=True, started_at__gte=timezone.now() - timedelta(days=90)
             )
             .select_related("quiz")
+            .prefetch_related("quiz__questions__answers")
             .order_by("?")
         )
 
         for session in sessions:
-            if session.quiz.questions.exists():
-                random_question = session.quiz.questions.prefetch_related("answers").order_by("?").first()
+            questions = list(session.quiz.questions.all())
+            if questions:
+                random_question = random.choice(questions)
                 return Response(
                     {
                         "id": str(random_question.id),
                         "text": random_question.text,
-                        "answers": [{"text": a.text, "correct": a.is_correct} for a in random_question.answers.all()],
+                        "answers": AnswerSerializer(random_question.answers.all(), many=True).data,
                         "quiz_id": session.quiz.id,
                         "quiz_title": session.quiz.title,
                     }
@@ -187,10 +191,16 @@ class SearchQuizzesView(APIView):
 
         return Response(
             {
-                "user_quizzes": QuizSearchResultSerializer(user_quizzes, many=True).data,
-                "shared_quizzes": QuizSearchResultSerializer([q.quiz for q in shared_quizzes], many=True).data,
-                "group_quizzes": QuizSearchResultSerializer([q.quiz for q in group_quizzes], many=True).data,
-                "public_quizzes": QuizSearchResultSerializer(public_quizzes, many=True).data,
+                "user_quizzes": QuizSearchResultSerializer(user_quizzes, many=True, context={"request": request}).data,
+                "shared_quizzes": QuizSearchResultSerializer(
+                    [q.quiz for q in shared_quizzes], many=True, context={"request": request}
+                ).data,
+                "group_quizzes": QuizSearchResultSerializer(
+                    [q.quiz for q in group_quizzes], many=True, context={"request": request}
+                ).data,
+                "public_quizzes": QuizSearchResultSerializer(
+                    public_quizzes, many=True, context={"request": request}
+                ).data,
             }
         )
 
@@ -345,7 +355,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         if "next_question" in request.data:
             next_question_id = request.data["next_question"]
-            if not Question.objects.filter(id=next_question_id, quiz=quiz).exists() and next_question_id is not None:
+            if next_question_id is not None and not Question.objects.filter(id=next_question_id, quiz=quiz).exists():
                 return Response({"error": "next_question must be a valid question in this quiz"}, status=400)
             session.current_question_id = next_question_id
             update_fields.append("current_question_id")
