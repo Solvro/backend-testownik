@@ -1,14 +1,42 @@
+from datetime import timedelta
+
+from django.db import transaction
 from rest_framework import serializers
 
-from quizzes.models import Folder, Quiz, SharedQuiz
+from quizzes.models import (
+    Answer,
+    AnswerRecord,
+    Folder,
+    Question,
+    Quiz,
+    QuizSession,
+    SharedQuiz,
+)
 from users.models import StudyGroup, User
 from users.serializers import PublicUserSerializer, StudyGroupSerializer
+
+
+class AnswerSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(required=False)
+
+    class Meta:
+        model = Answer
+        fields = ["id", "order", "text", "image", "is_correct"]
+
+
+class QuestionSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(required=False)
+    answers = AnswerSerializer(many=True)
+
+    class Meta:
+        model = Question
+        fields = ["id", "order", "text", "image", "explanation", "multiple", "answers"]
 
 
 class QuizSerializer(serializers.ModelSerializer):
     maintainer = PublicUserSerializer(read_only=True)
     can_edit = serializers.SerializerMethodField()
-    collaborators = serializers.SerializerMethodField()
+    questions = QuestionSerializer(many=True)
 
     class Meta:
         model = Quiz
@@ -23,7 +51,6 @@ class QuizSerializer(serializers.ModelSerializer):
             "version",
             "questions",
             "can_edit",
-            "collaborators",
             "folder",
         ]
         read_only_fields = ["maintainer", "version", "can_edit", "folder"]
@@ -34,22 +61,124 @@ class QuizSerializer(serializers.ModelSerializer):
             return obj.can_edit(request.user)
         return False
 
-    def get_collaborators(self, obj):
-        shared_quizzes = SharedQuiz.objects.filter(quiz=obj)
-        collaborators = [
-            {
-                "user": shared_quiz.user.full_name if shared_quiz.user else None,
-                "allow_edit": shared_quiz.allow_edit,
-            }
-            for shared_quiz in shared_quizzes
-        ]
-        return collaborators
-
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        if instance.is_anonymous and self.context.get("request").user != instance.maintainer:
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else self.context.get("user")
+        if instance.is_anonymous and user and user != instance.maintainer:
             data["maintainer"] = None
         return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        """Create quiz with nested questions and answers in single transaction."""
+        questions_data = validated_data.pop("questions", [])
+        quiz = Quiz.objects.create(**validated_data)
+        self._create_questions(quiz, questions_data)
+        return quiz
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        """Update quiz fields and nested questions/answers in single transaction."""
+        questions_data = validated_data.pop("questions", None)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        if questions_data is not None:
+            self._sync_questions(instance, questions_data)
+
+        return instance
+
+    def _create_questions(self, quiz, questions_data):
+        for q_data in questions_data:
+            answers_data = q_data.pop("answers", [])
+            q_data.pop("id", None)
+            question = Question.objects.create(quiz=quiz, **q_data)
+            self._bulk_create_answers(question, answers_data)
+
+    def _bulk_create_answers(self, question, answers_data):
+        for a in answers_data:
+            a.pop("id", None)
+        answers = [Answer(question=question, **a) for a in answers_data]
+        Answer.objects.bulk_create(answers)
+
+    def _sync_questions(self, quiz, questions_data):
+        """
+        Synchronize questions with incoming data.
+
+        - Existing questions (by ID) are updated
+        - Missing questions are deleted
+        - New questions (no ID or unknown ID) are created
+        """
+        existing_ids = set(quiz.questions.values_list("id", flat=True))
+        incoming_ids = set()
+
+        questions_to_update = []
+        questions_to_create = []
+
+        for q_data in questions_data:
+            answers_data = q_data.pop("answers", [])
+            question_id = q_data.pop("id", None)
+
+            if question_id and question_id in existing_ids:
+                question = quiz.questions.get(id=question_id)
+                for attr, value in q_data.items():
+                    setattr(question, attr, value)
+                questions_to_update.append(question)
+                incoming_ids.add(question_id)
+                self._sync_answers(question, answers_data)
+            else:
+                questions_to_create.append((q_data, answers_data))
+
+        removed_ids = existing_ids - incoming_ids
+        if removed_ids:
+            Question.objects.filter(id__in=removed_ids).delete()
+
+        if questions_to_update:
+            Question.objects.bulk_update(questions_to_update, ["order", "text", "image", "explanation", "multiple"])
+
+        for q_data, answers_data in questions_to_create:
+            question = Question.objects.create(quiz=quiz, **q_data)
+            self._bulk_create_answers(question, answers_data)
+
+    def _sync_answers(self, question, answers_data):
+        """
+        Synchronize answers with incoming data.
+
+        - Existing answers (by ID) are updated
+        - Missing answers are deleted
+        - New answers (no ID or unknown ID) are created
+        """
+        existing_ids = set(question.answers.values_list("id", flat=True))
+        incoming_ids = set()
+
+        answers_to_update = []
+        answers_to_create = []
+
+        for a_data in answers_data:
+            answer_id = a_data.pop("id", None)
+
+            if answer_id and answer_id in existing_ids:
+                answer = question.answers.get(id=answer_id)
+                for attr, value in a_data.items():
+                    setattr(answer, attr, value)
+                answers_to_update.append(answer)
+                incoming_ids.add(answer_id)
+            else:
+                answers_to_create.append(a_data)
+
+        removed_ids = existing_ids - incoming_ids
+        if removed_ids:
+            Answer.objects.filter(id__in=removed_ids).delete()
+
+        if answers_to_update:
+            Answer.objects.bulk_update(answers_to_update, ["order", "text", "image", "is_correct"])
+
+        if answers_to_create:
+            answers = [Answer(question=question, **a) for a in answers_to_create]
+            Answer.objects.bulk_create(answers)
 
 
 class QuizMetaDataSerializer(serializers.ModelSerializer):
@@ -66,11 +195,13 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "visibility",
             "is_anonymous",
             "allow_anonymous",
+            "created_at",
+            "updated_at",
             "version",
             "can_edit",
             "folder",
         ]
-        read_only_fields = ["maintainer", "folder"]
+        read_only_fields = ["maintainer", "created_at", "updated_at", "version", "can_edit", "folder"]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -181,13 +312,81 @@ class MoveFolderSerializer(serializers.Serializer):
         return value
 
 
+class QuizSearchResultSerializer(serializers.ModelSerializer):
+    """Serializer for search results."""
+
+    maintainer = serializers.CharField(source="maintainer.full_name", read_only=True)
+
+    class Meta:
+        model = Quiz
+        fields = [
+            "id",
+            "title",
+            "description",
+            "maintainer",
+            "is_anonymous",
+        ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else self.context.get("user")
+        if instance.is_anonymous and user and user != instance.maintainer:
+            data["maintainer"] = None
+        return data
+
+
+class DurationInSecondsField(serializers.Field):
+    """Field for handling DurationField as total seconds."""
+
+    def to_representation(self, value):
+        if isinstance(value, timedelta):
+            return value.total_seconds()
+        return value
+
+    def to_internal_value(self, data):
+        try:
+            return timedelta(seconds=float(data))
+        except (ValueError, TypeError):
+            self.fail("invalid")
+
+
+class AnswerRecordSerializer(serializers.ModelSerializer):
+    """Serializer for AnswerRecord."""
+
+    class Meta:
+        model = AnswerRecord
+        fields = ["id", "question", "selected_answers", "was_correct", "answered_at"]
+        read_only_fields = ["id", "answered_at", "was_correct"]
+
+
+class QuizSessionSerializer(serializers.ModelSerializer):
+    """Serializer for QuizSession (new progress tracking)."""
+
+    study_time = DurationInSecondsField(required=False)
+    answers = AnswerRecordSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = QuizSession
+        fields = [
+            "id",
+            "quiz",
+            "user",
+            "current_question",
+            "study_time",
+            "is_active",
+            "started_at",
+            "ended_at",
+            "answers",
+        ]
+        read_only_fields = ["id", "quiz", "user", "started_at", "ended_at"]
+
+
 class MoveQuizSerializer(serializers.Serializer):
     folder_id = serializers.UUIDField(allow_null=True)
 
     def validate_folder_id(self, value):
         if value:
-            from .models import Folder
-
             user = self.context["request"].user
 
             if not Folder.objects.filter(id=value, owner=user).exists():

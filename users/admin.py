@@ -22,6 +22,7 @@ class UserAdmin(admin.ModelAdmin):
         "is_superuser",
     ]
     list_filter = ["is_staff", "is_superuser", "student_status", "staff_status"]
+    search_fields = ["first_name", "last_name", "email", "student_number"]
 
     fieldsets = (
         (None, {"fields": ("id", "email", "student_number", "usos_id")}),
