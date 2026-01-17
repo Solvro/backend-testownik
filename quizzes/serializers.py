@@ -363,7 +363,7 @@ class QuizSessionSerializer(serializers.ModelSerializer):
             "started_at",
             "ended_at",
         ]
-        read_only_fields = ["id", "quiz", "user", "ended_at"]
+        read_only_fields = ["id", "quiz", "user", "started_at", "ended_at"]
 
 
 class AnswerRecordSerializer(serializers.ModelSerializer):

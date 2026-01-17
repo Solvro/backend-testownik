@@ -274,7 +274,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 
     @action(
         detail=True,
-        methods=["get", "post", "delete"],
+        methods=["get", "delete"],
         url_path="progress",
         permission_classes=[permissions.IsAuthenticated],
     )
@@ -283,13 +283,6 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         if request.method == "GET":
             session, _ = QuizSession.get_or_create_active(quiz, request.user)
-            return Response(QuizSessionSerializer(session).data)
-
-        elif request.method == "POST":
-            session, _ = QuizSession.get_or_create_active(quiz, request.user)
-            serializer = QuizSessionSerializer(session, data=request.data, partial=True)
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
             return Response(QuizSessionSerializer(session).data)
 
         elif request.method == "DELETE":

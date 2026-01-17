@@ -53,29 +53,6 @@ class QuizProgressTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["id"], str(session.id))
 
-    # --- POST Progress (Update Session) ---
-    def test_update_progress_study_time(self):
-        """Test updating study_time on session."""
-        session, _ = QuizSession.get_or_create_active(self.quiz, self.user)
-        url = reverse("quiz-progress", kwargs={"pk": self.quiz.id})
-
-        response = self.client.post(url, {"study_time": 120.5}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        session.refresh_from_db()
-        self.assertEqual(session.study_time, timedelta(seconds=120.5))
-
-    def test_update_progress_current_question(self):
-        """Test updating current_question on session."""
-        session, _ = QuizSession.get_or_create_active(self.quiz, self.user)
-        url = reverse("quiz-progress", kwargs={"pk": self.quiz.id})
-
-        response = self.client.post(url, {"current_question": str(self.q2.id)}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        session.refresh_from_db()
-        self.assertEqual(session.current_question, self.q2)
-
     # --- DELETE Progress (Reset) ---
     def test_reset_progress_creates_new_session(self):
         """Test that DELETE archives old session and creates new one."""
