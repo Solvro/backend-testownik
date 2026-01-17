@@ -81,13 +81,17 @@ class RandomQuestionView(APIView):
         ],
     )
     def get(self, request):
-        sessions = QuizSession.objects.filter(
-            user=request.user, is_active=True, started_at__gt=timezone.now() - timedelta(days=90)
-        ).order_by("?")
+        sessions = (
+            QuizSession.objects.filter(
+                user=request.user, is_active=True, started_at__gte=timezone.now() - timedelta(days=90)
+            )
+            .select_related("quiz")
+            .order_by("?")
+        )
 
         for session in sessions:
             if session.quiz.questions.exists():
-                random_question = session.quiz.questions.order_by("?").first()
+                random_question = session.quiz.questions.prefetch_related("answers").order_by("?").first()
                 return Response(
                     {
                         "id": str(random_question.id),
@@ -121,13 +125,16 @@ class LastUsedQuizzesView(APIView):
         ],
     )
     def get(self, request):
-        max_quizzes_count = min(int(request.query_params.get("limit", 4)), 20)
+        try:
+            max_quizzes_count = min(int(request.query_params.get("limit", 4)), 20)
+        except (ValueError, TypeError):
+            max_quizzes_count = 4
 
         last_used_quizzes = [
             session.quiz
-            for session in QuizSession.objects.filter(user=request.user, is_active=True).order_by("-started_at")[
-                :max_quizzes_count
-            ]
+            for session in QuizSession.objects.filter(user=request.user, is_active=True)
+            .select_related("quiz")
+            .order_by("-started_at")[:max_quizzes_count]
         ]
 
         serializer = QuizMetaDataSerializer(last_used_quizzes, many=True, context={"request": request})
@@ -311,28 +318,40 @@ class QuizViewSet(viewsets.ModelViewSet):
         except Question.DoesNotExist:
             return Response({"error": "Question not found in this quiz"}, status=404)
 
-        correct_answer_ids = set(str(a.id) for a in question.answers.filter(is_correct=True))
         selected_ids = set(str(a) for a in selected_answers)
+
+        valid_answer_ids = set(str(a.id) for a in question.answers.all())
+        if not selected_ids.issubset(valid_answer_ids):
+            return Response({"error": "One or more selected answers do not belong to this question"}, status=400)
+
+        correct_answer_ids = set(str(a.id) for a in question.answers.filter(is_correct=True))
         was_correct = correct_answer_ids == selected_ids
 
         record = AnswerRecord.objects.create(
             session=session,
             question=question,
-            selected_answers=selected_answers,
+            selected_answers=list(selected_ids),
             was_correct=was_correct,
         )
 
-        session_updated = False
+        update_fields = []
         if "study_time" in request.data:
-            session.study_time = timedelta(seconds=request.data["study_time"])
-            session_updated = True
+            try:
+                study_time_seconds = float(request.data["study_time"])
+            except (TypeError, ValueError):
+                return Response({"error": "study_time must be a numeric value"}, status=400)
+            session.study_time = timedelta(seconds=study_time_seconds)
+            update_fields.append("study_time")
 
         if "next_question" in request.data:
-            session.current_question_id = request.data["next_question"]
-            session_updated = True
+            next_question_id = request.data["next_question"]
+            if not Question.objects.filter(id=next_question_id, quiz=quiz).exists() and next_question_id is not None:
+                return Response({"error": "next_question must be a valid question in this quiz"}, status=400)
+            session.current_question_id = next_question_id
+            update_fields.append("current_question_id")
 
-        if session_updated:
-            session.save()
+        if update_fields:
+            session.save(update_fields=update_fields)
 
         return Response(AnswerRecordSerializer(record).data, status=201)
 

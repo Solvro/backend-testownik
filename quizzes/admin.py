@@ -32,7 +32,7 @@ class QuestionInline(admin.StackedInline):
 
 class QuestionAdmin(admin.ModelAdmin):
     list_display = ["quiz", "order", "text", "multiple"]
-    list_filter = ["quiz", "multiple"]
+    list_filter = ["multiple"]
     search_fields = ["text", "quiz__title"]
     inlines = [AnswerInline]
     autocomplete_fields = ["quiz"]
@@ -50,6 +50,7 @@ class QuestionAdmin(admin.ModelAdmin):
                 session = QuizSession.objects.get(id=session_id)
                 queryset = queryset.filter(quiz=session.quiz)
             except (QuizSession.DoesNotExist, ValueError):
+                # Session not found or invalid ID - fall back to unfiltered queryset
                 pass
 
         return queryset, use_distinct

@@ -40,8 +40,16 @@ def migrate_progress(apps, schema_editor):
         reoccurrences_data = progress.reoccurrences or []
         
         for item in reoccurrences_data:
+            # Skip items that aren't dictionaries or have missing/invalid data
+            if not isinstance(item, dict):
+                continue
             order = item.get("id")
-            count = item.get("reoccurrences", 0)
+            if order is None:
+                continue
+            try:
+                count = int(item.get("reoccurrences", 0))
+            except (TypeError, ValueError):
+                continue
             
             question = Question.objects.filter(quiz=progress.quiz, order=order).first()
             if not question:

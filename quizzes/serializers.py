@@ -36,7 +36,6 @@ class QuestionSerializer(serializers.ModelSerializer):
 class QuizSerializer(serializers.ModelSerializer):
     maintainer = PublicUserSerializer(read_only=True)
     can_edit = serializers.SerializerMethodField()
-    collaborators = serializers.SerializerMethodField()
     questions = QuestionSerializer(many=True)
 
     class Meta:
@@ -52,7 +51,6 @@ class QuizSerializer(serializers.ModelSerializer):
             "version",
             "questions",
             "can_edit",
-            "collaborators",
             "folder",
         ]
         read_only_fields = ["maintainer", "version", "can_edit", "folder"]
@@ -63,13 +61,13 @@ class QuizSerializer(serializers.ModelSerializer):
             return obj.can_edit(request.user)
         return False
 
-    def get_collaborators(self, obj):
-        """Return list of collaborator emails with edit access."""
-        return list(
-            SharedQuiz.objects.filter(quiz=obj, allow_edit=True, user__isnull=False).values_list(
-                "user__email", flat=True
-            )
-        )
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else self.context.get("user")
+        if instance.is_anonymous and user and user != instance.maintainer:
+            data["maintainer"] = None
+        return data
 
     @transaction.atomic
     def create(self, validated_data):
@@ -97,13 +95,13 @@ class QuizSerializer(serializers.ModelSerializer):
         for q_data in questions_data:
             answers_data = q_data.pop("answers", [])
             q_data.pop("id", None)
-            question = Question.objects.create(quiz=quiz, **q_data, id=None)
+            question = Question.objects.create(quiz=quiz, **q_data)
             self._bulk_create_answers(question, answers_data)
 
     def _bulk_create_answers(self, question, answers_data):
         for a in answers_data:
             a.pop("id", None)
-        answers = [Answer(question=question, **a, id=None) for a in answers_data]
+        answers = [Answer(question=question, **a) for a in answers_data]
         Answer.objects.bulk_create(answers)
 
     def _sync_questions(self, quiz, questions_data):
@@ -317,7 +315,7 @@ class MoveFolderSerializer(serializers.Serializer):
 class QuizSearchResultSerializer(serializers.ModelSerializer):
     """Serializer for search results."""
 
-    maintainer = PublicUserSerializer(read_only=True)
+    maintainer = serializers.CharField(source="maintainer.full_name", read_only=True)
 
     class Meta:
         model = Quiz
@@ -326,7 +324,16 @@ class QuizSearchResultSerializer(serializers.ModelSerializer):
             "title",
             "description",
             "maintainer",
+            "is_anonymous",
         ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else self.context.get("user")
+        if instance.is_anonymous and user and user != instance.maintainer:
+            data["maintainer"] = None
+        return data
 
 
 class DurationInSecondsField(serializers.Field):
@@ -366,8 +373,6 @@ class QuizSessionSerializer(serializers.ModelSerializer):
             "quiz",
             "user",
             "current_question",
-            "correct_count",
-            "wrong_count",
             "study_time",
             "is_active",
             "started_at",
