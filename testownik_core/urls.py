@@ -1,6 +1,7 @@
+from django.conf import settings
 from django.contrib import admin
-from django.shortcuts import redirect
 from django.urls import include, path
+from django.views.generic import TemplateView
 from drf_spectacular.utils import extend_schema
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -12,6 +13,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+from testownik_core.views import ApiIndexView
 from users.views import admin_login
 
 
@@ -22,16 +24,13 @@ def status(request):
     return Response({"status": "ok"})
 
 
-@extend_schema(exclude=True)
-@api_view(["GET"])
-@permission_classes([AllowAny])
-def root_redirect(request):
-    return redirect("/swagger/")
-
-
 urlpatterns = [
-    # Root URL redirects to Swagger UI
-    path("", root_redirect, name="index"),
+    path("", ApiIndexView.as_view(), name="index"),
+    path(
+        "scalar/",
+        TemplateView.as_view(template_name="scalar.html"),
+        name="scalar-ui",
+    ),
     # Status
     path("status/", status, name="status"),
     # Admin
@@ -65,5 +64,5 @@ urlpatterns = [
 ]
 
 # Admin site settings
-admin.site.site_url = "https://testownik.solvro.pl/"
+admin.site.site_url = settings.FRONTEND_URL
 admin.site.site_header = "Testownik Solvro"

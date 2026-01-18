@@ -11,17 +11,12 @@ from django.contrib.auth import aget_user
 from django.contrib.auth import alogin as async_auth_login
 from django.contrib.auth import login as auth_login
 from django.db.models import Q
-from django.http import (
-    HttpResponseBadRequest,
-    HttpResponseForbidden,
-)
+from django.http import HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import redirect, render
+from django.utils.decorators import method_decorator
+from django_ratelimit.decorators import ratelimit
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import (
-    OpenApiExample,
-    OpenApiResponse,
-    extend_schema,
-)
+from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework import mixins, permissions, viewsets
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -33,7 +28,12 @@ from usos_api import USOSAPIException, USOSClient
 from quizzes.models import QuizProgress, SharedQuiz
 from testownik_core.settings import oauth
 from users.models import EmailLoginToken, StudyGroup, Term, User, UserSettings
-from users.serializers import PublicUserSerializer, StudyGroupSerializer, UserSerializer
+from users.serializers import (
+    PublicUserSerializer,
+    StudyGroupSerializer,
+    UserSerializer,
+    UserSettingsSerializer,
+)
 from users.utils import send_login_email_to_user
 
 dotenv.load_dotenv()
@@ -86,12 +86,23 @@ async def login_usos(request):
     max_retries = 3  # max tries
     retry_delay = 2  # time before next try (seconds)
 
+    usos_key = os.getenv("USOS_CONSUMER_KEY")
+    usos_secret = os.getenv("USOS_CONSUMER_SECRET")
+
+    if not usos_key or not usos_secret:
+        logger.error(
+            "USOS credentials not configured. USOS_CONSUMER_KEY=%s, USOS_CONSUMER_SECRET=%s",
+            "<set>" if usos_key else "<missing>",
+            "<set>" if usos_secret else "<missing>",
+        )
+        return redirect(add_query_params(redirect_url, {"error": "usos_unavailable"}))
+
     for attempt in range(max_retries):
         try:
             async with USOSClient(
                 "https://apps.usos.pwr.edu.pl/",
-                os.getenv("USOS_CONSUMER_KEY"),
-                os.getenv("USOS_CONSUMER_SECRET"),
+                usos_key,
+                usos_secret,
                 trust_env=True,
             ) as client:
                 client.set_scopes(["offline_access", "studies", "email", "photo", "grades"])
@@ -106,10 +117,24 @@ async def login_usos(request):
             if isinstance(e, CancelledError):
                 raise
 
+            logger.error(
+                "USOS login attempt %d/%d failed. Error: %s [%s]. Callback: %s, JWT: %s, Redirect: %s. ",
+                attempt + 1,
+                max_retries,
+                str(e),
+                type(e).__name__,
+                callback_url,
+                jwt,
+                redirect_url,
+                exc_info=True,
+            )
+
             if attempt < max_retries - 1:
                 await sleep(retry_delay)
                 continue
+
             return redirect(add_query_params(redirect_url, {"error": "usos_unavailable"}))
+
     return redirect(add_query_params(redirect_url, {"error": "usos_unavailable"}))
 
 
@@ -121,17 +146,27 @@ def admin_login(request):
 
 
 def authorize(request):
-    token = oauth.create_client("solvro-auth").authorize_access_token(request)
-    resp = oauth.create_client("solvro-auth").get(
-        "https://auth.solvro.pl/realms/solvro/protocol/openid-connect/userinfo",
-        token=token,
-    )
-    resp.raise_for_status()
-    profile = resp.json()
+    try:
+        token = oauth.create_client("solvro-auth").authorize_access_token(request)
+    except Exception as e:
+        logger.error("Failed to obtain Solvro auth access token: %s", str(e), exc_info=True)
+        raise
+
+    try:
+        resp = oauth.create_client("solvro-auth").get(
+            "https://auth.solvro.pl/realms/solvro/protocol/openid-connect/userinfo",
+            token=token,
+        )
+        resp.raise_for_status()
+        profile = resp.json()
+    except Exception as e:
+        logger.error("Failed to retrieve Solvro user profile: %s", str(e), exc_info=True)
+        raise
 
     redirect_url = request.GET.get("redirect", "index")
 
     if not profile.get("email"):
+        logger.error("Solvro user profile missing email. Profile keys: %s", list(profile.keys()))
         if request.GET.get("jwt", "false") == "true":
             return redirect(add_query_params(redirect_url, {"error": "no_email"}))
         messages.error(request, "Brak adresu email w profilu użytkownika.")
@@ -171,8 +206,16 @@ async def authorize_usos(request):
     ) as client:
         verifier = request.GET.get("oauth_verifier")
         request_token = request.GET.get("oauth_token")
+
         request_token_secret = await request.session.apop(f"request_token_{request_token}", None)
         if not request_token_secret:
+            logger.error(
+                "USOS request token secret not found in session. Token present: %s, Has verifier: %s, Retry: %s. "
+                "This usually indicates session expiration or mismatched tokens.",
+                bool(request_token),
+                bool(verifier),
+                request.GET.get("retry"),
+            )
             if request.GET.get("retry") != "1":
                 login_url = request.build_absolute_uri("/api/login/usos/")
                 params = request.GET.copy()
@@ -186,7 +229,15 @@ async def authorize_usos(request):
         try:
             access_token, access_token_secret = await client.authorize(verifier, request_token, request_token_secret)
         except USOSAPIException as e:
-            logger.exception(f"Error during USOS authorization: {e}")
+            logger.error(
+                "USOS API authorization failed. Error: %s, Status: %s, Response: %s, Has verifier: %s, Retry: %s",
+                str(e),
+                getattr(e, "status", "N/A"),
+                getattr(e, "response", "N/A"),
+                bool(verifier),
+                request.GET.get("retry"),
+                exc_info=True,
+            )
             if request.GET.get("retry") != "1":
                 login_url = request.build_absolute_uri("/api/login/usos/")
                 params = request.GET.copy()
@@ -200,6 +251,11 @@ async def authorize_usos(request):
         user, created = await update_user_data_from_usos(client, access_token, access_token_secret)
 
         if not user.is_student_and_not_staff:
+            logger.warning(
+                "User rejected: not an active student. Email: %s, Created: %s",
+                user.email,
+                created,
+            )
             messages.error(
                 request,
                 "Aby korzystać z Testownika, musisz być aktywnym studentem Politechniki Wrocławskiej.",
@@ -229,6 +285,7 @@ async def authorize_usos(request):
 async def update_user_data_from_usos(client=None, access_token=None, access_token_secret=None):
     if not client:
         if not access_token or not access_token_secret:
+            logger.error("update_user_data_from_usos called without client or tokens")
             raise ValueError("Either client or access_token and access_token_secret must be provided")
         async with USOSClient(
             "https://apps.usos.pwr.edu.pl/",
@@ -237,9 +294,17 @@ async def update_user_data_from_usos(client=None, access_token=None, access_toke
             trust_env=True,
         ) as client:
             client.load_access_token(access_token, access_token_secret)
-            user_data = await client.user_service.get_user()
+            try:
+                user_data = await client.user_service.get_user()
+            except Exception as e:
+                logger.error("Failed to get user data from USOS: %s", str(e), exc_info=True)
+                raise
     else:
-        user_data = await client.user_service.get_user()
+        try:
+            user_data = await client.user_service.get_user()
+        except Exception as e:
+            logger.error("Failed to get user data from USOS: %s", str(e), exc_info=True)
+            raise
 
     defaults = {
         "first_name": user_data.first_name,
@@ -301,21 +366,33 @@ async def update_user_data_from_usos(client=None, access_token=None, access_toke
     return user_obj, created
 
 
-class SettingsView(APIView):
+class SettingsViewSet(
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    serializer_class = UserSettingsSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        """
+        Get or create settings for the current user.
+        """
+        user_settings, _ = UserSettings.objects.get_or_create(user=self.request.user)
+        return user_settings
 
     @extend_schema(
         summary="Get user settings",
         description="Retrieve the current authenticated user's settings.",
         responses={
-            200: OpenApiTypes.OBJECT,
+            200: UserSettingsSerializer,
         },
         examples=[
             OpenApiExample(
                 "Sample Settings",
                 value={
                     "sync_progress": True,
-                    "initial_reoccurrences": 3,
+                    "initial_reoccurrences": 1,
                     "wrong_answer_reoccurrences": 1,
                     "notify_quiz_shared": False,
                     "notify_bug_reported": False,
@@ -324,43 +401,15 @@ class SettingsView(APIView):
             )
         ],
     )
-    def get(self, request):
-        try:
-            user_settings = request.user.settings
-        except UserSettings.DoesNotExist:
-            user_settings = UserSettings(user=request.user)
-            user_settings.save()
-
-        return Response(
-            {
-                "sync_progress": user_settings.sync_progress,
-                "initial_reoccurrences": user_settings.initial_reoccurrences,
-                "wrong_answer_reoccurrences": user_settings.wrong_answer_reoccurrences,
-                "notify_quiz_shared": user_settings.notify_quiz_shared,
-                "notify_bug_reported": user_settings.notify_bug_reported,
-                "notify_marketing": user_settings.notify_marketing,
-            }
-        )
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
 
     @extend_schema(
-        summary="Update user settings",
-        description="Update the current authenticated user's settings.",
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {
-                    "sync_progress": {"type": "boolean"},
-                    "initial_reoccurrences": {"type": "integer", "minimum": 1},
-                    "wrong_answer_reoccurrences": {"type": "integer", "minimum": 0},
-                    "notify_quiz_shared": {"type": "boolean"},
-                    "notify_bug_reported": {"type": "boolean"},
-                    "notify_marketing": {"type": "boolean"},
-                },
-                "required": [],
-            }
-        },
+        summary="Update user settings (full update)",
+        description="Update all fields of the current authenticated user's settings.",
+        request=UserSettingsSerializer,
         responses={
-            200: OpenApiTypes.OBJECT,
+            200: UserSettingsSerializer,
             400: OpenApiResponse(description="Validation error"),
         },
         examples=[
@@ -368,8 +417,8 @@ class SettingsView(APIView):
                 "Successful Update",
                 value={
                     "sync_progress": True,
-                    "initial_reoccurrences": 3,
-                    "wrong_answer_reoccurrences": 2,
+                    "initial_reoccurrences": 2,
+                    "wrong_answer_reoccurrences": 1,
                     "notify_quiz_shared": False,
                     "notify_bug_reported": True,
                     "notify_marketing": True,
@@ -377,80 +426,29 @@ class SettingsView(APIView):
             )
         ],
     )
-    def put(self, request):
-        data = request.data
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
 
-        try:
-            user_settings = request.user.settings
-        except UserSettings.DoesNotExist:
-            user_settings = UserSettings(user=request.user)
-
-        sync_progress = data.get("sync_progress")
-        initial_reoccurrences = data.get("initial_reoccurrences")
-        wrong_answer_reoccurrences = data.get("wrong_answer_reoccurrences")
-        notify_quiz_shared = data.get("notify_quiz_shared")
-        notify_bug_reported = data.get("notify_bug_reported")
-        notify_marketing = data.get("notify_marketing")
-
-        if sync_progress is not None:
-            user_settings.sync_progress = sync_progress
-
-        if initial_reoccurrences is not None:
-            if initial_reoccurrences >= 1:
-                user_settings.initial_reoccurrences = initial_reoccurrences
-            else:
-                return Response(
-                    "Initial repetitions must be ≥ 1",
-                    status=HttpResponseBadRequest.status_code,
-                )
-
-        if wrong_answer_reoccurrences is not None:
-            if wrong_answer_reoccurrences >= 0:
-                user_settings.wrong_answer_reoccurrences = wrong_answer_reoccurrences
-            else:
-                return Response(
-                    "Wrong answer repetitions must be ≥ 0",
-                    status=HttpResponseBadRequest.status_code,
-                )
-
-        if notify_quiz_shared is not None:
-            if isinstance(notify_quiz_shared, bool):
-                user_settings.notify_quiz_shared = notify_quiz_shared
-            else:
-                return Response(
-                    "notify_quiz_shared must be a boolean",
-                    status=HttpResponseBadRequest.status_code,
-                )
-
-        if notify_bug_reported is not None:
-            if isinstance(notify_bug_reported, bool):
-                user_settings.notify_bug_reported = notify_bug_reported
-            else:
-                return Response(
-                    "notify_bug_reported must be a boolean",
-                    status=HttpResponseBadRequest.status_code,
-                )
-
-        if notify_marketing is not None:
-            if isinstance(notify_marketing, bool):
-                user_settings.notify_marketing = notify_marketing
-            else:
-                return Response(
-                    "notify_marketing must be a boolean",
-                    status=HttpResponseBadRequest.status_code,
-                )
-
-        user_settings.save()
-        return Response(
-            {
-                "sync_progress": user_settings.sync_progress,
-                "initial_reoccurrences": user_settings.initial_reoccurrences,
-                "wrong_answer_reoccurrences": user_settings.wrong_answer_reoccurrences,
-                "notify_quiz_shared": user_settings.notify_quiz_shared,
-                "notify_bug_reported": user_settings.notify_bug_reported,
-                "notify_marketing": user_settings.notify_marketing,
-            }
-        )
+    @extend_schema(
+        summary="Update user settings (partial update)",
+        description="Update specific fields of the current authenticated user's settings.",
+        request=UserSettingsSerializer,
+        responses={
+            200: UserSettingsSerializer,
+            400: OpenApiResponse(description="Validation error"),
+        },
+        examples=[
+            OpenApiExample(
+                "Partial Update",
+                value={
+                    "sync_progress": False,
+                },
+            )
+        ],
+    )
+    def partial_update(self, request, *args, **kwargs):
+        """PATCH /api/settings/"""
+        return super().partial_update(request, *args, **kwargs)
 
 
 async def refresh_user_data(request):
@@ -586,6 +584,7 @@ class StudyGroupViewSet(viewsets.ModelViewSet):
 class GenerateOtpView(APIView):
     permission_classes = [AllowAny]
 
+    @method_decorator(ratelimit(key="ip", rate="3/m", method="POST", block=True))
     @extend_schema(
         summary="Request login OTP",
         description="Send a one-time password (OTP) to a user's email to initiate login.",
@@ -629,7 +628,8 @@ class GenerateOtpView(APIView):
         email = request.data.get("email")
         user = User.objects.filter(email=email).first()
         if not user:
-            return Response({"error": "User not found"}, status=404)
+            # To prevent user enumeration, we return the same message
+            return Response({"message": "Login email sent."})
 
         send_login_email_to_user(user)
         return Response({"message": "Login email sent."})
@@ -709,8 +709,8 @@ class LoginOtpView(APIView):
 
         return Response(
             {
-                "access_token": str(refresh.access_token),
-                "refresh_token": str(refresh),
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
             }
         )
 
@@ -776,8 +776,8 @@ class LoginLinkView(APIView):
 
         return Response(
             {
-                "access_token": str(refresh.access_token),
-                "refresh_token": str(refresh),
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
             }
         )
 

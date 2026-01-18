@@ -38,6 +38,16 @@ class UserSettingsSerializer(serializers.ModelSerializer):
             "notify_marketing",
         ]
 
+    def validate_initial_reoccurrences(self, value):
+        if value < 1:
+            raise serializers.ValidationError("Initial repetitions must be ≥ 1")
+        return value
+
+    def validate_wrong_answer_reoccurrences(self, value):
+        if value < 0:
+            raise serializers.ValidationError("Wrong answer repetitions must be ≥ 0")
+        return value
+
 
 class TermSerializer(serializers.ModelSerializer):
     class Meta:

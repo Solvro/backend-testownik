@@ -2,9 +2,9 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from quizzes.views import (
+    FolderViewSet,
     LastUsedQuizzesView,
     QuizMetadataView,
-    QuizProgressView,
     QuizViewSet,
     RandomQuestionView,
     ReportQuestionIssueView,
@@ -15,6 +15,7 @@ from quizzes.views import (
 router = DefaultRouter()
 router.register("quizzes", QuizViewSet)
 router.register("shared-quizzes", SharedQuizViewSet)
+router.register("folders", FolderViewSet)
 
 urlpatterns = [
     path("", include(router.urls)),
@@ -24,11 +25,6 @@ urlpatterns = [
         "quiz/<uuid:quiz_id>/metadata/",
         QuizMetadataView.as_view(),
         name="quiz-metadata",
-    ),
-    path(
-        "quiz/<uuid:quiz_id>/progress/",
-        QuizProgressView.as_view(),
-        name="quiz-progress",
     ),
     path(
         "report-question-issue/",
