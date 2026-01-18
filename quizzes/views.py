@@ -24,7 +24,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from quizzes.models import AnswerRecord, Folder, Question, Quiz, QuizProgress, QuizSession, SharedQuiz
+from quizzes.models import Answer, AnswerRecord, Folder, Question, Quiz, QuizProgress, QuizSession, SharedQuiz
 from quizzes.permissions import (
     IsFolderOwner,
     IsQuizMaintainer,
@@ -655,19 +655,37 @@ class CopySharedQuizView(APIView):
 
         original_quiz = shared_quiz_obj.quiz
 
-        return Response(
-            QuizSerializer(
-                Quiz.objects.create(
-                    title=original_quiz.title + " - kopia",
-                    description=original_quiz.description,
-                    maintainer=request.user,
-                    visibility=original_quiz.visibility,
-                    questions=original_quiz.questions,
-                    is_anonymous=original_quiz.is_anonymous,
-                    allow_anonymous=original_quiz.allow_anonymous,
-                )
-            ).data
+        # Tworzymy nowy quiz
+        new_quiz = Quiz.objects.create(
+            title=original_quiz.title + " - kopia",
+            description=original_quiz.description,
+            maintainer=request.user,
+            visibility=original_quiz.visibility,
+            is_anonymous=original_quiz.is_anonymous,
+            allow_anonymous=original_quiz.allow_anonymous,
+            folder=None,
         )
+
+        # Kopiujemy pytania i odpowiedzi
+        for question in original_quiz.questions.all():
+            new_question = Question.objects.create(
+                quiz=new_quiz,
+                order=question.order,
+                text=question.text,
+                image=question.image,
+                explanation=question.explanation,
+                multiple=question.multiple,
+            )
+            for answer in question.answers.all():
+                Answer.objects.create(
+                    question=new_question,
+                    order=answer.order,
+                    text=answer.text,
+                    image=answer.image,
+                    is_correct=answer.is_correct,
+                )
+
+        return Response(QuizSerializer(new_quiz).data, status=200)
 
 
 class FolderViewSet(viewsets.ModelViewSet):
