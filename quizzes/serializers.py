@@ -89,7 +89,7 @@ class QuizSerializer(serializers.ModelSerializer):
         if questions_data is not None:
             self._sync_questions(instance, questions_data)
 
-        return instance
+        return Quiz.objects.prefetch_related("questions__answers").get(pk=instance.pk)
 
     def _create_questions(self, quiz, questions_data):
         """Bulk create questions and their answers."""
@@ -125,6 +125,10 @@ class QuizSerializer(serializers.ModelSerializer):
         answers = [Answer(question=question, **a) for a in answers_data]
         Answer.objects.bulk_create(answers)
 
+    def _has_changes(self, obj, data, fields):
+        """Check if any field values differ between object and data."""
+        return any(field in data and getattr(obj, field) != data[field] for field in fields)
+
     def _sync_questions(self, quiz, questions_data):
         """
         Synchronize questions with incoming data.
@@ -141,17 +145,21 @@ class QuizSerializer(serializers.ModelSerializer):
         questions_to_create = []
         answers_to_sync = []
 
+        question_fields = ["order", "text", "image", "explanation", "multiple"]
+
         for q_data in questions_data:
             answers_data = q_data.pop("answers", [])
             question_id = q_data.pop("id", None)
 
             if question_id and question_id in existing_ids:
                 question = existing_questions[question_id]
-                for attr, value in q_data.items():
-                    setattr(question, attr, value)
-                questions_to_update.append(question)
                 incoming_ids.add(question_id)
                 answers_to_sync.append((question, answers_data))
+
+                if self._has_changes(question, q_data, question_fields):
+                    for attr, value in q_data.items():
+                        setattr(question, attr, value)
+                    questions_to_update.append(question)
             else:
                 questions_to_create.append((q_data, answers_data))
 
@@ -160,7 +168,7 @@ class QuizSerializer(serializers.ModelSerializer):
             Question.objects.filter(id__in=removed_ids).delete()
 
         if questions_to_update:
-            Question.objects.bulk_update(questions_to_update, ["order", "text", "image", "explanation", "multiple"])
+            Question.objects.bulk_update(questions_to_update, question_fields)
 
         self._batch_sync_answers(answers_to_sync)
 
@@ -183,6 +191,8 @@ class QuizSerializer(serializers.ModelSerializer):
         all_answers_to_create = []
         all_answer_ids_to_delete = set()
 
+        answer_fields = ["order", "text", "image", "is_correct"]
+
         for question, answers_data in answers_to_sync:
             existing_answers = {a.id: a for a in question.answers.all()}
             existing_ids = set(existing_answers.keys())
@@ -193,10 +203,12 @@ class QuizSerializer(serializers.ModelSerializer):
 
                 if answer_id and answer_id in existing_ids:
                     answer = existing_answers[answer_id]
-                    for attr, value in a_data.items():
-                        setattr(answer, attr, value)
-                    all_answers_to_update.append(answer)
                     incoming_ids.add(answer_id)
+
+                    if self._has_changes(answer, a_data, answer_fields):
+                        for attr, value in a_data.items():
+                            setattr(answer, attr, value)
+                        all_answers_to_update.append(answer)
                 else:
                     all_answers_to_create.append(Answer(question=question, **a_data))
 
@@ -206,7 +218,7 @@ class QuizSerializer(serializers.ModelSerializer):
             Answer.objects.filter(id__in=all_answer_ids_to_delete).delete()
 
         if all_answers_to_update:
-            Answer.objects.bulk_update(all_answers_to_update, ["order", "text", "image", "is_correct"])
+            Answer.objects.bulk_update(all_answers_to_update, answer_fields)
 
         if all_answers_to_create:
             Answer.objects.bulk_create(all_answers_to_create)
