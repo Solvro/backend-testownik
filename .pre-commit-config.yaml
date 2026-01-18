@@ -3,5 +3,5 @@ repos:
     rev: v0.14.8
     hooks:
       - id: ruff
-        args: [--fix, --unsafe-fixes]
+        args: [ --fix ]
       - id: ruff-format
