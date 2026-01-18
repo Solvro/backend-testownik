@@ -1,5 +1,6 @@
 import random
 import urllib.parse
+import uuid
 from datetime import timedelta
 
 from django.conf import settings
@@ -14,14 +15,22 @@ from drf_spectacular.utils import (
     OpenApiResponse,
     extend_schema,
 )
-from rest_framework import permissions, viewsets
+from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from quizzes.models import AnswerRecord, Folder, Question, Quiz, QuizSession, SharedQuiz
+from quizzes.models import (
+    Answer,
+    AnswerRecord,
+    Folder,
+    Question,
+    Quiz,
+    QuizSession,
+    SharedQuiz,
+)
 from quizzes.permissions import (
     IsFolderOwner,
     IsQuizMaintainer,
@@ -44,6 +53,7 @@ from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
 )
+from quizzes.throttling import CopyQuizThrottle
 from testownik_core.emails import send_email
 
 
@@ -235,14 +245,14 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         qs = Q(maintainer=user)
 
-        if self.action in ("retrieve", "update", "partial_update", "progress", "record_answer"):
+        if self.action in ("retrieve", "update", "partial_update", "progress", "record_answer", "copy"):
             qs |= Q(visibility__gte=2)  # Public/unlisted
             qs |= Q(visibility__gte=1, sharedquiz__user=user)
             qs |= Q(visibility__gte=1, sharedquiz__study_group__in=user.study_groups.all())
 
         queryset = Quiz.objects.filter(qs).distinct()
 
-        if self.action == "retrieve":
+        if self.action in ("retrieve", "copy"):
             queryset = queryset.prefetch_related(
                 "questions__answers",
                 "sharedquiz_set__user",
@@ -378,6 +388,81 @@ class QuizViewSet(viewsets.ModelViewSet):
             session.save(update_fields=update_fields)
 
         return Response(AnswerRecordSerializer(record).data, status=201)
+
+    @extend_schema(
+        summary="Copy quiz to user's library",
+        description=(
+            "Creates a copy of the quiz. Note that `visibility`, `allow_anonymous`, "
+            "and `is_anonymous` fields are NOT copied from the original quiz and "
+            "will be reset to their default values."
+        ),
+        responses={
+            201: OpenApiResponse(description="Created copy of quiz"),
+            404: OpenApiResponse(description="Not Found"),
+            429: OpenApiResponse(description="Too Many Requests"),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        permission_classes=[permissions.IsAuthenticated],
+        throttle_classes=[CopyQuizThrottle],
+    )
+    @transaction.atomic
+    def copy(self, request, pk=None):
+        original_quiz = self.get_object()
+
+        suffix = " - kopia"
+        max_length = 255
+        new_title = original_quiz.title
+        if len(new_title) + len(suffix) > max_length:
+            new_title = new_title[: max_length - len(suffix)]
+        new_title += suffix
+
+        new_quiz = Quiz.objects.create(
+            title=new_title,
+            description=original_quiz.description,
+            maintainer=request.user,
+        )
+
+        original_questions = list(original_quiz.questions.all())
+        new_questions = []
+        for q in original_questions:
+            new_questions.append(
+                Question(
+                    id=uuid.uuid4(),
+                    quiz=new_quiz,
+                    order=q.order,
+                    text=q.text,
+                    image=q.image,
+                    explanation=q.explanation,
+                    multiple=q.multiple,
+                )
+            )
+
+        Question.objects.bulk_create(new_questions)
+
+        new_answers = []
+        for original_q, new_q in zip(original_questions, new_questions):
+            for answer in original_q.answers.all():
+                new_answers.append(
+                    Answer(
+                        question_id=new_q.id,
+                        order=answer.order,
+                        text=answer.text,
+                        image=answer.image,
+                        is_correct=answer.is_correct,
+                    )
+                )
+
+        Answer.objects.bulk_create(new_answers)
+
+        new_quiz = Quiz.objects.prefetch_related("questions__answers").get(pk=new_quiz.pk)
+
+        return Response(
+            QuizSerializer(new_quiz, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class QuizMetadataView(APIView):
