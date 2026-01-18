@@ -1,13 +1,12 @@
-import json
 import random
 import urllib.parse
+import uuid
 from datetime import timedelta
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
-from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.html import escape
 from drf_spectacular.utils import (
@@ -20,11 +19,18 @@ from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from quizzes.models import Answer, AnswerRecord, Folder, Question, Quiz, QuizProgress, QuizSession, SharedQuiz
+from quizzes.models import (
+    Answer,
+    AnswerRecord,
+    Folder,
+    Question,
+    Quiz,
+    QuizSession,
+    SharedQuiz,
+)
 from quizzes.permissions import (
     IsFolderOwner,
     IsQuizMaintainer,
@@ -47,6 +53,7 @@ from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
 )
+from quizzes.throttling import CopyQuizThrottle
 from testownik_core.emails import send_email
 
 
@@ -238,7 +245,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         qs = Q(maintainer=user)
 
-        if self.action in ("retrieve", "update", "partial_update", "progress", "record_answer"):
+        if self.action in ("retrieve", "update", "partial_update", "progress", "record_answer", "copy"):
             qs |= Q(visibility__gte=2)  # Public/unlisted
             qs |= Q(visibility__gte=1, sharedquiz__user=user)
             qs |= Q(visibility__gte=1, sharedquiz__study_group__in=user.study_groups.all())
@@ -382,6 +389,64 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         return Response(AnswerRecordSerializer(record).data, status=201)
 
+    @extend_schema(
+        summary="Copy quiz to user's library",
+        responses={
+            201: OpenApiResponse(description="Created copy of quiz"),
+            404: OpenApiResponse(description="Not Found"),
+            429: OpenApiResponse(description="Too Many Requests"),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        permission_classes=[permissions.IsAuthenticated],
+        throttle_classes=[CopyQuizThrottle],
+    )
+    @transaction.atomic
+    def copy(self, request, pk=None):
+        original_quiz = self.get_object()
+
+        new_quiz = Quiz.objects.create(
+            title=original_quiz.title + " - kopia",
+            description=original_quiz.description,
+            maintainer=request.user,
+        )
+
+        original_questions = list(original_quiz.questions.prefetch_related("answers").all())
+        new_questions = []
+        for q in original_questions:
+            new_questions.append(
+                Question(
+                    id=uuid.uuid4(),
+                    quiz=new_quiz,
+                    order=q.order,
+                    text=q.text,
+                    image=q.image,
+                    explanation=q.explanation,
+                    multiple=q.multiple,
+                )
+            )
+
+        Question.objects.bulk_create(new_questions)
+
+        new_answers = []
+        for original_q, new_q in zip(original_questions, new_questions):
+            for answer in original_q.answers.all():
+                new_answers.append(
+                    Answer(
+                        question_id=new_q.id,
+                        order=answer.order,
+                        text=answer.text,
+                        image=answer.image,
+                        is_correct=answer.is_correct,
+                    )
+                )
+
+        Answer.objects.bulk_create(new_answers)
+
+        return Response(QuizSerializer(new_quiz).data, status=status.HTTP_201_CREATED)
+
 
 class QuizMetadataView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -503,192 +568,6 @@ class ReportQuestionIssueView(APIView):
             return Response({"error": str(e)}, status=500)
 
         return Response({"status": "ok"}, status=201)
-
-
-class QuizProgressView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    @extend_schema(
-        summary="Get quiz progress",
-        responses={
-            200: {
-                "type": "object",
-                "properties": {
-                    "current_question": {"type": "integer"},
-                    "correct_answers_count": {"type": "integer"},
-                    "wrong_answers_count": {"type": "integer"},
-                    "study_time": {"type": "number"},
-                    "last_activity": {"type": "string", "format": "date-time"},
-                    "reoccurrences": {"type": "array", "items": {"type": "integer"}},
-                },
-            },
-            401: OpenApiResponse(description="Unauthorized"),
-            403: OpenApiResponse(description="Forbidden"),
-            404: OpenApiResponse(description="Not Found"),
-        },
-    )
-    def get(self, request, quiz_id):
-        try:
-            quiz_progress, _ = QuizProgress.objects.get_or_create(quiz_id=quiz_id, user=request.user)
-        except QuizProgress.MultipleObjectsReturned:
-            duplicates = QuizProgress.objects.filter(quiz_id=quiz_id, user=request.user).order_by("-last_activity")[1:]
-            for duplicate in duplicates:
-                duplicate.delete()
-            quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
-        return Response(quiz_progress.to_dict())
-
-    @extend_schema(
-        summary="Update quiz progress",
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {
-                    "current_question": {"type": "integer"},
-                    "correct_answers_count": {"type": "integer"},
-                    "wrong_answers_count": {"type": "integer"},
-                    "study_time": {"type": "number"},
-                    "reoccurrences": {"type": "array", "items": {"type": "integer"}},
-                },
-            }
-        },
-        responses={
-            200: OpenApiResponse(description="Quiz progress updated"),
-            401: OpenApiResponse(description="Unauthorized"),
-            400: OpenApiResponse(description="Invalid data"),
-        },
-    )
-    def post(self, request, quiz_id):
-        data = json.loads(request.body)
-        try:
-            quiz_progress, _ = QuizProgress.objects.get_or_create(quiz_id=quiz_id, user=request.user)
-        except QuizProgress.MultipleObjectsReturned:
-            duplicates = QuizProgress.objects.filter(quiz_id=quiz_id, user=request.user).order_by("-last_activity")[1:]
-            for duplicate in duplicates:
-                duplicate.delete()
-            quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
-
-        for field in [
-            "current_question",
-            "reoccurrences",
-            "correct_answers_count",
-            "wrong_answers_count",
-        ]:
-            if field in data:
-                setattr(quiz_progress, field, data[field])
-
-        if "study_time" in data:
-            quiz_progress.study_time = timedelta(seconds=data["study_time"])
-
-        quiz_progress.save()
-        return Response({"status": "updated"})
-
-    @extend_schema(
-        summary="Delete quiz progress",
-        responses={
-            200: OpenApiResponse(description="Progress deleted"),
-            401: OpenApiResponse(description="Unauthorized"),
-            404: OpenApiResponse(description="Not Found"),
-        },
-    )
-    def delete(self, request, quiz_id):
-        quiz_progress = QuizProgress.objects.get(quiz_id=quiz_id, user=request.user)
-        quiz_progress.delete()
-        return Response({"status": "deleted"})
-
-
-class CopySharedQuizView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    @extend_schema(
-        summary="Copy quiz from 'shared_quiz' object to user's library",
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {
-                    "shared_quiz_id": {"type": "string", "format": "uuid"},
-                },
-            }
-        },
-        responses={
-            201: OpenApiResponse(description="Created copy of shared quiz"),
-            400: OpenApiResponse(description="Missing or invalid data"),
-            403: OpenApiResponse(description="Forbidden"),
-            404: OpenApiResponse(description="Not Found"),
-        },
-    )
-    def post(self, request: Request):
-        # get specified field from request post body
-        shared_quiz_id = request.data.get("shared_quiz_id")
-
-        # check if field is present in post body
-        if not shared_quiz_id:
-            return Response(status=status.HTTP_400_BAD_REQUEST)
-
-        # check if shared quiz with specified id not found
-        shared_quiz_obj = get_object_or_404(SharedQuiz, id=shared_quiz_id)
-
-        # validate user
-        if shared_quiz_obj.user.id != request.user.id:
-            return Response(status=status.HTTP_403_FORBIDDEN)
-
-        # Direct access: quiz shared to the specified user
-        user_has_direct_access = shared_quiz_obj.user.id == getattr(request.user, "id", None)
-
-        # multicast based access: quiz shared to a study group user belongs to
-        group_has_access = False
-        study_group = getattr(shared_quiz_obj, "study_group", None)
-        user_study_groups = getattr(request.user, "study_groups", None)
-
-        if study_group is not None and user_study_groups is not None:
-            try:
-                group_has_access = user_study_groups.filter(id=study_group.id).exists()
-            except AttributeError:
-                try:
-                    group_has_access = study_group in user_study_groups.all()
-                except Exception:
-                    group_has_access = False
-
-        # check if either user has access or has access to study group
-        # at least one of them is required
-        if (not group_has_access) and (not user_has_direct_access):
-            return Response(status=status.HTTP_403_FORBIDDEN)
-
-        original_quiz = shared_quiz_obj.quiz
-
-        # tryb atomowy - to gwarantuje ze wszystko zostanie skopiowane
-        # w przypadku gdyby kod został przerwany w trakcie to nic nie zostanie zapisane do DB
-        with transaction.atomic():
-            # Tworzymy nowy quiz
-            new_quiz = Quiz.objects.create(
-                title=original_quiz.title + " - kopia",
-                description=original_quiz.description,
-                maintainer=request.user,
-                visibility=original_quiz.visibility,
-                is_anonymous=original_quiz.is_anonymous,
-                allow_anonymous=original_quiz.allow_anonymous,
-                folder=None,
-            )
-
-            # Kopiujemy pytania i odpowiedzi
-            for question in original_quiz.questions.all():
-                new_question = Question.objects.create(
-                    quiz=new_quiz,
-                    order=question.order,
-                    text=question.text,
-                    image=question.image,
-                    explanation=question.explanation,
-                    multiple=question.multiple,
-                )
-                for answer in question.answers.all():
-                    Answer.objects.create(
-                        question=new_question,
-                        order=answer.order,
-                        text=answer.text,
-                        image=answer.image,
-                        is_correct=answer.is_correct,
-                    )
-
-        return Response(QuizSerializer(new_quiz).data, status=status.HTTP_201_CREATED)
 
 
 class FolderViewSet(viewsets.ModelViewSet):

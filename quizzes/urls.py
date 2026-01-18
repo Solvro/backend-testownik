@@ -2,7 +2,6 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from quizzes.views import (
-    CopySharedQuizView,
     FolderViewSet,
     LastUsedQuizzesView,
     QuizMetadataView,
@@ -33,5 +32,4 @@ urlpatterns = [
         name="report-question-issue",
     ),
     path("search-quizzes/", SearchQuizzesView.as_view(), name="search-quizzes"),
-    path("shared-quizzes/copy", CopySharedQuizView.as_view(), name="copy-shared-quiz"),
 ]
