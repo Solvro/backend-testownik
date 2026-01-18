@@ -252,7 +252,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         queryset = Quiz.objects.filter(qs).distinct()
 
-        if self.action == "retrieve":
+        if self.action in ("retrieve", "copy"):
             queryset = queryset.prefetch_related(
                 "questions__answers",
                 "sharedquiz_set__user",
@@ -413,7 +413,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             maintainer=request.user,
         )
 
-        original_questions = list(original_quiz.questions.prefetch_related("answers").all())
+        original_questions = list(original_quiz.questions.all())
         new_questions = []
         for q in original_questions:
             new_questions.append(
@@ -444,6 +444,8 @@ class QuizViewSet(viewsets.ModelViewSet):
                 )
 
         Answer.objects.bulk_create(new_answers)
+
+        new_quiz = Quiz.objects.prefetch_related("questions__answers").get(pk=new_quiz.pk)
 
         return Response(QuizSerializer(new_quiz).data, status=status.HTTP_201_CREATED)
 
