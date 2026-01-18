@@ -610,7 +610,7 @@ class CopySharedQuizView(APIView):
             }
         },
         responses={
-            200: OpenApiResponse(description="Copied shared quiz"),
+            201: OpenApiResponse(description="Created copy of shared quiz"),
             400: OpenApiResponse(description="Missing or invalid data"),
             403: OpenApiResponse(description="Forbidden"),
             404: OpenApiResponse(description="Not Found"),
@@ -655,37 +655,40 @@ class CopySharedQuizView(APIView):
 
         original_quiz = shared_quiz_obj.quiz
 
-        # Tworzymy nowy quiz
-        new_quiz = Quiz.objects.create(
-            title=original_quiz.title + " - kopia",
-            description=original_quiz.description,
-            maintainer=request.user,
-            visibility=original_quiz.visibility,
-            is_anonymous=original_quiz.is_anonymous,
-            allow_anonymous=original_quiz.allow_anonymous,
-            folder=None,
-        )
-
-        # Kopiujemy pytania i odpowiedzi
-        for question in original_quiz.questions.all():
-            new_question = Question.objects.create(
-                quiz=new_quiz,
-                order=question.order,
-                text=question.text,
-                image=question.image,
-                explanation=question.explanation,
-                multiple=question.multiple,
+        # tryb atomowy - to gwarantuje ze wszystko zostanie skopiowane
+        # w przypadku gdyby kod został przerwany w trakcie to nic nie zostanie zapisane do DB
+        with transaction.atomic():
+            # Tworzymy nowy quiz
+            new_quiz = Quiz.objects.create(
+                title=original_quiz.title + " - kopia",
+                description=original_quiz.description,
+                maintainer=request.user,
+                visibility=original_quiz.visibility,
+                is_anonymous=original_quiz.is_anonymous,
+                allow_anonymous=original_quiz.allow_anonymous,
+                folder=None,
             )
-            for answer in question.answers.all():
-                Answer.objects.create(
-                    question=new_question,
-                    order=answer.order,
-                    text=answer.text,
-                    image=answer.image,
-                    is_correct=answer.is_correct,
-                )
 
-        return Response(QuizSerializer(new_quiz).data, status=200)
+            # Kopiujemy pytania i odpowiedzi
+            for question in original_quiz.questions.all():
+                new_question = Question.objects.create(
+                    quiz=new_quiz,
+                    order=question.order,
+                    text=question.text,
+                    image=question.image,
+                    explanation=question.explanation,
+                    multiple=question.multiple,
+                )
+                for answer in question.answers.all():
+                    Answer.objects.create(
+                        question=new_question,
+                        order=answer.order,
+                        text=answer.text,
+                        image=answer.image,
+                        is_correct=answer.is_correct,
+                    )
+
+        return Response(QuizSerializer(new_quiz).data, status=status.HTTP_201_CREATED)
 
 
 class FolderViewSet(viewsets.ModelViewSet):
