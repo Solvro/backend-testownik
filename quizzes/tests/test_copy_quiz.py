@@ -94,3 +94,62 @@ class CopyQuizTestCase(APITestCase):
 
         response = self.client.post(url)
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_copy_complex_structure(self):
+        # Create a quiz with multiple questions and answers
+        complex_quiz = Quiz.objects.create(title="Complex Quiz", maintainer=self.owner, visibility=2)
+
+        # Q1: 2 answers
+        q1 = Question.objects.create(quiz=complex_quiz, order=1, text="Q1")
+        Answer.objects.create(question=q1, order=1, text="A1-1", is_correct=True)
+        Answer.objects.create(question=q1, order=2, text="A1-2", is_correct=False)
+
+        # Q2: 3 answers
+        q2 = Question.objects.create(quiz=complex_quiz, order=2, text="Q2")
+        Answer.objects.create(question=q2, order=1, text="A2-1", is_correct=False)
+        Answer.objects.create(question=q2, order=2, text="A2-2", is_correct=True)
+        Answer.objects.create(question=q2, order=3, text="A2-3", is_correct=False)
+
+        url = reverse("quiz-copy", kwargs={"pk": complex_quiz.id})
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        new_quiz = Quiz.objects.exclude(id=complex_quiz.id).exclude(id=self.quiz.id).first()
+        self.assertIsNotNone(new_quiz)
+        self.assertEqual(new_quiz.questions.count(), 2)
+
+        new_q1 = new_quiz.questions.get(order=1)
+        self.assertEqual(new_q1.text, "Q1")
+        self.assertEqual(new_q1.answers.count(), 2)
+        self.assertTrue(new_q1.answers.get(order=1).is_correct)
+
+        new_q2 = new_quiz.questions.get(order=2)
+        self.assertEqual(new_q2.text, "Q2")
+        self.assertEqual(new_q2.answers.count(), 3)
+        self.assertTrue(new_q2.answers.get(order=2).is_correct)
+
+    def test_copy_public_quiz(self):
+        # Public quiz (visibility=3) not owned/shared
+        # Using visibility=3 to ensure it's fully public
+        public_quiz = Quiz.objects.create(title="Public Quiz", maintainer=self.owner, visibility=3)
+
+        url = reverse("quiz-copy", kwargs={"pk": public_quiz.id})
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        new_quiz = Quiz.objects.exclude(id=public_quiz.id).filter(title="Public Quiz - kopia").first()
+        self.assertIsNotNone(new_quiz)
+        self.assertEqual(new_quiz.maintainer, self.user)
+        # Verify visibility is reset to default (2 - Unlisted)
+        self.assertEqual(new_quiz.visibility, 2)
+
+    def test_copy_empty_quiz(self):
+        empty_quiz = Quiz.objects.create(title="Empty Quiz", maintainer=self.owner, visibility=2)
+
+        url = reverse("quiz-copy", kwargs={"pk": empty_quiz.id})
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        new_quiz = Quiz.objects.exclude(id=empty_quiz.id).filter(title="Empty Quiz - kopia").first()
+        self.assertIsNotNone(new_quiz)
+        self.assertEqual(new_quiz.questions.count(), 0)

@@ -391,6 +391,11 @@ class QuizViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         summary="Copy quiz to user's library",
+        description=(
+            "Creates a copy of the quiz. Note that `visibility`, `allow_anonymous`, "
+            "and `is_anonymous` fields are NOT copied from the original quiz and "
+            "will be reset to their default values."
+        ),
         responses={
             201: OpenApiResponse(description="Created copy of quiz"),
             404: OpenApiResponse(description="Not Found"),
@@ -407,8 +412,15 @@ class QuizViewSet(viewsets.ModelViewSet):
     def copy(self, request, pk=None):
         original_quiz = self.get_object()
 
+        suffix = " - kopia"
+        max_length = 255
+        new_title = original_quiz.title
+        if len(new_title) + len(suffix) > max_length:
+            new_title = new_title[: max_length - len(suffix)]
+        new_title += suffix
+
         new_quiz = Quiz.objects.create(
-            title=original_quiz.title + " - kopia",
+            title=new_title,
             description=original_quiz.description,
             maintainer=request.user,
         )
@@ -447,7 +459,10 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         new_quiz = Quiz.objects.prefetch_related("questions__answers").get(pk=new_quiz.pk)
 
-        return Response(QuizSerializer(new_quiz).data, status=status.HTTP_201_CREATED)
+        return Response(
+            QuizSerializer(new_quiz, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class QuizMetadataView(APIView):
