@@ -92,13 +92,34 @@ class QuizSerializer(serializers.ModelSerializer):
         return instance
 
     def _create_questions(self, quiz, questions_data):
+        """Bulk create questions and their answers."""
+        if not questions_data:
+            return
+
+        questions_to_create = []
+        questions_answers_data = []
+
         for q_data in questions_data:
             answers_data = q_data.pop("answers", [])
             q_data.pop("id", None)
-            question = Question.objects.create(quiz=quiz, **q_data)
-            self._bulk_create_answers(question, answers_data)
+            questions_to_create.append(Question(quiz=quiz, **q_data))
+            questions_answers_data.append(answers_data)
+
+        created_questions = Question.objects.bulk_create(questions_to_create)
+
+        all_answers = []
+        for question, answers_data in zip(created_questions, questions_answers_data):
+            for a_data in answers_data:
+                a_data.pop("id", None)
+                all_answers.append(Answer(question=question, **a_data))
+
+        if all_answers:
+            Answer.objects.bulk_create(all_answers)
 
     def _bulk_create_answers(self, question, answers_data):
+        """Bulk create answers for a single question."""
+        if not answers_data:
+            return
         for a in answers_data:
             a.pop("id", None)
         answers = [Answer(question=question, **a) for a in answers_data]
@@ -112,23 +133,25 @@ class QuizSerializer(serializers.ModelSerializer):
         - Missing questions are deleted
         - New questions (no ID or unknown ID) are created
         """
-        existing_ids = set(quiz.questions.values_list("id", flat=True))
+        existing_questions = {q.id: q for q in quiz.questions.prefetch_related("answers").all()}
+        existing_ids = set(existing_questions.keys())
         incoming_ids = set()
 
         questions_to_update = []
         questions_to_create = []
+        answers_to_sync = []
 
         for q_data in questions_data:
             answers_data = q_data.pop("answers", [])
             question_id = q_data.pop("id", None)
 
             if question_id and question_id in existing_ids:
-                question = quiz.questions.get(id=question_id)
+                question = existing_questions[question_id]
                 for attr, value in q_data.items():
                     setattr(question, attr, value)
                 questions_to_update.append(question)
                 incoming_ids.add(question_id)
-                self._sync_answers(question, answers_data)
+                answers_to_sync.append((question, answers_data))
             else:
                 questions_to_create.append((q_data, answers_data))
 
@@ -139,46 +162,54 @@ class QuizSerializer(serializers.ModelSerializer):
         if questions_to_update:
             Question.objects.bulk_update(questions_to_update, ["order", "text", "image", "explanation", "multiple"])
 
-        for q_data, answers_data in questions_to_create:
-            question = Question.objects.create(quiz=quiz, **q_data)
-            self._bulk_create_answers(question, answers_data)
+        self._batch_sync_answers(answers_to_sync)
 
-    def _sync_answers(self, question, answers_data):
+        if questions_to_create:
+            self._create_questions(
+                quiz, [dict(**q_data, answers=answers_data) for q_data, answers_data in questions_to_create]
+            )
+
+    def _batch_sync_answers(self, answers_to_sync):
         """
-        Synchronize answers with incoming data.
+        Batch sync answers for multiple questions in minimal DB queries.
 
-        - Existing answers (by ID) are updated
-        - Missing answers are deleted
-        - New answers (no ID or unknown ID) are created
+        Collects all answer updates, creates, and deletes across all questions
+        and executes them in 3 total queries (1 delete, 1 update, 1 create).
         """
-        existing_ids = set(question.answers.values_list("id", flat=True))
-        incoming_ids = set()
+        if not answers_to_sync:
+            return
 
-        answers_to_update = []
-        answers_to_create = []
+        all_answers_to_update = []
+        all_answers_to_create = []
+        all_answer_ids_to_delete = set()
 
-        for a_data in answers_data:
-            answer_id = a_data.pop("id", None)
+        for question, answers_data in answers_to_sync:
+            existing_answers = {a.id: a for a in question.answers.all()}
+            existing_ids = set(existing_answers.keys())
+            incoming_ids = set()
 
-            if answer_id and answer_id in existing_ids:
-                answer = question.answers.get(id=answer_id)
-                for attr, value in a_data.items():
-                    setattr(answer, attr, value)
-                answers_to_update.append(answer)
-                incoming_ids.add(answer_id)
-            else:
-                answers_to_create.append(a_data)
+            for a_data in answers_data:
+                answer_id = a_data.pop("id", None)
 
-        removed_ids = existing_ids - incoming_ids
-        if removed_ids:
-            Answer.objects.filter(id__in=removed_ids).delete()
+                if answer_id and answer_id in existing_ids:
+                    answer = existing_answers[answer_id]
+                    for attr, value in a_data.items():
+                        setattr(answer, attr, value)
+                    all_answers_to_update.append(answer)
+                    incoming_ids.add(answer_id)
+                else:
+                    all_answers_to_create.append(Answer(question=question, **a_data))
 
-        if answers_to_update:
-            Answer.objects.bulk_update(answers_to_update, ["order", "text", "image", "is_correct"])
+            all_answer_ids_to_delete.update(existing_ids - incoming_ids)
 
-        if answers_to_create:
-            answers = [Answer(question=question, **a) for a in answers_to_create]
-            Answer.objects.bulk_create(answers)
+        if all_answer_ids_to_delete:
+            Answer.objects.filter(id__in=all_answer_ids_to_delete).delete()
+
+        if all_answers_to_update:
+            Answer.objects.bulk_update(all_answers_to_update, ["order", "text", "image", "is_correct"])
+
+        if all_answers_to_create:
+            Answer.objects.bulk_create(all_answers_to_create)
 
 
 class QuizMetaDataSerializer(serializers.ModelSerializer):

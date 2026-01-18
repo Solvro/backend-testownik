@@ -84,30 +84,36 @@ class RandomQuestionView(APIView):
         ],
     )
     def get(self, request):
-        sessions = (
+        recent_quiz_ids = list(
             QuizSession.objects.filter(
-                user=request.user, is_active=True, started_at__gte=timezone.now() - timedelta(days=90)
-            )
-            .select_related("quiz")
-            .prefetch_related("quiz__questions__answers")
-            .order_by("?")
+                user=request.user,
+                is_active=True,
+                started_at__gte=timezone.now() - timedelta(days=90),
+            ).values_list("quiz_id", flat=True)
         )
 
-        for session in sessions:
-            questions = session.quiz.questions.all()
-            if questions:
-                random_question = random.choice(list(questions))
-                return Response(
-                    {
-                        "id": str(random_question.id),
-                        "text": random_question.text,
-                        "answers": AnswerSerializer(random_question.answers.all(), many=True).data,
-                        "quiz_id": session.quiz.id,
-                        "quiz_title": session.quiz.title,
-                    }
-                )
+        if not recent_quiz_ids:
+            return Response({"error": "No quizzes found"}, status=404)
+        total_questions = Question.objects.filter(quiz_id__in=recent_quiz_ids).count()
+        if total_questions == 0:
+            return Response({"error": "No quizzes found"}, status=404)
 
-        return Response({"error": "No quizzes found"}, status=404)
+        random_offset = random.randint(0, total_questions - 1)
+        random_question = (
+            Question.objects.filter(quiz_id__in=recent_quiz_ids)
+            .select_related("quiz")
+            .prefetch_related("answers")[random_offset]
+        )
+
+        return Response(
+            {
+                "id": str(random_question.id),
+                "text": random_question.text,
+                "answers": AnswerSerializer(random_question.answers.all(), many=True).data,
+                "quiz_id": random_question.quiz.id,
+                "quiz_title": random_question.quiz.title,
+            }
+        )
 
 
 class LastUsedQuizzesView(APIView):
@@ -135,12 +141,12 @@ class LastUsedQuizzesView(APIView):
         except (ValueError, TypeError):
             max_quizzes_count = 4
 
-        last_used_quizzes = [
-            session.quiz
-            for session in QuizSession.objects.filter(user=request.user, is_active=True)
-            .select_related("quiz")
+        sessions = (
+            QuizSession.objects.filter(user=request.user, is_active=True)
+            .select_related("quiz", "quiz__maintainer")
             .order_by("-started_at")[:max_quizzes_count]
-        ]
+        )
+        last_used_quizzes = [session.quiz for session in sessions]
 
         serializer = QuizMetaDataSerializer(last_used_quizzes, many=True, context={"request": request})
         return Response(serializer.data)
