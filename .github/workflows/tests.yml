@@ -1,4 +1,7 @@
-name: Lint and Format Code
+name: Run Tests
+
+permissions:
+  contents: read
 
 on:
   push:
@@ -6,7 +9,7 @@ on:
   pull_request:
 
 jobs:
-  quality-check:
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -21,12 +24,9 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
+          pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
-      - name: Lint Code
+      - name: Run Tests
         run: |
-          ruff check . --output-format=github
-
-      - name: Check Code Formatting
-        run: |
-          ruff format --check .
+          python manage.py test

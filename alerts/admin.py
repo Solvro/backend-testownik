@@ -5,8 +5,8 @@ from alerts.models import Alert
 
 @admin.register(Alert)
 class AlertAdmin(admin.ModelAdmin):
-    list_display = ["title", "active", "color", "created_at", "updated_at"]
-    list_filter = ["active", "color"]
+    list_display = ["title", "active", "color", "dismissible", "created_at", "updated_at"]
+    list_filter = ["active", "color", "dismissible", "created_at", "updated_at"]
     search_fields = ["title", "content"]
     readonly_fields = ["id", "created_at", "updated_at"]
     fieldsets = (

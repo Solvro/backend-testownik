@@ -5,7 +5,6 @@ from quizzes.views import (
     FolderViewSet,
     LastUsedQuizzesView,
     QuizMetadataView,
-    QuizProgressView,
     QuizViewSet,
     RandomQuestionView,
     ReportQuestionIssueView,
@@ -26,11 +25,6 @@ urlpatterns = [
         "quiz/<uuid:quiz_id>/metadata/",
         QuizMetadataView.as_view(),
         name="quiz-metadata",
-    ),
-    path(
-        "quiz/<uuid:quiz_id>/progress/",
-        QuizProgressView.as_view(),
-        name="quiz-progress",
     ),
     path(
         "report-question-issue/",
