@@ -45,6 +45,10 @@ class Quiz(models.Model):
         default=False,
         help_text="Nie będzie wyświetlany autor testu, cały czas będzie można zgłosić błąd w pytaniu",
     )
+    max_reoccurrences = models.PositiveIntegerField(
+        default=3,
+        help_text="Maksymalna liczba powtórzeń pytania po błędnej odpowiedzi",
+    )
     version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -63,6 +67,7 @@ class Quiz(models.Model):
             "visibility": self.visibility,
             "visibility_name": dict(QUIZ_VISIBILITY_CHOICES)[self.visibility],
             "is_anonymous": self.is_anonymous,
+            "max_reoccurrences": self.max_reoccurrences,
             "version": self.version,
             "questions": self.questions,
         }

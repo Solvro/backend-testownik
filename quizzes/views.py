@@ -441,12 +441,16 @@ class QuizProgressView(APIView):
 
         for field in [
             "current_question",
-            "reoccurrences",
             "correct_answers_count",
             "wrong_answers_count",
         ]:
             if field in data:
                 setattr(quiz_progress, field, data[field])
+
+        # Limit reoccurrences to quiz's max_reoccurrences
+        if "reoccurrences" in data:
+            max_reoccurrences = quiz_progress.quiz.max_reoccurrences
+            quiz_progress.reoccurrences = [min(r, max_reoccurrences) for r in data["reoccurrences"]]
 
         if "study_time" in data:
             quiz_progress.study_time = timedelta(seconds=data["study_time"])
