@@ -44,6 +44,12 @@ CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:8000"
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173").rstrip("/")
 
+JWT_COOKIE_SECURE = not DEBUG
+JWT_COOKIE_SAMESITE = "Lax"
+JWT_COOKIE_DOMAIN = os.getenv("JWT_COOKIE_DOMAIN", None)
+
+CORS_ALLOW_CREDENTIALS = True
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -110,6 +116,7 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
     "ROTATE_REFRESH_TOKENS": True,
+    "SIGNING_KEY": os.getenv("JWT_SECRET", SECRET_KEY),
 }
 
 ROOT_URLCONF = "testownik_core.urls"

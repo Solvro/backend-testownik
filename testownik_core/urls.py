@@ -11,10 +11,13 @@ from drf_spectacular.views import (
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from testownik_core.views import ApiIndexView
-from users.views import admin_login
+from users.views import (
+    CustomTokenObtainPairView,
+    CustomTokenRefreshView,
+    admin_login,
+)
 
 
 @extend_schema(exclude=True)
@@ -37,8 +40,8 @@ urlpatterns = [
     path("admin/login/", admin_login, name="admin_login"),
     path("admin/", admin.site.urls),
     # Authentication
-    path("token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
-    path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("token/", CustomTokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("token/refresh/", CustomTokenRefreshView.as_view(), name="token_refresh"),
     # Docs
     path(
         "schema/",
