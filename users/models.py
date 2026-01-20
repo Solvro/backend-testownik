@@ -38,7 +38,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     objects = CustomUserManager()
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    email = models.EmailField(unique=True, null=True, blank=True)
+    email = models.EmailField(unique=True)
     student_number = models.CharField(max_length=6)
     usos_id = models.IntegerField(null=True, blank=True)
     first_name = models.CharField(max_length=30)
