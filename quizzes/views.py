@@ -15,9 +15,10 @@ from drf_spectacular.utils import (
     OpenApiResponse,
     extend_schema,
 )
-from rest_framework import permissions, status, viewsets
+from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed, PermissionDenied
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -126,8 +127,10 @@ class RandomQuestionView(APIView):
         )
 
 
-class LastUsedQuizzesView(APIView):
+class LastUsedQuizzesView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = QuizMetaDataSerializer
+    pagination_class = LimitOffsetPagination
 
     @extend_schema(
         summary="Get recently used quizzes",
@@ -135,31 +138,16 @@ class LastUsedQuizzesView(APIView):
             200: QuizMetaDataSerializer(many=True),
             401: OpenApiResponse(description="Unauthorized"),
         },
-        parameters=[
-            OpenApiParameter(
-                name="limit",
-                required=False,
-                type=int,
-                location=OpenApiParameter.QUERY,
-                description="Maximum number of recent quizzes to return (max: 20)",
-            )
-        ],
     )
-    def get(self, request):
-        try:
-            max_quizzes_count = min(int(request.query_params.get("limit", 4)), 20)
-        except (ValueError, TypeError):
-            max_quizzes_count = 4
+    def get(self, request, *args, **kwargs):
+        return self.list(request, *args, **kwargs)
 
-        sessions = (
-            QuizSession.objects.filter(user=request.user, is_active=True)
-            .select_related("quiz", "quiz__maintainer")
-            .order_by("-started_at")[:max_quizzes_count]
+    def get_queryset(self):
+        return (
+            Quiz.objects.filter(sessions__user=self.request.user, sessions__is_active=True)
+            .select_related("maintainer")
+            .order_by("-sessions__started_at")
         )
-        last_used_quizzes = [session.quiz for session in sessions]
-
-        serializer = QuizMetaDataSerializer(last_used_quizzes, many=True, context={"request": request})
-        return Response(serializer.data)
 
 
 class SearchQuizzesView(APIView):
