@@ -49,11 +49,33 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
     serializer_class = UserTokenObtainPairSerializer
 
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200:
+            set_jwt_cookies(
+                response,
+                response.data.get("access"),
+                response.data.get("refresh"),
+            )
+            response.data = {"message": "Login successful"}
+        return response
+
 
 class CustomTokenRefreshView(TokenRefreshView):
     """Custom token refresh view that re-populates user data in the access token."""
 
     serializer_class = UserTokenRefreshSerializer
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200:
+            set_jwt_cookies(
+                response,
+                response.data.get("access"),
+                response.data.get("refresh"),
+            )
+            response.data = {"message": "Token refreshed"}
+        return response
 
 
 def add_query_params(url, params):
@@ -658,8 +680,7 @@ class LoginOtpView(APIView):
             200: {
                 "type": "object",
                 "properties": {
-                    "access_token": {"type": "string"},
-                    "refresh_token": {"type": "string"},
+                    "message": {"type": "string"},
                 },
             },
             400: OpenApiResponse(description="Invalid or expired OTP"),
@@ -669,10 +690,7 @@ class LoginOtpView(APIView):
             OpenApiExample(
                 "Success response",
                 response_only=True,
-                value={
-                    "access_token": "eyJ0eXAiOiJKV1QiLCJh...",
-                    "refresh_token": "eyJ0eXAiOiJKV1QiLCJi...",
-                },
+                value={"message": "Login successful"},
             ),
             OpenApiExample(
                 "Error response (invalid OTP)",
@@ -710,12 +728,7 @@ class LoginOtpView(APIView):
         refresh = UserTokenObtainPairSerializer.get_token(user)
         email_login_token.delete()
 
-        response = Response(
-            {
-                "access": str(refresh.access_token),
-                "refresh": str(refresh),
-            }
-        )
+        response = Response({"message": "Login successful"})
         set_jwt_cookies(response, str(refresh.access_token), str(refresh))
         return response
 
@@ -739,8 +752,7 @@ class LoginLinkView(APIView):
             200: {
                 "type": "object",
                 "properties": {
-                    "access_token": {"type": "string"},
-                    "refresh_token": {"type": "string"},
+                    "message": {"type": "string"},
                 },
             },
             400: OpenApiResponse(description="Token not provided or invalid/expired"),
@@ -750,10 +762,7 @@ class LoginLinkView(APIView):
             OpenApiExample(
                 "Success response",
                 response_only=True,
-                value={
-                    "access_token": "eyJ0eXAiOiJKV1QiLCJh...",
-                    "refresh_token": "eyJ0eXAiOiJKV1QiLCJi...",
-                },
+                value={"message": "Login successful"},
             ),
             OpenApiExample(
                 "Error response (invalid token)",
@@ -779,12 +788,7 @@ class LoginLinkView(APIView):
         refresh = UserTokenObtainPairSerializer.get_token(user)
         email_login_token.delete()
 
-        response = Response(
-            {
-                "access": str(refresh.access_token),
-                "refresh": str(refresh),
-            }
-        )
+        response = Response({"message": "Login successful"})
         set_jwt_cookies(response, str(refresh.access_token), str(refresh))
         return response
 

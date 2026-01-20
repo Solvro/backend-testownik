@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from rest_framework_simplejwt.exceptions import InvalidToken
 from rest_framework_simplejwt.serializers import (
     TokenObtainPairSerializer,
     TokenRefreshSerializer,
@@ -42,7 +43,7 @@ class UserTokenRefreshSerializer(TokenRefreshSerializer):
                 new_access = UserTokenObtainPairSerializer.get_token(user).access_token
                 data["access"] = str(new_access)
             except User.DoesNotExist:
-                pass
+                raise InvalidToken("User associated with this token no longer exists")
 
         return data
 
