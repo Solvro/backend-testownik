@@ -32,7 +32,10 @@ class UserTokenRefreshSerializer(TokenRefreshSerializer):
     """Custom JWT refresh serializer that re-populates user data when refreshing tokens."""
 
     def validate(self, attrs):
-        data = super().validate(attrs)
+        try:
+            data = super().validate(attrs)
+        except User.DoesNotExist:
+            raise InvalidToken("User associated with this token no longer exists")
 
         refresh = RefreshToken(attrs["refresh"])
         user_id = refresh.payload.get("user_id")
