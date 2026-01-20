@@ -422,7 +422,7 @@ class QuizSessionModelTestCase(TestCase):
 
     def test_only_one_active_session_per_user_quiz(self):
         """Test: Constraint - only one active session per user and quiz."""
-        _session1 = QuizSession.objects.create(quiz=self.quiz, user=self.user, is_active=True)
+        QuizSession.objects.create(quiz=self.quiz, user=self.user, is_active=True)
 
         # Attempting to create second active session should fail
         with self.assertRaises(Exception):
