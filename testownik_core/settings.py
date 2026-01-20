@@ -249,8 +249,5 @@ SPECTACULAR_SETTINGS = {
     },
     "SERVE_PUBLIC": True,
     "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
-    "SCHEMA_PATH_PREFIX": "/api/",
-    "POSTPROCESSING_HOOKS": [
-        "testownik_core.spectacular_hooks.deprecate_non_api_paths",
-    ],
+    "SCHEMA_PATH_PREFIX_INSERT": "/api",
 }

@@ -66,9 +66,16 @@ base_urlpatterns = [
     path("", include("alerts.urls")),
 ]
 
-urlpatterns = [
-    path("api/", include(base_urlpatterns)),
-] + base_urlpatterns
+urlpatterns = (
+    [
+        path("api/", include(base_urlpatterns)),
+    ]
+    # Non-api urls are deprecated and will be removed in the future
+    + base_urlpatterns
+    + [
+        path("api/schema/", SpectacularAPIView.as_view(permission_classes=[AllowAny]), name="schema"),
+    ]
+)
 
 # Admin site settings
 admin.site.site_url = settings.FRONTEND_URL
