@@ -444,8 +444,6 @@ class AnswerRecordSerializer(serializers.ModelSerializer):
 
     def get_repetitions_used(self, obj):
         """Count how many times the question has been answered in the session."""
-        from quizzes.models import AnswerRecord
-
         return AnswerRecord.objects.filter(session=obj.session, question=obj.question).count()
 
     def get_remaining_repetitions(self, obj):
