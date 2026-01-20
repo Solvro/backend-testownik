@@ -10,12 +10,15 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
+import logging
 import os
 from datetime import timedelta
 from pathlib import Path
 
 import dotenv
 from authlib.integrations.django_client import OAuth
+
+logger = logging.getLogger(__name__)
 
 dotenv.load_dotenv()
 
@@ -111,6 +114,10 @@ REST_FRAMEWORK = {
         "django_filters.rest_framework.DjangoFilterBackend",
     ],
 }
+
+if os.getenv("JWT_SECRET") is None:
+    logger.warning("JWT_SECRET is not set in the environment, fallback to SECRET_KEY")
+    logger.warning("This is not recommended for production")
 
 SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=30),

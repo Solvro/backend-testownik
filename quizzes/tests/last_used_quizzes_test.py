@@ -1,3 +1,5 @@
+import time
+
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
@@ -38,7 +40,7 @@ class LastUsedQuizzesViewTest(TestCase):
     def test_last_used_quizzes_does_not_include_questions(self):
         """Test that the last-used-quizzes endpoint does not return questions"""
         url = reverse("last-used-quizzes")
-        response = self.client.get(url)
+        response = self.client.get(url, {"limit": 10})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("results", response.data)
@@ -66,6 +68,7 @@ class LastUsedQuizzesViewTest(TestCase):
         for i in range(5):
             q = Quiz.objects.create(title=f"Quiz {i}", maintainer=self.user, visibility=2)
             QuizSession.objects.create(quiz=q, user=self.user, is_active=True)
+            time.sleep(0.01)
 
         url = reverse("last-used-quizzes")
 

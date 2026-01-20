@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.http import HttpResponse
 
@@ -6,10 +8,21 @@ def set_jwt_cookies(
     response: HttpResponse,
     access_token: str,
     refresh_token: str,
-    access_max_age: int = 3600,  # 1 hour
-    refresh_max_age: int = 30 * 24 * 60 * 60,  # 30 days
+    access_max_age: int | None = None,
+    refresh_max_age: int | None = None,
 ) -> HttpResponse:
     """Set JWT tokens as cookies on the response."""
+    simple_jwt = getattr(settings, "SIMPLE_JWT", {})
+
+    if access_max_age is None:
+        access_lifetime = simple_jwt.get("ACCESS_TOKEN_LIFETIME")
+        access_max_age = int(access_lifetime.total_seconds()) if isinstance(access_lifetime, timedelta) else 3600
+
+    if refresh_max_age is None:
+        refresh_lifetime = simple_jwt.get("REFRESH_TOKEN_LIFETIME")
+        refresh_max_age = (
+            int(refresh_lifetime.total_seconds()) if isinstance(refresh_lifetime, timedelta) else 3600 * 24 * 7
+        )
 
     # Access token - readable by client JavaScript
     response.set_cookie(
