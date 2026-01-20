@@ -56,6 +56,7 @@ class QuizSerializer(serializers.ModelSerializer):
             "questions",
             "can_edit",
             "folder",
+            "max_question_repetitions",
         ]
         read_only_fields = ["maintainer", "version", "can_edit", "folder"]
 
@@ -262,6 +263,7 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "version",
             "can_edit",
             "folder",
+            "max_question_repetitions",
         ]
         read_only_fields = ["maintainer", "created_at", "updated_at", "version", "can_edit", "folder"]
 
@@ -416,10 +418,43 @@ class DurationInSecondsField(serializers.Field):
 class AnswerRecordSerializer(serializers.ModelSerializer):
     """Serializer for AnswerRecord."""
 
+    remaining_repetitions = serializers.SerializerMethodField()
+    max_question_repetitions = serializers.SerializerMethodField()
+    repetitions_used = serializers.SerializerMethodField()
+
     class Meta:
         model = AnswerRecord
-        fields = ["id", "question", "selected_answers", "was_correct", "answered_at"]
+        fields = [
+            "id",
+            "question",
+            "selected_answers",
+            "was_correct",
+            "answered_at",
+            "remaining_repetitions",
+            "max_question_repetitions",
+            "repetitions_used",
+        ]
         read_only_fields = ["id", "answered_at", "was_correct"]
+
+    def get_max_question_repetitions(self, obj):
+        """Get max repetitions from associated quiz."""
+        quiz = obj.session.quiz
+        max_question_repetitions = getattr(quiz, "max_question_repetitions", None)
+        return max_question_repetitions if max_question_repetitions and max_question_repetitions > 0 else None
+
+    def get_repetitions_used(self, obj):
+        """Count how many times the question has been answered in the session."""
+        from quizzes.models import AnswerRecord
+
+        return AnswerRecord.objects.filter(session=obj.session, question=obj.question).count()
+
+    def get_remaining_repetitions(self, obj):
+        """Calculate remaining repetitions for the question."""
+        max_question_repetitions = self.get_max_question_repetitions(obj)
+        if max_question_repetitions is None:
+            return None
+        repetitions_used = self.get_repetitions_used(obj)
+        return max(0, max_question_repetitions - repetitions_used)
 
 
 class QuizSessionSerializer(serializers.ModelSerializer):
