@@ -27,7 +27,7 @@ def status(request):
     return Response({"status": "ok"})
 
 
-urlpatterns = [
+base_urlpatterns = [
     path("", ApiIndexView.as_view(), name="index"),
     path(
         "scalar/",
@@ -65,6 +65,10 @@ urlpatterns = [
     path("", include("feedback.urls")),
     path("", include("alerts.urls")),
 ]
+
+urlpatterns = [
+    path("api/", include(base_urlpatterns)),
+] + base_urlpatterns
 
 # Admin site settings
 admin.site.site_url = settings.FRONTEND_URL

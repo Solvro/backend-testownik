@@ -8,7 +8,7 @@ class ApiIndexView(TemplateView):
         context = super().get_context_data(**kwargs)
         context["apis"] = [
             {
-                "url": "/scalar/",
+                "url": "/api/scalar/",
                 "title": "Scalar API Reference",
                 "badge": "Recommended",
                 "badge_color": "bg-purple-600",
@@ -18,7 +18,7 @@ class ApiIndexView(TemplateView):
                 "image_dark": "images/scalar_preview_dark.png",
             },
             {
-                "url": "/swagger/",
+                "url": "/api/swagger/",
                 "title": "Swagger UI",
                 "badge": "Standard",
                 "badge_color": "bg-blue-500",
@@ -28,7 +28,7 @@ class ApiIndexView(TemplateView):
                 "image_dark": None,
             },
             {
-                "url": "/redoc/",
+                "url": "/api/redoc/",
                 "title": "ReDoc",
                 "badge": "Docs Only",
                 "badge_color": "bg-orange-500",
