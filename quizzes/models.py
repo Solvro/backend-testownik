@@ -49,6 +49,9 @@ class Quiz(models.Model):
         default=False,
         help_text="Nie będzie wyświetlany autor testu, cały czas będzie można zgłosić błąd w pytaniu",
     )
+    max_question_repetitions = models.PositiveIntegerField(
+        default=3, help_text="Maksymalna liczba powtórzeń tego samego pytania w jednej sesji"
+    )
     version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
