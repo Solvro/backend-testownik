@@ -1,5 +1,3 @@
-import time
-
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
@@ -65,10 +63,16 @@ class LastUsedQuizzesViewTest(TestCase):
     def test_pagination(self):
         """Test that pagination works correctly"""
         # Create 5 more sessions to have total 6 items
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        now = timezone.now()
         for i in range(5):
             q = Quiz.objects.create(title=f"Quiz {i}", maintainer=self.user, visibility=2)
-            QuizSession.objects.create(quiz=q, user=self.user, is_active=True)
-            time.sleep(0.01)
+            session = QuizSession.objects.create(quiz=q, user=self.user, is_active=True)
+            session.started_at = now - timedelta(minutes=5 - i)
+            session.save()
 
         url = reverse("last-used-quizzes")
 

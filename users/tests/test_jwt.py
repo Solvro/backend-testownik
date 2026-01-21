@@ -16,25 +16,23 @@ class UserTokenObtainPairSerializerTestCase(TestCase):
     """Tests for UserTokenObtainPairSerializer custom claims."""
 
     def setUp(self):
-        self.user = User.objects.create(
+        self.user = User.objects.create_user(
             email="test@example.com",
             first_name="Test",
             last_name="User",
             student_number="123456",
+            password="testpassword123",
         )
-        self.user.set_password("testpassword123")
-        self.user.save()
 
-        self.staff_user = User.objects.create(
+        self.staff_user = User.objects.create_user(
             email="staff@example.com",
             first_name="Staff",
             last_name="Member",
             student_number="654321",
             is_staff=True,
             is_superuser=True,
+            password="testpassword123",
         )
-        self.staff_user.set_password("testpassword123")
-        self.staff_user.save()
 
     def test_custom_claims_embedded_in_token(self):
         """Test that custom user claims are embedded in the access token."""
@@ -71,14 +69,13 @@ class UserTokenRefreshSerializerTestCase(TestCase):
     """Tests for UserTokenRefreshSerializer functionality."""
 
     def setUp(self):
-        self.user = User.objects.create(
+        self.user = User.objects.create_user(
             email="test@example.com",
             first_name="Test",
             last_name="User",
             student_number="123456",
+            password="testpassword123",
         )
-        self.user.set_password("testpassword123")
-        self.user.save()
 
     def test_refresh_repopulates_user_data(self):
         """Test that token refresh repopulates user data in the new access token."""
@@ -120,14 +117,13 @@ class CustomTokenViewsTestCase(APITestCase):
     """Tests for CustomTokenObtainPairView and CustomTokenRefreshView."""
 
     def setUp(self):
-        self.user = User.objects.create(
+        self.user = User.objects.create_user(
             email="test@example.com",
             first_name="Test",
             last_name="User",
             student_number="123456",
+            password="testpassword123",
         )
-        self.user.set_password("testpassword123")
-        self.user.save()
 
     def test_token_obtain_sets_cookies(self):
         """Test that token obtain endpoint sets JWT cookies."""
@@ -213,14 +209,13 @@ class OTPLoginCookieTestCase(APITestCase):
     """Tests for OTP login cookie setting."""
 
     def setUp(self):
-        self.user = User.objects.create(
+        self.user = User.objects.create_user(
             email="test@example.com",
             first_name="Test",
             last_name="User",
             student_number="123456",
+            password="testpassword123",
         )
-        self.user.set_password("testpassword123")
-        self.user.save()
 
     def test_otp_login_sets_cookies(self):
         """Test that OTP login sets JWT cookies."""
