@@ -100,7 +100,7 @@ def login(request):
     jwt = request.GET.get("jwt", "false") == "true"
     redirect_url = request.GET.get("redirect", "")
     callback_url = request.build_absolute_uri(
-        f"/authorize/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
+        f"/api/authorize/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
     )
     additional_params = {}
     if confirm_user:
@@ -117,7 +117,7 @@ async def login_usos(request):
         return HttpResponseForbidden("Redirect URL must be provided when using JWT")
 
     callback_url = request.build_absolute_uri(
-        f"/authorize/usos/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
+        f"/api/authorize/usos/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
     )
 
     max_retries = 3  # max tries

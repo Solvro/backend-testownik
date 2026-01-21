@@ -12,9 +12,9 @@ class MaintenanceModeMiddleware:
             return self.get_response(request)
 
         if (
-            request.path.startswith("/admin/")
-            or request.path.startswith("/login/")
-            or request.path.startswith("/authorize/")
+            request.path.startswith("/api/admin/")
+            or request.path.startswith("/api/login/")
+            or request.path.startswith("/api/authorize/")
         ):
             return self.get_response(request)
 
