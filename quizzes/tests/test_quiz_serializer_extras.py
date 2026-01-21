@@ -25,45 +25,45 @@ class QuizSerializerExtrasTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("user_settings", response.data)
         self.assertEqual(response.data["user_settings"]["initial_reoccurrences"], 3)
-        self.assertNotIn("last_session", response.data)
+        self.assertNotIn("current_session", response.data)
 
-    def test_include_last_session_only(self):
-        """Test response with include=last_session."""
+    def test_include_current_session_only(self):
+        """Test response with include=current_session."""
         # Create an active session
         session = QuizSession.objects.create(quiz=self.quiz, user=self.user, is_active=True)
         self.client.force_authenticate(user=self.user)
 
-        response = self.client.get(self.url, {"include": "last_session"})
+        response = self.client.get(self.url, {"include": "current_session"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertNotIn("user_settings", response.data)
-        self.assertIn("last_session", response.data)
-        self.assertEqual(str(response.data["last_session"]["id"]), str(session.id))
+        self.assertIn("current_session", response.data)
+        self.assertEqual(str(response.data["current_session"]["id"]), str(session.id))
 
     def test_include_both(self):
-        """Test response with include=user_settings,last_session."""
+        """Test response with include=user_settings,current_session."""
         QuizSession.objects.create(quiz=self.quiz, user=self.user, is_active=True)
         self.client.force_authenticate(user=self.user)
 
-        response = self.client.get(self.url, {"include": "user_settings,last_session"})
+        response = self.client.get(self.url, {"include": "user_settings,current_session"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("user_settings", response.data)
-        self.assertIn("last_session", response.data)
+        self.assertIn("current_session", response.data)
 
-    def test_include_last_session_no_active_session(self):
-        """Test include=last_session when no session exists."""
+    def test_include_current_session_no_active_session(self):
+        """Test include=current_session when no session exists."""
         self.client.force_authenticate(user=self.user)
 
-        response = self.client.get(self.url, {"include": "last_session"})
+        response = self.client.get(self.url, {"include": "current_session"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("last_session", response.data)
-        self.assertIsNone(response.data["last_session"])
+        self.assertIn("current_session", response.data)
+        self.assertIsNone(response.data["current_session"])
 
     def test_unauthenticated_requests(self):
         """Test that unauthenticated users don't get sensitive data even if requested."""
         self.quiz.visibility = 3
         self.quiz.save()
 
-        response = self.client.get(self.url, {"include": "user_settings,last_session"})
+        response = self.client.get(self.url, {"include": "user_settings,current_session"})
         if response.status_code == status.HTTP_200_OK:
             self.assertNotIn("user_settings", response.data)
-            self.assertNotIn("last_session", response.data)
+            self.assertNotIn("current_session", response.data)

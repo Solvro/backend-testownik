@@ -79,12 +79,12 @@ class QuizSerializer(serializers.ModelSerializer):
             if "user_settings" in includes and hasattr(user, "settings"):
                 data["user_settings"] = UserSettingsSerializer(user.settings).data
 
-            if "last_session" in includes:
-                session = QuizSession.objects.filter(quiz=instance, user=user, is_active=True).first()
+            if "current_session" in includes:
+                session, _ = QuizSession.get_or_create_active(instance, request.user)
                 if session:
-                    data["last_session"] = QuizSessionSerializer(session).data
+                    data["current_session"] = QuizSessionSerializer(session).data
                 else:
-                    data["last_session"] = None
+                    data["current_session"] = None
 
         return data
 

@@ -225,10 +225,10 @@ class SearchQuizzesView(APIView):
                 type=str,
                 location=OpenApiParameter.QUERY,
                 description="Comma-separated list of extra data to include. "
-                "Available options: 'user_settings', 'last_session'.",
+                "Available options: 'user_settings', 'current_session'.",
                 many=True,
                 style="simple",
-                enum=["user_settings", "last_session"],
+                enum=["user_settings", "current_session"],
             )
         ]
     )
