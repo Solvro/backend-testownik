@@ -73,9 +73,9 @@ class QuizSerializer(serializers.ModelSerializer):
         if not user or (instance.is_anonymous and user != instance.maintainer):
             data["maintainer"] = None
 
-        includes = [item.strip() for item in request.query_params.get("include", "").split(",")] if request else []
-
         if user and user.is_authenticated:
+            includes = [item.strip() for item in request.query_params.get("include", "").split(",")] if request else []
+
             if "user_settings" in includes and hasattr(user, "settings"):
                 data["user_settings"] = UserSettingsSerializer(user.settings).data
 

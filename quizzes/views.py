@@ -147,8 +147,8 @@ class LastUsedQuizzesView(generics.ListAPIView):
         return (
             Quiz.objects.filter(sessions__user=self.request.user, sessions__is_active=True)
             .select_related("maintainer")
-            .distinct()
             .order_by("-sessions__started_at")
+            .distinct()
         )
 
 
