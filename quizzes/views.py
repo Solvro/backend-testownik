@@ -14,6 +14,7 @@ from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
     extend_schema,
+    extend_schema_view,
 )
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
@@ -216,6 +217,22 @@ class SearchQuizzesView(APIView):
 # This is by design, if the user wants to view shared quizzes,
 #   they should use the SharedQuizViewSet and for public quizzes they should use the api_search_quizzes view.
 # It will also allow to create, update and delete quizzes only if the user is the maintainer of the quiz.
+@extend_schema_view(
+    retrieve=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="include",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Comma-separated list of extra data to include. "
+                "Available options: 'user_settings', 'last_session'.",
+                many=True,
+                style="simple",
+                enum=["user_settings", "last_session"],
+            )
+        ]
+    )
+)
 class QuizViewSet(viewsets.ModelViewSet):
     queryset = Quiz.objects.all()
     serializer_class = QuizSerializer
