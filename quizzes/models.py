@@ -52,6 +52,7 @@ class Quiz(models.Model):
     version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
     folder = models.ForeignKey(Folder, on_delete=models.SET_NULL, null=True, blank=True, related_name="quizzes")
 
     class Meta:
