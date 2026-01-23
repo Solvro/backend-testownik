@@ -67,8 +67,6 @@ INSTALLED_APPS = [
     "adrf",
     "drf_spectacular",
     "django_filters",
-    "django_tasks",
-    "django_tasks.backends.database",
 ]
 
 CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
@@ -239,4 +237,4 @@ SPECTACULAR_SETTINGS = {
     "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
 }
 
-TASKS = {"default": {"BACKEND": "django_tasks.backends.database.DatabaseBackend"}}
+TASKS = {"default": {"BACKEND": "django.tasks.backends.immediate.ImmediateBackend"}}
