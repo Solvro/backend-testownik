@@ -316,7 +316,12 @@ class FolderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Folder
         fields = ["id", "name", "created_at", "parent", "quizzes", "subfolders", "folder_type"]
-        read_only_fields = ["id", "created_at", "quizzes", "subfolders","folder_type"]
+        read_only_fields = ["id", "created_at", "quizzes", "subfolders", "folder_type"]
+
+    def validate_parent(self, value):
+        if value and value.folder_type == Folder.Type.ARCHIVE:
+            raise serializers.ValidationError("Cannot create subfolders in Archive folder")
+        return value
 
 
 class MoveFolderSerializer(serializers.Serializer):
@@ -345,6 +350,9 @@ class MoveFolderSerializer(serializers.Serializer):
 
             if str(value) == str(folder_to_move.id):
                 raise serializers.ValidationError("You cannot move a folder into itself.")
+
+            if target_parent.folder_type == Folder.Type.ARCHIVE:
+                raise serializers.ValidationError("Cannot move folders into Archive folder")
 
             current = target_parent
             while current:

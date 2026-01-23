@@ -309,21 +309,20 @@ class QuizViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=["post"],
-        serializer_class=MoveQuizSerializer,
-        permission_classes=[permissions.IsAuthenticated, IsQuizMaintainer])
-    def move_to_archive(self,request, pk=None):
+        url_path="move-to-archive",
+        permission_classes=[permissions.IsAuthenticated, IsQuizMaintainer],
+    )
+    def move_to_archive(self, request, pk=None):
         quiz = self.get_object()
 
         try:
-            archive_folder = Folder.objects.get(owner=request.user, folder_type= Folder.folder_type.ARCHIVE)
-        except:
-            return Response({"status": "Folder not found"}, status=404)
+            archive_folder = Folder.objects.get(owner=request.user, folder_type=Folder.Type.ARCHIVE)
+        except Folder.DoesNotExist:
+            return Response({"error": "Archive folder not found"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         quiz.folder = archive_folder
         quiz.save()
-        return Response({"status": "Quiz moved successfully"})
-
-
+        return Response({"status": "Quiz moved successfully"}, status=status.HTTP_200_OK)
 
     @action(
         detail=True,
@@ -626,11 +625,11 @@ class FolderViewSet(viewsets.ModelViewSet):
         instance = serializer.instance
 
         if instance.folder_type == Folder.Type.ARCHIVE:
-            new_name = serializer.validated_data.get('name')
+            new_name = serializer.validated_data.get("name")
             if new_name and new_name != instance.name:
                 raise PermissionDenied("You cant change name of archive folder.")
 
-            new_parent = serializer.validated_data.get('parent')
+            new_parent = serializer.validated_data.get("parent")
             if new_parent is not None:
                 raise PermissionDenied("Archive folder cant be a subfolder.")
 
@@ -649,4 +648,4 @@ class FolderViewSet(viewsets.ModelViewSet):
             folder.save()
             return Response({"status": "Folder moved successfully"})
 
-        return Response(serializer.errors)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
