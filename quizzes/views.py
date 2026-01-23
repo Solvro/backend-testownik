@@ -338,7 +338,6 @@ class QuizViewSet(viewsets.ModelViewSet):
             return Response(QuizSessionSerializer(session).data)
 
         elif request.method == "DELETE":
-            # Archive current session and create new one
             with transaction.atomic():
                 QuizSession.objects.filter(quiz=quiz, user=request.user, is_active=True).update(
                     is_active=False, ended_at=timezone.now()
@@ -350,7 +349,6 @@ class QuizViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="answer", permission_classes=[permissions.IsAuthenticated])
     def record_answer(self, request, pk=None):
-        """Record an answer for the current session."""
         quiz = self.get_object()
         session, _ = QuizSession.get_or_create_active(quiz, request.user)
 
@@ -618,34 +616,20 @@ class FolderViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         if instance.folder_type == Folder.Type.ARCHIVE:
-            raise PermissionDenied("You cant delete archive folder.")
+            raise PermissionDenied("You can't delete archive folder.")
         instance.delete()
-
-    def perform_update(self, serializer):
-        instance = serializer.instance
-
-        if instance.folder_type == Folder.Type.ARCHIVE:
-            new_name = serializer.validated_data.get("name")
-            if new_name and new_name != instance.name:
-                raise PermissionDenied("You cant change name of archive folder.")
-
-            new_parent = serializer.validated_data.get("parent")
-            if new_parent is not None:
-                raise PermissionDenied("Archive folder cant be a subfolder.")
-
-        serializer.save()
 
     @action(detail=True, methods=["post"], serializer_class=MoveFolderSerializer)
     def move(self, request, pk=None):
         folder = self.get_object()
 
         if folder.folder_type == Folder.Type.ARCHIVE:
-            return Response({"error": "You cant move archive folder."}, status=403)
+            return Response({"error": "You can't move archive folder."}, status=status.HTTP_403_FORBIDDEN)
 
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
             folder.parent_id = serializer.validated_data["parent_id"]
             folder.save()
-            return Response({"status": "Folder moved successfully"})
+            return Response({"status": "Folder moved successfully"}, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

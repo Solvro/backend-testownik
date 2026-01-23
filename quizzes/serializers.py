@@ -323,6 +323,18 @@ class FolderSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Cannot create subfolders in Archive folder")
         return value
 
+    def validate(self, attrs):
+        instance = self.instance
+
+        if instance and instance.folder_type == Folder.Type.ARCHIVE:
+            if "name" in attrs and attrs["name"] != instance.name:
+                raise serializers.ValidationError({"name": "You can't change name of archive folder."})
+
+            if "parent" in attrs:
+                raise serializers.ValidationError({"parent": "Archive folder can't be a subfolder."})
+
+        return attrs
+
 
 class MoveFolderSerializer(serializers.Serializer):
     parent_id = serializers.UUIDField(allow_null=True)

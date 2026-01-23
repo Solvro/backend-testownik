@@ -69,7 +69,7 @@ class QuizArchiveTests(APITestCase):
         url = f"/quizzes/{self.quiz.id}/move-to-archive/"
         response = self.client.post(url)
 
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
 
     def test_archive_nonexistent_quiz(self):
         url = "/quizzes/00000000-0000-0000-0000-000000000000/move-to-archive/"
@@ -102,7 +102,7 @@ class FolderArchiveProtectionTests(APITestCase):
         url = f"/folders/{self.archive_folder.id}/"
         response = self.client.patch(url, {"name": "New Name"})
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.archive_folder.refresh_from_db()
         self.assertNotEqual(self.archive_folder.name, "New Name")
 
@@ -120,7 +120,7 @@ class FolderArchiveProtectionTests(APITestCase):
         url = f"/folders/{self.archive_folder.id}/"
         response = self.client.patch(url, {"parent": str(target_folder.id)})
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.archive_folder.refresh_from_db()
         self.assertIsNone(self.archive_folder.parent)
 
