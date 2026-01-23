@@ -315,8 +315,8 @@ class FolderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Folder
-        fields = ["id", "name", "created_at", "parent", "quizzes", "subfolders"]
-        read_only_fields = ["id", "created_at", "quizzes", "subfolders"]
+        fields = ["id", "name", "created_at", "parent", "quizzes", "subfolders", "folder_type"]
+        read_only_fields = ["id", "created_at", "quizzes", "subfolders","folder_type"]
 
 
 class MoveFolderSerializer(serializers.Serializer):

@@ -308,6 +308,25 @@ class QuizViewSet(viewsets.ModelViewSet):
 
     @action(
         detail=True,
+        methods=["post"],
+        serializer_class=MoveQuizSerializer,
+        permission_classes=[permissions.IsAuthenticated, IsQuizMaintainer])
+    def move_to_archive(self,request, pk=None):
+        quiz = self.get_object()
+
+        try:
+            archive_folder = Folder.objects.get(owner=request.user, folder_type= Folder.folder_type.ARCHIVE)
+        except:
+            return Response({"status": "Folder not found"}, status=404)
+
+        quiz.folder = archive_folder
+        quiz.save()
+        return Response({"status": "Quiz moved successfully"})
+
+
+
+    @action(
+        detail=True,
         methods=["get", "delete"],
         url_path="progress",
         permission_classes=[permissions.IsAuthenticated],
@@ -598,9 +617,31 @@ class FolderViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
 
+    def perform_destroy(self, instance):
+        if instance.folder_type == Folder.Type.ARCHIVE:
+            raise PermissionDenied("You cant delete archive folder.")
+        instance.delete()
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+
+        if instance.folder_type == Folder.Type.ARCHIVE:
+            new_name = serializer.validated_data.get('name')
+            if new_name and new_name != instance.name:
+                raise PermissionDenied("You cant change name of archive folder.")
+
+            new_parent = serializer.validated_data.get('parent')
+            if new_parent is not None:
+                raise PermissionDenied("Archive folder cant be a subfolder.")
+
+        serializer.save()
+
     @action(detail=True, methods=["post"], serializer_class=MoveFolderSerializer)
     def move(self, request, pk=None):
         folder = self.get_object()
+
+        if folder.folder_type == Folder.Type.ARCHIVE:
+            return Response({"error": "You cant move archive folder."}, status=403)
 
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
