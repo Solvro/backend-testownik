@@ -15,7 +15,6 @@ QUIZ_VISIBILITY_CHOICES = [
 
 
 class Folder(models.Model):
-
     class Type(models.TextChoices):
         ARCHIVE = "ARCHIVE", "Archive"
         REGULAR = "REGULAR", "Regular"
@@ -32,7 +31,7 @@ class Folder(models.Model):
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="folders")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    folder_type = models.CharField(max_length=10,choices=Type.choices, default=Type.REGULAR)
+    folder_type = models.CharField(max_length=10, choices=Type.choices, default=Type.REGULAR)
 
     class Meta:
         ordering = ["-created_at"]

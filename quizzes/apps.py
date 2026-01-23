@@ -6,4 +6,4 @@ class QuizzesConfig(AppConfig):
     name = "quizzes"
 
     def ready(self):
-        import quizzes.signals
+        from . import signals  # noqa: F401
