@@ -10,12 +10,15 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
+import logging
 import os
 from datetime import timedelta
 from pathlib import Path
 
 import dotenv
 from authlib.integrations.django_client import OAuth
+
+logger = logging.getLogger(__name__)
 
 dotenv.load_dotenv()
 
@@ -33,7 +36,7 @@ DEBUG = os.getenv("DEBUG", "False") == "True"
 
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost").split(",")
 
-CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 
 if os.getenv("ALLOW_CORS_PREVIEW", "False") == "True":
     CORS_ALLOWED_ORIGIN_REGEXES = [
@@ -42,7 +45,13 @@ if os.getenv("ALLOW_CORS_PREVIEW", "False") == "True":
 
 CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:8000").split(",")
 
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+
+JWT_COOKIE_SECURE = not DEBUG
+JWT_COOKIE_SAMESITE = "Lax"
+JWT_COOKIE_DOMAIN = os.getenv("JWT_COOKIE_DOMAIN", None)
+
+CORS_ALLOW_CREDENTIALS = True
 
 # Application definition
 
@@ -106,10 +115,15 @@ REST_FRAMEWORK = {
     ],
 }
 
+if os.getenv("JWT_SECRET") is None:
+    logger.warning("JWT_SECRET is not set in the environment, fallback to SECRET_KEY")
+    logger.warning("This is not recommended for production")
+
 SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
     "ROTATE_REFRESH_TOKENS": True,
+    "SIGNING_KEY": os.getenv("JWT_SECRET", SECRET_KEY),
 }
 
 ROOT_URLCONF = "testownik_core.urls"
@@ -198,7 +212,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
-STATIC_URL = "static/"
+STATIC_URL = "api/static/"
 
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
@@ -235,4 +249,5 @@ SPECTACULAR_SETTINGS = {
     },
     "SERVE_PUBLIC": True,
     "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
+    "SCHEMA_PATH_PREFIX_INSERT": "/api",
 }

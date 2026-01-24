@@ -22,23 +22,60 @@ from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from usos_api import USOSAPIException, USOSClient
 
 from quizzes.models import QuizProgress, SharedQuiz
 from testownik_core.settings import oauth
+from users.auth_cookies import set_jwt_cookies
 from users.models import EmailLoginToken, StudyGroup, Term, User, UserSettings
 from users.serializers import (
     PublicUserSerializer,
     StudyGroupSerializer,
     UserSerializer,
     UserSettingsSerializer,
+    UserTokenObtainPairSerializer,
+    UserTokenRefreshSerializer,
 )
 from users.utils import send_login_email_to_user
 
 dotenv.load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    """Custom token obtain view that includes user data in the access token."""
+
+    serializer_class = UserTokenObtainPairSerializer
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200:
+            set_jwt_cookies(
+                response,
+                response.data.get("access"),
+                response.data.get("refresh"),
+            )
+            response.data = {"message": "Login successful"}
+        return response
+
+
+class CustomTokenRefreshView(TokenRefreshView):
+    """Custom token refresh view that re-populates user data in the access token."""
+
+    serializer_class = UserTokenRefreshSerializer
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200:
+            set_jwt_cookies(
+                response,
+                response.data.get("access"),
+                response.data.get("refresh"),
+            )
+            response.data = {"message": "Token refreshed"}
+        return response
 
 
 def add_query_params(url, params):
@@ -63,7 +100,7 @@ def login(request):
     jwt = request.GET.get("jwt", "false") == "true"
     redirect_url = request.GET.get("redirect", "")
     callback_url = request.build_absolute_uri(
-        f"/authorize/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
+        f"/api/authorize/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
     )
     additional_params = {}
     if confirm_user:
@@ -80,7 +117,7 @@ async def login_usos(request):
         return HttpResponseForbidden("Redirect URL must be provided when using JWT")
 
     callback_url = request.build_absolute_uri(
-        f"/authorize/usos/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
+        f"/api/authorize/usos/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
     )
 
     max_retries = 3  # max tries
@@ -180,16 +217,10 @@ def authorize(request):
     )
 
     if request.GET.get("jwt", "false") == "true":
-        refresh = RefreshToken.for_user(user)
-        return redirect(
-            add_query_params(
-                remove_query_params(redirect_url, ["error"]),
-                {
-                    "access_token": str(refresh.access_token),
-                    "refresh_token": str(refresh),
-                },
-            )
-        )
+        refresh = UserTokenObtainPairSerializer.get_token(user)
+        response = redirect(remove_query_params(redirect_url, ["error"]))
+        set_jwt_cookies(response, str(refresh.access_token), str(refresh))
+        return response
 
     auth_login(request, user)
     return redirect(redirect_url)
@@ -267,16 +298,10 @@ async def authorize_usos(request):
             return redirect("index")
 
     if request.GET.get("jwt", "false") == "true":
-        refresh = await sync_to_async(RefreshToken.for_user)(user)
-        return redirect(
-            add_query_params(
-                remove_query_params(redirect_url, ["error"]),
-                {
-                    "access_token": str(refresh.access_token),
-                    "refresh_token": str(refresh),
-                },
-            )
-        )
+        refresh = await sync_to_async(UserTokenObtainPairSerializer.get_token)(user)
+        response = redirect(remove_query_params(redirect_url, ["error"]))
+        set_jwt_cookies(response, str(refresh.access_token), str(refresh))
+        return response
 
     await async_auth_login(request, user)
     return redirect(redirect_url)
@@ -655,8 +680,7 @@ class LoginOtpView(APIView):
             200: {
                 "type": "object",
                 "properties": {
-                    "access_token": {"type": "string"},
-                    "refresh_token": {"type": "string"},
+                    "message": {"type": "string"},
                 },
             },
             400: OpenApiResponse(description="Invalid or expired OTP"),
@@ -666,10 +690,7 @@ class LoginOtpView(APIView):
             OpenApiExample(
                 "Success response",
                 response_only=True,
-                value={
-                    "access_token": "eyJ0eXAiOiJKV1QiLCJh...",
-                    "refresh_token": "eyJ0eXAiOiJKV1QiLCJi...",
-                },
+                value={"message": "Login successful"},
             ),
             OpenApiExample(
                 "Error response (invalid OTP)",
@@ -704,15 +725,12 @@ class LoginOtpView(APIView):
             return Response({"error": "OTP code expired or retries limit reached"}, status=400)
 
         user = email_login_token.user
-        refresh = RefreshToken.for_user(user)
+        refresh = UserTokenObtainPairSerializer.get_token(user)
         email_login_token.delete()
 
-        return Response(
-            {
-                "access": str(refresh.access_token),
-                "refresh": str(refresh),
-            }
-        )
+        response = Response({"message": "Login successful"})
+        set_jwt_cookies(response, str(refresh.access_token), str(refresh))
+        return response
 
 
 class LoginLinkView(APIView):
@@ -734,8 +752,7 @@ class LoginLinkView(APIView):
             200: {
                 "type": "object",
                 "properties": {
-                    "access_token": {"type": "string"},
-                    "refresh_token": {"type": "string"},
+                    "message": {"type": "string"},
                 },
             },
             400: OpenApiResponse(description="Token not provided or invalid/expired"),
@@ -745,10 +762,7 @@ class LoginLinkView(APIView):
             OpenApiExample(
                 "Success response",
                 response_only=True,
-                value={
-                    "access_token": "eyJ0eXAiOiJKV1QiLCJh...",
-                    "refresh_token": "eyJ0eXAiOiJKV1QiLCJi...",
-                },
+                value={"message": "Login successful"},
             ),
             OpenApiExample(
                 "Error response (invalid token)",
@@ -771,15 +785,12 @@ class LoginLinkView(APIView):
             return Response({"error": "Invalid or expired login link"}, status=400)
 
         user = email_login_token.user
-        refresh = RefreshToken.for_user(user)
+        refresh = UserTokenObtainPairSerializer.get_token(user)
         email_login_token.delete()
 
-        return Response(
-            {
-                "access": str(refresh.access_token),
-                "refresh": str(refresh),
-            }
-        )
+        response = Response({"message": "Login successful"})
+        set_jwt_cookies(response, str(refresh.access_token), str(refresh))
+        return response
 
 
 class DeleteAccountView(APIView):

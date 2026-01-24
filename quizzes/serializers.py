@@ -13,7 +13,11 @@ from quizzes.models import (
     SharedQuiz,
 )
 from users.models import StudyGroup, User
-from users.serializers import PublicUserSerializer, StudyGroupSerializer
+from users.serializers import (
+    PublicUserSerializer,
+    StudyGroupSerializer,
+    UserSettingsSerializer,
+)
 
 
 class AnswerSerializer(serializers.ModelSerializer):
@@ -65,8 +69,23 @@ class QuizSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         request = self.context.get("request")
         user = getattr(request, "user", None) if request else self.context.get("user")
-        if instance.is_anonymous and user and user != instance.maintainer:
+
+        if not user or (instance.is_anonymous and user != instance.maintainer):
             data["maintainer"] = None
+
+        if user and user.is_authenticated:
+            includes = [item.strip() for item in request.query_params.get("include", "").split(",")] if request else []
+
+            if "user_settings" in includes and hasattr(user, "settings"):
+                data["user_settings"] = UserSettingsSerializer(user.settings).data
+
+            if "current_session" in includes:
+                session, _ = QuizSession.get_or_create_active(instance, request.user)
+                if session:
+                    data["current_session"] = QuizSessionSerializer(session).data
+                else:
+                    data["current_session"] = None
+
         return data
 
     @transaction.atomic
