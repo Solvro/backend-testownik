@@ -28,7 +28,7 @@ def status(request):
 
 
 base_urlpatterns = [
-    path("", ApiIndexView.as_view(), name="index"),
+    path("", ApiIndexView.as_view(), name="api_index"),
     path(
         "scalar/",
         TemplateView.as_view(template_name="scalar.html"),
@@ -66,16 +66,10 @@ base_urlpatterns = [
     path("", include("alerts.urls")),
 ]
 
-urlpatterns = (
-    [
-        path("api/", include(base_urlpatterns)),
-    ]
-    # Non-api urls are deprecated and will be removed in the future
-    + base_urlpatterns
-    + [
-        path("api/schema/", SpectacularAPIView.as_view(permission_classes=[AllowAny]), name="schema"),
-    ]
-)
+urlpatterns = [
+    path("api/", include(base_urlpatterns)),
+    path("", ApiIndexView.as_view(), name="index"),
+]
 
 # Admin site settings
 admin.site.site_url = settings.FRONTEND_URL

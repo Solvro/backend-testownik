@@ -249,5 +249,4 @@ SPECTACULAR_SETTINGS = {
     },
     "SERVE_PUBLIC": True,
     "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
-    "SCHEMA_PATH_PREFIX_INSERT": "/api",
 }
