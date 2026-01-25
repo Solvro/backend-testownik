@@ -318,7 +318,7 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "can_edit",
             "folder",
         ]
-        read_only_fields = ["maintainer", "created_at", "updated_at", "last_used_at", "version", "can_edit", "folder"]
+        read_only_fields = ["maintainer", "created_at", "updated_at", "version", "can_edit", "folder"]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -493,10 +493,11 @@ class QuizSessionSerializer(serializers.ModelSerializer):
             "study_time",
             "is_active",
             "started_at",
+            "updated_at",
             "ended_at",
             "answers",
         ]
-        read_only_fields = ["id", "quiz", "user", "started_at", "ended_at"]
+        read_only_fields = ["id", "quiz", "user", "started_at", "updated_at", "ended_at"]
 
 
 class MoveQuizSerializer(serializers.Serializer):
