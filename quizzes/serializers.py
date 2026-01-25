@@ -314,7 +314,6 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "allow_anonymous",
             "created_at",
             "updated_at",
-            "last_used_at",
             "version",
             "can_edit",
             "folder",
