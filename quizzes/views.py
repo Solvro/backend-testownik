@@ -320,11 +320,6 @@ class QuizViewSet(viewsets.ModelViewSet):
     )
     def progress(self, request, pk=None):
         quiz = self.get_object()
-        update_last_use_methods = ["GET", "DELETE"]
-
-        if request.method in update_last_use_methods:
-            quiz.last_used_at = timezone.now()
-            quiz.save(update_fields=["last_used_at"])
 
         if request.method == "GET":
             session, _ = QuizSession.get_or_create_active(quiz, request.user)
