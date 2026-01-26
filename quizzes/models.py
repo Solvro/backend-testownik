@@ -73,7 +73,7 @@ class Question(models.Model):
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="questions")
     order = models.PositiveIntegerField()
     text = models.TextField()
-    image = models.URLField(blank=True, null=True, max_length=512)
+    image_url = models.URLField(blank=True, null=True, max_length=512)
     explanation = models.TextField(blank=True, null=True)
     multiple = models.BooleanField(default=False)
 
@@ -83,13 +83,17 @@ class Question(models.Model):
     def __str__(self):
         return f"Q{self.order}: {self.text[:50]}"
 
+    @property
+    def image(self):
+        return self.image_url
+
 
 class Answer(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="answers")
     order = models.PositiveIntegerField()
     text = models.TextField()
-    image = models.URLField(blank=True, null=True, max_length=512)
+    image_url = models.URLField(blank=True, null=True, max_length=512)
     is_correct = models.BooleanField(default=False)
 
     class Meta:
@@ -97,6 +101,10 @@ class Answer(models.Model):
 
     def __str__(self):
         return f"{'✓' if self.is_correct else '✗'} {self.text[:50]}"
+
+    @property
+    def image(self):
+        return self.image_url
 
 
 class SharedQuiz(models.Model):
