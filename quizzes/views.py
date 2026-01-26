@@ -352,21 +352,21 @@ class QuizViewSet(viewsets.ModelViewSet):
         except (Question.DoesNotExist, ValueError, TypeError, ValidationError):
             return Response({"error": "Question not found in this quiz"}, status=404)
 
-        max_question_repetitions = getattr(quiz, "max_question_repetitions", None)
-
+        user_settings = getattr(request.user, "settings", None)
+        max_question_repetitions = getattr(user_settings, "max_question_repetitions", None) if user_settings else None
         if max_question_repetitions is not None and max_question_repetitions > 0:
             attempt_count = AnswerRecord.objects.filter(session=session, question=question).count()
-
             if attempt_count >= max_question_repetitions:
                 return Response(
                     {
-                        "error": "Exceeded maximum number of attempts for this question",
+                        "error": "Przekroczono maksymalną ilość powtórzeń dla tego pytania.",
                         "max_question_repetitions": max_question_repetitions,
                         "attempts_used": attempt_count,
                         "remaining_attempts": 0,
                     },
                     status=400,
                 )
+
 
         selected_ids = set(str(a) for a in selected_answers)
 
