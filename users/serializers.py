@@ -97,7 +97,7 @@ class UserSettingsSerializer(serializers.ModelSerializer):
             "notify_quiz_shared",
             "notify_bug_reported",
             "notify_marketing",
-            "max_question_repetitions",
+            "max_question_reoccurrences",
         ]
 
     def validate_initial_reoccurrences(self, value):

@@ -354,12 +354,14 @@ class QuizViewSet(viewsets.ModelViewSet):
             return Response({"error": "Question not found in this quiz"}, status=404)
 
         user_settings = getattr(request.user, "settings", None)
-        max_question_repetitions = getattr(user_settings, "max_question_repetitions", None) if user_settings else None
-        if max_question_repetitions is not None and max_question_repetitions > 0:
+        max_question_reoccurrences = (
+            getattr(user_settings, "max_question_reoccurrences", None) if user_settings else None
+        )
+        if max_question_reoccurrences is not None and max_question_reoccurrences > 0:
             attempt_count = AnswerRecord.objects.filter(
                 session=session, question=question, skipped_due_to_limit=False
             ).count()
-            if attempt_count >= max_question_repetitions:
+            if attempt_count >= max_question_reoccurrences:
                 AnswerRecord.objects.create(
                     session=session,
                     question=question,
@@ -373,8 +375,8 @@ class QuizViewSet(viewsets.ModelViewSet):
                 return Response(
                     {
                         "status": "skipped",
-                        "message": f"Wykorzystałeś wszystkie próby ({max_question_repetitions}/{max_question_repetitions}) dla tego pytania",
-                        "max_question_repetitions": max_question_repetitions,
+                        "message": f"Wykorzystałeś wszystkie próby ({max_question_reoccurrences}/{max_question_reoccurrences}) dla tego pytania",
+                        "max_question_reoccurrences": max_question_reoccurrences,
                         "attempts_used": attempt_count,
                         "skipped_question_id": str(question_id),
                         "next_question": {
@@ -516,7 +518,7 @@ class QuizViewSet(viewsets.ModelViewSet):
          - Has not reached the attempt limit
         """
         user_settings = getattr(user, "settings", None)
-        max_reps = getattr(user_settings, "max_question_repetitions", None) if user_settings else None
+        max_reps = getattr(user_settings, "max_question_reoccurrences", None) if user_settings else None
 
         all_questions = quiz.questions.all().order_by("order")
 

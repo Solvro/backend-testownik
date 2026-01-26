@@ -14,8 +14,8 @@ from quizzes.models import (
 from users.models import User, UserSettings
 
 
-class MaxQuestionRepetitionsScenarioATestCase(APITestCase):
-    """Testy funkcjonalności max_question_repetitions ze Scenariuszem A (automatyczne pomijanie)."""
+class MaxQuestionReoccurrencesScenarioATestCase(APITestCase):
+    """Testy funkcjonalności max_question_reoccurrences ze Scenariuszem A (automatyczne pomijanie)."""
 
     def setUp(self):
         self.user = User.objects.create(
@@ -25,7 +25,7 @@ class MaxQuestionRepetitionsScenarioATestCase(APITestCase):
             student_number="123456",
         )
         # Ustawienia użytkownika z limitem 3
-        self.user_settings = UserSettings.objects.create(user=self.user, max_question_repetitions=3)
+        self.user_settings = UserSettings.objects.create(user=self.user, max_question_reoccurrences=3)
 
         self.client.force_authenticate(user=self.user)
 
@@ -87,7 +87,7 @@ class MaxQuestionRepetitionsScenarioATestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # ZMIANA: 200 zamiast 400
         self.assertEqual(response.data["status"], "skipped")
         self.assertIn("Wykorzystałeś wszystkie próby", response.data["message"])
-        self.assertEqual(response.data["max_question_repetitions"], 3)
+        self.assertEqual(response.data["max_question_reoccurrences"], 3)
         self.assertEqual(response.data["attempts_used"], 3)
 
         # Sprawdź czy zwrócono następne pytanie
@@ -133,7 +133,7 @@ class MaxQuestionRepetitionsScenarioATestCase(APITestCase):
 
     def test_limit_zero_disables_restriction(self):
         """Test: Ustawienie limitu na 0 wyłącza ograniczenie."""
-        self.user_settings.max_question_repetitions = 0
+        self.user_settings.max_question_reoccurrences = 0
         self.user_settings.save()
 
         for i in range(5):
