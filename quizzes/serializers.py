@@ -23,18 +23,24 @@ from users.serializers import (
 class AnswerSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(required=False)
 
+    image_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
+    image = serializers.URLField(read_only=True)
+
     class Meta:
         model = Answer
-        fields = ["id", "order", "text", "image", "is_correct"]
+        fields = ["id", "order", "text", "image_url", "image", "is_correct"]
 
 
 class QuestionSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(required=False)
     answers = AnswerSerializer(many=True)
 
+    image_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
+    image = serializers.URLField(read_only=True)
+
     class Meta:
         model = Question
-        fields = ["id", "order", "text", "image", "explanation", "multiple", "answers"]
+        fields = ["id", "order", "text", "image_url", "image", "explanation", "multiple", "answers"]
 
 
 class QuizSerializer(serializers.ModelSerializer):
@@ -164,7 +170,7 @@ class QuizSerializer(serializers.ModelSerializer):
         questions_to_create = []
         answers_to_sync = []
 
-        question_fields = ["order", "text", "image", "explanation", "multiple"]
+        question_fields = ["order", "text", "image_url", "explanation", "multiple"]
 
         for q_data in questions_data:
             answers_data = q_data.pop("answers", [])
@@ -210,7 +216,7 @@ class QuizSerializer(serializers.ModelSerializer):
         all_answers_to_create = []
         all_answer_ids_to_delete = set()
 
-        answer_fields = ["order", "text", "image", "is_correct"]
+        answer_fields = ["order", "text", "image_url", "is_correct"]
 
         for question, answers_data in answers_to_sync:
             existing_answers = {a.id: a for a in question.answers.all()}

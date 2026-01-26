@@ -440,7 +440,7 @@ class QuizViewSet(viewsets.ModelViewSet):
                     quiz=new_quiz,
                     order=q.order,
                     text=q.text,
-                    image=q.image,
+                    image_url=q.image_url,
                     explanation=q.explanation,
                     multiple=q.multiple,
                 )
@@ -456,7 +456,7 @@ class QuizViewSet(viewsets.ModelViewSet):
                         question_id=new_q.id,
                         order=answer.order,
                         text=answer.text,
-                        image=answer.image,
+                        image_url=answer.image_url,
                         is_correct=answer.is_correct,
                     )
                 )
