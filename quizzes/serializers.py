@@ -415,6 +415,7 @@ class DurationInSecondsField(serializers.Field):
 
 class AnswerRecordSerializer(serializers.ModelSerializer):
     """Serializer for AnswerRecord."""
+
     class Meta:
         model = AnswerRecord
         fields = [
@@ -423,6 +424,7 @@ class AnswerRecordSerializer(serializers.ModelSerializer):
             "selected_answers",
             "was_correct",
             "answered_at",
+            "skipped_due_to_limit",
         ]
         read_only_fields = ["id", "answered_at", "was_correct"]
 

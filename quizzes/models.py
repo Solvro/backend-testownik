@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from email.policy import default
 from warnings import deprecated
 
 from django.db import models
@@ -193,6 +194,7 @@ class AnswerRecord(models.Model):
     answered_at = models.DateTimeField(auto_now_add=True)
     selected_answers = models.JSONField(default=list)  # List of Answer UUIDs
     was_correct = models.BooleanField()
+    skipped_due_to_limit = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["-answered_at"]
