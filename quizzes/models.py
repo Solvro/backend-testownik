@@ -1,6 +1,5 @@
 import uuid
 from datetime import timedelta
-from email.policy import default
 from warnings import deprecated
 
 from django.db import models

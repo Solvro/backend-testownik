@@ -1,7 +1,6 @@
 import random
 import urllib.parse
 import uuid
-from asyncio.unix_events import SelectorEventLoop
 from datetime import timedelta
 
 from django.conf import settings
@@ -375,7 +374,7 @@ class QuizViewSet(viewsets.ModelViewSet):
                 return Response(
                     {
                         "status": "skipped",
-                        "message": f"Wykorzystałeś wszystkie próby ({max_question_reoccurrences}/{max_question_reoccurrences}) dla tego pytania",
+                        "message": f"Wykorzystałeś wszystkie próby ({max_question_reoccurrences}/{max_question_reoccurrences}) dla tego pytania",  # noqa: E501
                         "max_question_reoccurrences": max_question_reoccurrences,
                         "attempts_used": attempt_count,
                         "skipped_question_id": str(question_id),
