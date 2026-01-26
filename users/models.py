@@ -96,6 +96,9 @@ class UserSettings(models.Model):
     # quiz settings
     initial_reoccurrences = models.IntegerField(default=1)
     wrong_answer_reoccurrences = models.IntegerField(default=1)
+    max_question_repetitions = models.PositiveIntegerField(
+        default=3, help_text="Maksymalna liczba powtórzeń tego samego pytania w jednej sesji"
+    )
 
     # user notification preferences
     notify_quiz_shared = models.BooleanField(default=True)
