@@ -1,14 +1,15 @@
+import uuid
+
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
-import uuid
 
 from quizzes.models import (
-    Quiz,
-    Question,
     Answer,
-    QuizSession,
     AnswerRecord,
+    Question,
+    Quiz,
+    QuizSession,
 )
 from users.models import User, UserSettings
 
@@ -182,18 +183,29 @@ class MaxQuestionRepetitionsBasicTestCase(APITestCase):
                 'selected_answers': [str(self.answer_wrong1.id)]
             }, format='json')
 
+            self.assertEqual(
+                response.status_code,
+                status.HTTP_201_CREATED,
+                f"Odpowiedź {i + 1}/3 powinna być zaakceptowana"
+            )
+
         # Próba po limicie
-        response = self.client.post(self.url, {
+        blocked_response = self.client.post(self.url, {
             'question_id': str(self.question.id),
             'selected_answers': [str(self.answer_correct.id)]
         }, format='json')
 
+        self.assertEqual(
+            blocked_response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            "Czwarta odpowiedź powinna być zablokowana"
+        )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('max_question_repetitions', response.data)
-        self.assertEqual(response.data['max_question_repetitions'], 3)
-        self.assertEqual(response.data['attempts_used'], 3)
-        self.assertEqual(response.data['remaining_attempts'], 0)
+        self.assertIn('error', blocked_response.data)
+        self.assertIn('max_question_repetitions', blocked_response.data)
+        self.assertEqual(blocked_response.data['max_question_repetitions'], 3)
+        self.assertEqual(blocked_response.data['attempts_used'], 3)
+        self.assertEqual(blocked_response.data['remaining_attempts'], 0)
 
     def test_limit_zero_disables_restriction(self):
         """Test: Ustawienie limitu na 0 wyłącza ograniczenie."""
