@@ -25,7 +25,7 @@ class AnswerSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(required=False)
 
     image_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
-    image = serializers.URLField(read_only=True)
+    image = serializers.SerializerMethodField()
     image_upload = serializers.PrimaryKeyRelatedField(
         queryset=UploadedImage.objects.all(), required=False, allow_null=True
     )
@@ -46,13 +46,22 @@ class AnswerSerializer(serializers.ModelSerializer):
             "is_correct",
         ]
 
+    def get_image(self, obj):
+        if obj.image_upload and obj.image_upload.image:
+            request = self.context.get("request")
+            url = obj.image_upload.image.url
+            if request is not None:
+                return request.build_absolute_uri(url)
+            return url
+        return obj.image_url
+
 
 class QuestionSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(required=False)
     answers = AnswerSerializer(many=True)
 
     image_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
-    image = serializers.URLField(read_only=True)
+    image = serializers.SerializerMethodField()
     image_upload = serializers.PrimaryKeyRelatedField(
         queryset=UploadedImage.objects.all(), required=False, allow_null=True
     )
@@ -74,6 +83,15 @@ class QuestionSerializer(serializers.ModelSerializer):
             "multiple",
             "answers",
         ]
+
+    def get_image(self, obj):
+        if obj.image_upload and obj.image_upload.image:
+            request = self.context.get("request")
+            url = obj.image_upload.image.url
+            if request is not None:
+                return request.build_absolute_uri(url)
+            return url
+        return obj.image_url
 
 
 class QuizSerializer(serializers.ModelSerializer):
