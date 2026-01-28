@@ -1,6 +1,7 @@
 import logging
 
 from django.core.exceptions import ValidationError
+from django.utils.text import Truncator
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import permissions, status
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -87,7 +88,7 @@ class ImageUploadView(APIView):
 
         uploaded_image = UploadedImage.objects.create(
             image=processed_file,
-            original_filename=image_file.name[:255],
+            original_filename=Truncator(image_file.name).chars(255, truncate=""),
             content_type=content_type,
             file_size=processed_file.size,
             width=width,

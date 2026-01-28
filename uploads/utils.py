@@ -72,7 +72,9 @@ def process_uploaded_image(image_file):
     if is_animated:
         img_format = img.format or detected_format or "GIF"
         content_type = FORMAT_TO_MIME.get(img_format, "image/gif")
-        extension = os.path.splitext(image_file.name)[1] or ".gif"
+        original_ext = os.path.splitext(image_file.name)[1].lower()
+        format_ext = f".{img_format.lower()}" if img_format else ".gif"
+        extension = original_ext if original_ext else format_ext
 
         if img_format == "GIF":
             img.save(output, format="GIF", save_all=True, optimize=True)

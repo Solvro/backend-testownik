@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.db.models import Count
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from .models import UploadedImage
 
@@ -46,9 +47,12 @@ class UploadedImageAdmin(admin.ModelAdmin):
     def thumbnail_preview(self, obj):
         """Display small thumbnail in list view."""
         if obj.image:
-            return format_html(
-                '<img src="{}" style="max-height: 50px; max-width: 80px; object-fit: contain;" />', obj.image.url
-            )
+            try:
+                return format_html(
+                    '<img src="{}" style="max-height: 50px; max-width: 80px; object-fit: contain;" />', obj.image.url
+                )
+            except Exception:
+                return mark_safe('<span style="color: #c00;">File missing</span>')
         return "-"
 
     thumbnail_preview.short_description = "Preview"
@@ -56,7 +60,10 @@ class UploadedImageAdmin(admin.ModelAdmin):
     def image_preview(self, obj):
         """Display larger image preview in detail view."""
         if obj.image:
-            return format_html('<img src="{}" style="max-height: 300px; max-width: 500px;" />', obj.image.url)
+            try:
+                return format_html('<img src="{}" style="max-height: 300px; max-width: 500px;" />', obj.image.url)
+            except Exception:
+                return mark_safe('<span style="color: #c00;">File missing from storage</span>')
         return "-"
 
     image_preview.short_description = "Image Preview"
@@ -87,7 +94,7 @@ class UploadedImageAdmin(admin.ModelAdmin):
         """Count how many questions/answers reference this image."""
         count = obj._question_count + obj._answer_count
         if count == 0:
-            return format_html('<span style="color: #999;">0 (orphan)</span>')
+            return mark_safe('<span style="color: #999;">0 (orphan)</span>')
         return count
 
     reference_count.short_description = "References"
