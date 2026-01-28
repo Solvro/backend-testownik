@@ -12,6 +12,7 @@ from quizzes.models import (
     QuizSession,
     SharedQuiz,
 )
+from uploads.models import UploadedImage
 from users.models import StudyGroup, User
 from users.serializers import (
     PublicUserSerializer,
@@ -25,10 +26,25 @@ class AnswerSerializer(serializers.ModelSerializer):
 
     image_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
     image = serializers.URLField(read_only=True)
+    image_upload = serializers.PrimaryKeyRelatedField(
+        queryset=UploadedImage.objects.all(), required=False, allow_null=True
+    )
+    image_width = serializers.IntegerField(source="image_upload.width", read_only=True, allow_null=True)
+    image_height = serializers.IntegerField(source="image_upload.height", read_only=True, allow_null=True)
 
     class Meta:
         model = Answer
-        fields = ["id", "order", "text", "image_url", "image", "is_correct"]
+        fields = [
+            "id",
+            "order",
+            "text",
+            "image_url",
+            "image",
+            "image_upload",
+            "image_width",
+            "image_height",
+            "is_correct",
+        ]
 
 
 class QuestionSerializer(serializers.ModelSerializer):
@@ -37,10 +53,27 @@ class QuestionSerializer(serializers.ModelSerializer):
 
     image_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
     image = serializers.URLField(read_only=True)
+    image_upload = serializers.PrimaryKeyRelatedField(
+        queryset=UploadedImage.objects.all(), required=False, allow_null=True
+    )
+    image_width = serializers.IntegerField(source="image_upload.width", read_only=True, allow_null=True)
+    image_height = serializers.IntegerField(source="image_upload.height", read_only=True, allow_null=True)
 
     class Meta:
         model = Question
-        fields = ["id", "order", "text", "image_url", "image", "explanation", "multiple", "answers"]
+        fields = [
+            "id",
+            "order",
+            "text",
+            "image_url",
+            "image",
+            "image_upload",
+            "image_width",
+            "image_height",
+            "explanation",
+            "multiple",
+            "answers",
+        ]
 
 
 class QuizSerializer(serializers.ModelSerializer):
@@ -170,7 +203,7 @@ class QuizSerializer(serializers.ModelSerializer):
         questions_to_create = []
         answers_to_sync = []
 
-        question_fields = ["order", "text", "image_url", "explanation", "multiple"]
+        question_fields = ["order", "text", "image_url", "image_upload", "explanation", "multiple"]
 
         for q_data in questions_data:
             answers_data = q_data.pop("answers", [])
@@ -216,7 +249,7 @@ class QuizSerializer(serializers.ModelSerializer):
         all_answers_to_create = []
         all_answer_ids_to_delete = set()
 
-        answer_fields = ["order", "text", "image_url", "is_correct"]
+        answer_fields = ["order", "text", "image_url", "image_upload", "is_correct"]
 
         for question, answers_data in answers_to_sync:
             existing_answers = {a.id: a for a in question.answers.all()}

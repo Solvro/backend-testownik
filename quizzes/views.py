@@ -441,6 +441,7 @@ class QuizViewSet(viewsets.ModelViewSet):
                     order=q.order,
                     text=q.text,
                     image_url=q.image_url,
+                    image_upload_id=q.image_upload_id,
                     explanation=q.explanation,
                     multiple=q.multiple,
                 )
@@ -457,6 +458,7 @@ class QuizViewSet(viewsets.ModelViewSet):
                         order=answer.order,
                         text=answer.text,
                         image_url=answer.image_url,
+                        image_upload_id=answer.image_upload_id,
                         is_correct=answer.is_correct,
                     )
                 )
@@ -562,14 +564,18 @@ class ReportQuestionIssueView(APIView):
                 status=400,
             )
 
-        # Email details
+        try:
+            question = Question.objects.get(id=data.get("question_id"), quiz=quiz)
+        except Question.DoesNotExist:
+            return Response({"error": "Question not found"}, status=404)
+
         subject = "Zgłoszenie błędu w pytaniu"
-        query_params = urllib.parse.urlencode({"scroll_to": f"question-{data.get('question_id')}"})
+        query_params = urllib.parse.urlencode({"scroll_to": f"question-{question.id}"})
         cta_url = f"{settings.FRONTEND_URL}/edit-quiz/{quiz.id}/?{query_params}"
 
         content = (
             f"{escape(request.user.full_name)} zgłosił błąd w pytaniu "
-            f"{escape(str(data.get('question_id')))} quizu {escape(quiz.title)}.\n\n"
+            f'"{escape(question.text)}" quizu {escape(quiz.title)}.\n\n'
             f"{escape(data.get('issue'))}"
         )
 
