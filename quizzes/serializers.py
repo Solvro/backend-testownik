@@ -13,7 +13,7 @@ from quizzes.models import (
     SharedQuiz,
 )
 from uploads.models import UploadedImage
-from users.models import StudyGroup, User
+from users.models import StudyGroup, User, UserSettings
 from users.serializers import (
     PublicUserSerializer,
     StudyGroupSerializer,
@@ -134,14 +134,12 @@ class QuizSerializer(serializers.ModelSerializer):
             includes = [item.strip() for item in request.query_params.get("include", "").split(",")] if request else []
 
             if "user_settings" in includes and hasattr(user, "settings"):
-                data["user_settings"] = UserSettingsSerializer(user.settings).data
+                user_settings, _ = UserSettings.objects.get_or_create(user=request.user)
+                data["user_settings"] = UserSettingsSerializer(user_settings).data
 
             if "current_session" in includes:
                 session, _ = QuizSession.get_or_create_active(instance, request.user)
-                if session:
-                    data["current_session"] = QuizSessionSerializer(session).data
-                else:
-                    data["current_session"] = None
+                data["current_session"] = QuizSessionSerializer(session).data
 
         return data
 
