@@ -12,10 +12,10 @@ def image_upload_path(instance, filename):
 
     Path format: images/YYYY/MM/DD/<uuid>.<ext>
     """
-
     now = timezone.now()
     ext = os.path.splitext(filename)[1].lower()
-    return f"images/{now.year}/{now.month:02d}/{now.day:02d}/{instance.id}{ext}"
+    instance_id = instance.id or uuid.uuid4()
+    return f"images/{now.year}/{now.month:02d}/{now.day:02d}/{instance_id}{ext}"
 
 
 class UploadedImage(models.Model):

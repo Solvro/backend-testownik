@@ -71,7 +71,10 @@ base_urlpatterns = [
 urlpatterns = [
     path("api/", include(base_urlpatterns)),
     path("", ApiIndexView.as_view(), name="index"),
-] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 # Admin site settings
 admin.site.site_url = settings.FRONTEND_URL

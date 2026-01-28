@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.core.management.base import BaseCommand
+from django.db.models import Sum
 from django.utils import timezone
 
 from uploads.models import UploadedImage
@@ -47,7 +48,7 @@ class Command(BaseCommand):
         ).distinct()
 
         orphan_count = orphans.count()
-        total_size = sum(img.file_size or 0 for img in orphans)
+        total_size = orphans.aggregate(total=Sum("file_size"))["total"] or 0
 
         self.stdout.write("\nImage Statistics:")
         self.stdout.write(f"   Total images: {total_images}")

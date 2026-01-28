@@ -94,7 +94,7 @@ def process_uploaded_image(image_file):
             output,
             format="AVIF",
             quality=80,
-            speed=6,
+            speed=8,
         )
 
     output.seek(0)
