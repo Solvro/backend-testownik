@@ -74,7 +74,14 @@ class Question(models.Model):
     order = models.PositiveIntegerField()
     text = models.TextField()
     image_url = models.URLField(blank=True, null=True, max_length=512)
-    explanation = models.TextField(blank=True, null=True)
+    image_upload = models.ForeignKey(
+        "uploads.UploadedImage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="questions",
+    )
+    explanation = models.TextField(blank=True)
     multiple = models.BooleanField(default=False)
 
     class Meta:
@@ -85,6 +92,8 @@ class Question(models.Model):
 
     @property
     def image(self):
+        if self.image_upload_id:
+            return self.image_upload.image.url
         return self.image_url
 
 
@@ -94,6 +103,13 @@ class Answer(models.Model):
     order = models.PositiveIntegerField()
     text = models.TextField()
     image_url = models.URLField(blank=True, null=True, max_length=512)
+    image_upload = models.ForeignKey(
+        "uploads.UploadedImage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="answers",
+    )
     is_correct = models.BooleanField(default=False)
 
     class Meta:
@@ -104,6 +120,8 @@ class Answer(models.Model):
 
     @property
     def image(self):
+        if self.image_upload_id:
+            return self.image_upload.image.url
         return self.image_url
 
 

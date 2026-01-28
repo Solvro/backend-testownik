@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     "alerts.apps.AlertsConfig",
     "maintenance.apps.MaintenanceConfig",
     "testownik_core.apps.TestownikCoreConfig",
+    "uploads.apps.UploadsConfig",
     "constance",
     "constance.backends.database",
     "rest_framework",
@@ -219,6 +220,30 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [
     BASE_DIR / "static",
 ]
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+if not DEBUG:
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3.S3Storage",
+            "OPTIONS": {
+                "access_key": os.getenv("S3_ACCESS_KEY_ID"),
+                "secret_key": os.getenv("S3_SECRET_ACCESS_KEY"),
+                "bucket_name": os.getenv("S3_BUCKET_NAME"),
+                "region_name": os.getenv("S3_REGION_NAME", "eu-central-1"),
+                "endpoint_url": os.getenv("S3_ENDPOINT_URL"),
+                "custom_domain": os.getenv("S3_CUSTOM_DOMAIN"),
+                "file_overwrite": False,
+                "default_acl": "public-read",
+                "querystring_auth": False,
+            },
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
