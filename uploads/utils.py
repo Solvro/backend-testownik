@@ -8,7 +8,15 @@ from PIL import Image, ImageOps
 
 MAX_DIMENSION = 1920
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-ALLOWED_TYPES = frozenset(["image/jpeg", "image/png", "image/gif", "image/webp", "image/avif"])
+
+# Map PIL format names to MIME types
+FORMAT_TO_MIME = {
+    "JPEG": "image/jpeg",
+    "PNG": "image/png",
+    "GIF": "image/gif",
+    "WEBP": "image/webp",
+    "AVIF": "image/avif",
+}
 
 Image.MAX_IMAGE_PIXELS = 178956970  # ~13400x13400 pixels
 
@@ -19,14 +27,14 @@ def process_uploaded_image(image_file):
 
     Performs:
     1. File size validation
-    2. Content-type validation
-    3. Image integrity verification
+    2. Image integrity verification
+    3. Format validation
     4. EXIF orientation correction
     5. Resize if exceeds MAX_DIMENSION
     6. Convert to AVIF for optimal compression
 
     Returns:
-        tuple: (processed_file, width, height)
+        tuple: (processed_file, width, height, content_type)
 
     Raises:
         ValidationError: If validation fails
@@ -35,11 +43,6 @@ def process_uploaded_image(image_file):
         raise ValidationError(
             f"File too large. Maximum size is {MAX_FILE_SIZE // (1024 * 1024)}MB, "
             f"got {image_file.size / (1024 * 1024):.1f}MB."
-        )
-
-    if image_file.content_type not in ALLOWED_TYPES:
-        raise ValidationError(
-            f"Unsupported file type '{image_file.content_type}'. Allowed: JPEG, PNG, GIF, WEBP, AVIF."
         )
 
     try:
@@ -51,20 +54,24 @@ def process_uploaded_image(image_file):
     image_file.seek(0)
     img = Image.open(image_file)
 
+    detected_format = img.format
+    if detected_format not in FORMAT_TO_MIME:
+        raise ValidationError(f"Unsupported image format '{detected_format}'. Allowed: JPEG, PNG, GIF, WEBP, AVIF.")
+
     is_animated = getattr(img, "is_animated", False) or (hasattr(img, "n_frames") and img.n_frames > 1)
 
     img = ImageOps.exif_transpose(img) or img
 
     width, height = img.size
-    if width > MAX_DIMENSION or height > MAX_DIMENSION:
+    if not is_animated and (width > MAX_DIMENSION or height > MAX_DIMENSION):
         img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.Resampling.LANCZOS)
         width, height = img.size
 
     output = io.BytesIO()
 
     if is_animated:
-        img_format = img.format or "GIF"
-        content_type = image_file.content_type
+        img_format = img.format or detected_format or "GIF"
+        content_type = FORMAT_TO_MIME.get(img_format, "image/gif")
         extension = os.path.splitext(image_file.name)[1] or ".gif"
 
         if img_format == "GIF":

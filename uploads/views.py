@@ -29,7 +29,7 @@ class ImageUploadView(APIView):
     @extend_schema(
         summary="Upload an image",
         description=(
-            "Uploads an image file (max 5MB). Supported formats: JPEG, PNG, GIF, WEBP, AVIF. "
+            "Uploads an image file (max 10MB). Supported formats: JPEG, PNG, GIF, WEBP, AVIF. "
             "Images larger than 1920px are automatically resized. "
             "Static images are converted to AVIF. "
             "Animated GIFs are preserved in original format. "
@@ -73,7 +73,7 @@ class ImageUploadView(APIView):
                 image_file.name,
                 str(e),
             )
-            return Response({"error": str(e.message)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception:
             logger.exception(
                 "Image processing failed for user %s: %s",

@@ -92,7 +92,7 @@ class Question(models.Model):
 
     @property
     def image(self):
-        if self.image_upload_id:
+        if self.image_upload:
             return self.image_upload.image.url
         return self.image_url
 
@@ -120,7 +120,7 @@ class Answer(models.Model):
 
     @property
     def image(self):
-        if self.image_upload_id:
+        if self.image_upload:
             return self.image_upload.image.url
         return self.image_url
 

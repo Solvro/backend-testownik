@@ -29,8 +29,8 @@ class AnswerSerializer(serializers.ModelSerializer):
     image_upload = serializers.PrimaryKeyRelatedField(
         queryset=UploadedImage.objects.all(), required=False, allow_null=True
     )
-    image_width = serializers.IntegerField(source="image_upload.width", read_only=True)
-    image_height = serializers.IntegerField(source="image_upload.height", read_only=True)
+    image_width = serializers.IntegerField(source="image_upload.width", read_only=True, allow_null=True)
+    image_height = serializers.IntegerField(source="image_upload.height", read_only=True, allow_null=True)
 
     class Meta:
         model = Answer
@@ -56,8 +56,8 @@ class QuestionSerializer(serializers.ModelSerializer):
     image_upload = serializers.PrimaryKeyRelatedField(
         queryset=UploadedImage.objects.all(), required=False, allow_null=True
     )
-    image_width = serializers.IntegerField(source="image_upload.width", read_only=True)
-    image_height = serializers.IntegerField(source="image_upload.height", read_only=True)
+    image_width = serializers.IntegerField(source="image_upload.width", read_only=True, allow_null=True)
+    image_height = serializers.IntegerField(source="image_upload.height", read_only=True, allow_null=True)
 
     class Meta:
         model = Question

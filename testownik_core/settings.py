@@ -224,7 +224,7 @@ STATICFILES_DIRS = [
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
-if not DEBUG:
+if os.getenv("S3_BUCKET_NAME"):
     STORAGES = {
         "default": {
             "BACKEND": "storages.backends.s3.S3Storage",

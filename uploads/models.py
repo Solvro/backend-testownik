@@ -57,8 +57,8 @@ class UploadedImage(models.Model):
 
     def delete(self, *args, **kwargs):
         """Delete the file from storage when model is deleted."""
+        image = self.image
+        if image:
+            image.delete(save=False)
 
         super().delete(*args, **kwargs)
-
-        if self.image:
-            self.image.delete()

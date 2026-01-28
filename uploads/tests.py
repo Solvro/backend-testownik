@@ -2,6 +2,7 @@ from datetime import timedelta
 from io import BytesIO, StringIO
 
 from django.core.management import call_command
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
@@ -42,6 +43,48 @@ def create_animated_gif():
     return file
 
 
+def create_oversized_file():
+    """Create a file that exceeds the 10MB limit."""
+    file = BytesIO()
+    # Create a large uncompressed BMP-like data that will exceed 10MB
+    # 11MB of random data
+    file.write(b"\x00" * (11 * 1024 * 1024))
+    file.name = "oversized.jpg"
+    file.seek(0)
+    return file
+
+
+def create_unsupported_format_file():
+    """Create a file with unsupported format (BMP)."""
+    file = BytesIO()
+    image = Image.new("RGB", (100, 100), "white")
+    image.save(file, format="BMP")
+    file.name = "test.bmp"
+    file.seek(0)
+    return file
+
+
+def create_corrupted_image_file():
+    """Create a file that looks like an image but is corrupted."""
+    file = BytesIO()
+    # Write some garbage data that's not a valid image
+    file.write(b"This is not a valid image file content at all")
+    file.name = "corrupted.jpg"
+    file.seek(0)
+    return file
+
+
+# Use local filesystem storage for tests instead of S3
+@override_settings(
+    STORAGES={
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }
+)
 class UploadFlowTests(APITestCase):
     """Tests for the image upload workflow."""
 
@@ -118,6 +161,32 @@ class UploadFlowTests(APITestCase):
     def test_upload_no_file_fails(self):
         """Test that request without file returns error."""
         response = self.client.post(self.upload_url, {}, format="multipart")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", response.data)
+
+    def test_upload_file_too_large(self):
+        """Test that files exceeding size limit are rejected."""
+        img = create_oversized_file()
+        response = self.client.post(self.upload_url, {"image": img}, format="multipart")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", response.data)
+        self.assertIn("too large", response.data["error"].lower())
+
+    def test_upload_unsupported_format(self):
+        """Test that unsupported file formats are rejected."""
+        img = create_unsupported_format_file()
+        response = self.client.post(self.upload_url, {"image": img}, format="multipart")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", response.data)
+        self.assertIn("unsupported", response.data["error"].lower())
+
+    def test_upload_corrupted_image(self):
+        """Test that corrupted image files are rejected."""
+        img = create_corrupted_image_file()
+        response = self.client.post(self.upload_url, {"image": img}, format="multipart")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response.data)

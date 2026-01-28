@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.db.models import Count
 from django.utils.html import format_html
 
 from .models import UploadedImage
@@ -33,6 +34,14 @@ class UploadedImageAdmin(admin.ModelAdmin):
     ]
     ordering = ["-uploaded_at"]
     date_hierarchy = "uploaded_at"
+
+    def get_queryset(self, request):
+        """Annotate queryset with reference counts to avoid unnecessary queries."""
+        qs = super().get_queryset(request)
+        return qs.annotate(
+            _question_count=Count("questions", distinct=True),
+            _answer_count=Count("answers", distinct=True),
+        )
 
     def thumbnail_preview(self, obj):
         """Display small thumbnail in list view."""
@@ -76,7 +85,7 @@ class UploadedImageAdmin(admin.ModelAdmin):
 
     def reference_count(self, obj):
         """Count how many questions/answers reference this image."""
-        count = obj.questions.count() + obj.answers.count()
+        count = obj._question_count + obj._answer_count
         if count == 0:
             return format_html('<span style="color: #999;">0 (orphan)</span>')
         return count

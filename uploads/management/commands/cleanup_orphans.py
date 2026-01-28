@@ -1,7 +1,6 @@
 from datetime import timedelta
 
 from django.core.management.base import BaseCommand
-from django.db import transaction
 from django.utils import timezone
 
 from uploads.models import UploadedImage
@@ -84,14 +83,13 @@ class Command(BaseCommand):
         deleted_count = 0
         failed_count = 0
 
-        with transaction.atomic():
-            for img in orphans:
-                try:
-                    img.delete()
-                    deleted_count += 1
-                except Exception as e:
-                    failed_count += 1
-                    self.stderr.write(self.style.ERROR(f"Failed to delete {img.id}: {e}"))
+        for img in orphans:
+            try:
+                img.delete()
+                deleted_count += 1
+            except Exception as e:
+                failed_count += 1
+                self.stderr.write(self.style.ERROR(f"Failed to delete {img.id}: {e}"))
 
         self.stdout.write(
             self.style.SUCCESS(
