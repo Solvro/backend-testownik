@@ -92,6 +92,7 @@ class QuizSessionAdmin(admin.ModelAdmin):
         "started_at",
         "correct_count_display",
         "wrong_count_display",
+        "updated_at",
     ]
     list_filter = ["is_active", "started_at"]
     search_fields = ["quiz__title", "user__first_name", "user__last_name", "user__email"]

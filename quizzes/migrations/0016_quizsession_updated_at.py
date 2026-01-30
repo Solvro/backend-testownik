@@ -3,6 +3,27 @@
 from django.db import migrations, models
 
 
+def backfill_updated_at(apps, schema_editor):
+    QuizSession = apps.get_model("quizzes", "QuizSession")
+    AnswerRecord = apps.get_model("quizzes", "AnswerRecord")
+
+    for session in QuizSession.objects.all():
+        last_answer = (
+            AnswerRecord.objects.filter(session_id=session.id)
+            .order_by("-answered_at")
+            .first()
+        )
+        
+        if last_answer:
+            QuizSession.objects.filter(id=session.id).update(
+                updated_at=last_answer.answered_at
+            )
+        else:
+            QuizSession.objects.filter(id=session.id).update(
+                updated_at=session.started_at
+            )
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -15,4 +36,5 @@ class Migration(migrations.Migration):
             name="updated_at",
             field=models.DateTimeField(auto_now=True),
         ),
+        migrations.RunPython(backfill_updated_at, migrations.RunPython.noop),
     ]
