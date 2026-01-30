@@ -493,10 +493,11 @@ class QuizSessionSerializer(serializers.ModelSerializer):
             "study_time",
             "is_active",
             "started_at",
+            "updated_at",
             "ended_at",
             "answers",
         ]
-        read_only_fields = ["id", "quiz", "user", "started_at", "ended_at"]
+        read_only_fields = ["id", "quiz", "user", "started_at", "updated_at", "ended_at"]
 
 
 class MoveQuizSerializer(serializers.Serializer):

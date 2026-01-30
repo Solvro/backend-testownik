@@ -147,7 +147,7 @@ class LastUsedQuizzesView(generics.ListAPIView):
         return (
             Quiz.objects.filter(sessions__user=self.request.user, sessions__is_active=True)
             .select_related("maintainer")
-            .order_by("-sessions__started_at")
+            .order_by("-sessions__updated_at")
             .distinct()
         )
 
@@ -369,7 +369,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             was_correct=was_correct,
         )
 
-        update_fields = []
+        update_fields = ["updated_at"]
         if "study_time" in request.data:
             try:
                 study_time_seconds = float(request.data["study_time"])
@@ -390,8 +390,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             session.current_question_id = next_question_id
             update_fields.append("current_question_id")
 
-        if update_fields:
-            session.save(update_fields=update_fields)
+        session.save(update_fields=update_fields)
 
         return Response(AnswerRecordSerializer(record).data, status=201)
 
