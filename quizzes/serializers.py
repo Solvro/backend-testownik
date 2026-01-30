@@ -473,14 +473,7 @@ class AnswerRecordSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AnswerRecord
-        fields = [
-            "id",
-            "question",
-            "selected_answers",
-            "was_correct",
-            "answered_at",
-            "skipped_due_to_limit",
-        ]
+        fields = ["id", "question", "selected_answers", "was_correct", "answered_at"]
         read_only_fields = ["id", "answered_at", "was_correct"]
 
 

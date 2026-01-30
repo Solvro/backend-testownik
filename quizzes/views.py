@@ -6,7 +6,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Count, Max, Q
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.html import escape
 from drf_spectacular.utils import (
@@ -352,45 +352,6 @@ class QuizViewSet(viewsets.ModelViewSet):
         except (Question.DoesNotExist, ValueError, TypeError, ValidationError):
             return Response({"error": "Question not found in this quiz"}, status=404)
 
-        user_settings = getattr(request.user, "settings", None)
-        max_question_reoccurrences = (
-            getattr(user_settings, "max_question_reoccurrences", None) if user_settings else None
-        )
-        if max_question_reoccurrences is not None and max_question_reoccurrences > 0:
-            attempt_count = AnswerRecord.objects.filter(
-                session=session, question=question, skipped_due_to_limit=False
-            ).count()
-            if attempt_count >= max_question_reoccurrences:
-                AnswerRecord.objects.create(
-                    session=session,
-                    question=question,
-                    selected_answers=[],
-                    was_correct=False,
-                    skipped_due_to_limit=True,
-                )
-
-                next_question = self._get_next_available_question(quiz, session, request.user)
-
-                return Response(
-                    {
-                        "status": "skipped",
-                        "message": f"Wykorzystałeś wszystkie próby ({max_question_reoccurrences}/{max_question_reoccurrences}) dla tego pytania",  # noqa: E501
-                        "max_question_reoccurrences": max_question_reoccurrences,
-                        "attempts_used": attempt_count,
-                        "skipped_question_id": str(question_id),
-                        "next_question": {
-                            "id": str(next_question.id) if next_question else None,
-                            "text": next_question.text if next_question else None,
-                            "answers": AnswerSerializer(next_question.answers.all(), many=True).data
-                            if next_question
-                            else [],
-                        }
-                        if next_question
-                        else None,
-                    },
-                    status=200,
-                )
-
         selected_ids = set(str(a) for a in selected_answers)
 
         answers = list(question.answers.all())
@@ -406,7 +367,6 @@ class QuizViewSet(viewsets.ModelViewSet):
             question=question,
             selected_answers=list(selected_ids),
             was_correct=was_correct,
-            skipped_due_to_limit=False,
         )
 
         update_fields = []
@@ -511,38 +471,6 @@ class QuizViewSet(viewsets.ModelViewSet):
             QuizSerializer(new_quiz, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
         )
-
-    def _get_next_available_question(self, quiz, session, user):
-        """
-        Returns the next available question that:
-         - Has not yet been answered correctly
-         - Has not reached the attempt limit
-        """
-        user_settings = getattr(user, "settings", None)
-        max_reps = getattr(user_settings, "max_question_reoccurrences", None) if user_settings else None
-
-        all_questions = quiz.questions.all().order_by("order")
-
-        answered_questions = (
-            AnswerRecord.objects.filter(session=session)
-            .values("question_id")
-            .annotate(attempts=Count("id"), is_correct=Max("was_correct"), is_skipped=Max("skipped_due_to_limit"))
-        )
-
-        answered_dict = {str(aq["question_id"]): aq for aq in answered_questions}
-
-        for question in all_questions:
-            q_stats = answered_dict.get(str(question.id))
-
-            if q_stats and q_stats["is_correct"]:
-                continue
-
-            if max_reps and q_stats and q_stats["attempts"] >= max_reps:
-                continue
-
-            return question
-
-        return None  # Brak dostępnych pytań
 
 
 class QuizMetadataView(APIView):
