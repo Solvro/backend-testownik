@@ -23,26 +23,18 @@ class RecordAnswerUpdatesSessionTest(APITestCase):
         self.url = reverse("quiz-detail", kwargs={"pk": self.quiz.id}) + "answer/"
 
     def test_record_answer_updates_session_timestamp(self):
-        # 1. Start a session explicitly or let the view create it
         session, _ = QuizSession.get_or_create_active(self.quiz, self.user)
-        original_updated_at = session.updated_at
 
-        # Ensure some time passes or mock time if needed,
-        # but since we are in a real DB test, we might run too fast.
-        # Let's manually set updated_at to the past to be sure.
         session.updated_at = timezone.now() - timedelta(minutes=10)
         session.save()
-        original_updated_at = session.updated_at  # refresh
+        original_updated_at = session.updated_at
 
-        # 2. Record answer
         data = {"question_id": self.question.id, "selected_answers": [self.answer.id]}
         response = self.client.post(self.url, data, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        # 3. Reload session
         session.refresh_from_db()
 
-        # 4. Verify updated_at is recent (changed)
         self.assertNotEqual(session.updated_at, original_updated_at)
-        self.assertTrue(session.updated_at > original_updated_at)
+        self.assertGreater(session.updated_at, original_updated_at)
