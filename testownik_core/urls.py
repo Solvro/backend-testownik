@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 from django.views.generic import TemplateView
@@ -64,12 +65,16 @@ base_urlpatterns = [
     path("", include("grades.urls")),
     path("", include("feedback.urls")),
     path("", include("alerts.urls")),
+    path("", include("uploads.urls")),
 ]
 
 urlpatterns = [
     path("api/", include(base_urlpatterns)),
     path("", ApiIndexView.as_view(), name="index"),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 # Admin site settings
 admin.site.site_url = settings.FRONTEND_URL
