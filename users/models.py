@@ -4,6 +4,7 @@ from datetime import date, timedelta
 
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import BooleanField
 from django.utils.timezone import now
@@ -119,8 +120,15 @@ class UserSettings(models.Model):
     sync_progress = models.BooleanField(default=True)
 
     # quiz settings
-    initial_reoccurrences = models.IntegerField(default=1)
+    initial_reoccurrences = models.IntegerField(default=1, validators=[MinValueValidator(1)])
     wrong_answer_reoccurrences = models.IntegerField(default=1)
+    max_question_reoccurrences = models.PositiveIntegerField(
+        default=None,
+        help_text="Maksymalna liczba powtórzeń tego samego pytania w jednej sesji",
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1)],
+    )
 
     # user notification preferences
     notify_quiz_shared = models.BooleanField(default=True)
