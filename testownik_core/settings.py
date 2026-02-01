@@ -34,7 +34,7 @@ SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-mo_va&2*lmj8z2ymm5i##wze&u
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", "False") == "True"
 
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost").split(",")
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
 CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 
@@ -48,7 +48,7 @@ PREVIEW_ORIGIN_REGEXES = [
 if ALLOW_PREVIEW_ENVIRONMENTS:
     CORS_ALLOWED_ORIGIN_REGEXES = PREVIEW_ORIGIN_REGEXES
 
-CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:8000").split(",")
+CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:3000").split(",")
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 
@@ -259,11 +259,23 @@ if os.getenv("S3_BUCKET_NAME"):
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Email settings
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = os.getenv("EMAIL_HOST")
+if EMAIL_HOST:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "False") == "True"
 EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "False") == "True"
-EMAIL_PORT = os.getenv("EMAIL_PORT", 587)
+EMAIL_PORT_ENV = os.getenv("EMAIL_PORT")
+if EMAIL_PORT_ENV is None:
+    EMAIL_PORT = 587
+else:
+    try:
+        EMAIL_PORT = int(EMAIL_PORT_ENV)
+    except ValueError:
+        logger.warning("Invalid EMAIL_PORT '%s', falling back to default 587", EMAIL_PORT_ENV)
+        EMAIL_PORT = 587
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Testownik Solvro <testownik@solvro.pl>")
