@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from asyncio import CancelledError, sleep
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -26,7 +27,12 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from usos_api import USOSAPIException, USOSClient
 
 from quizzes.models import QuizProgress, SharedQuiz
-from testownik_core.settings import oauth
+from testownik_core.settings import (
+    ALLOW_PREVIEW_ENVIRONMENTS,
+    ALLOWED_REDIRECT_ORIGINS,
+    PREVIEW_ORIGIN_REGEXES,
+    oauth,
+)
 from users.auth_cookies import set_jwt_cookies
 from users.models import EmailLoginToken, StudyGroup, Term, User, UserSettings
 from users.serializers import (
@@ -95,10 +101,48 @@ def remove_query_params(url, params):
     return str(urlunparse(url_parts))
 
 
+def is_safe_redirect_url(url: str) -> bool:
+    if not url:
+        return False
+
+    if url.startswith("//"):
+        return False
+
+    if url.startswith("/"):
+        return True
+
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+
+        if not parsed.netloc:
+            return False
+
+        url_origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+
+        if url_origin in ALLOWED_REDIRECT_ORIGINS:
+            return True
+
+        if ALLOW_PREVIEW_ENVIRONMENTS:
+            for regex in PREVIEW_ORIGIN_REGEXES:
+                if re.match(regex, url_origin):
+                    return True
+
+        return False
+    except Exception:
+        return False
+
+
 def login(request):
     confirm_user = request.GET.get("confirm_user", "false") == "true"
     jwt = request.GET.get("jwt", "false") == "true"
     redirect_url = request.GET.get("redirect", "")
+
+    if redirect_url and not is_safe_redirect_url(redirect_url):
+        logger.warning("Blocked unsafe redirect URL in login: %s", redirect_url)
+        return HttpResponseBadRequest("Invalid redirect URL")
+
     callback_url = request.build_absolute_uri(
         f"/api/authorize/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
     )
@@ -115,6 +159,10 @@ async def login_usos(request):
 
     if jwt and not redirect_url:
         return HttpResponseForbidden("Redirect URL must be provided when using JWT")
+
+    if redirect_url and not is_safe_redirect_url(redirect_url):
+        logger.warning("Blocked unsafe redirect URL in login_usos: %s", redirect_url)
+        return HttpResponseBadRequest("Invalid redirect URL")
 
     callback_url = request.build_absolute_uri(
         f"/api/authorize/usos/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
@@ -202,6 +250,10 @@ def authorize(request):
 
     redirect_url = request.GET.get("redirect", "index")
 
+    if not is_safe_redirect_url(redirect_url):
+        logger.warning("Blocked unsafe redirect URL in authorize: %s", redirect_url)
+        redirect_url = "index"
+
     if not profile.get("email"):
         logger.error("Solvro user profile missing email. Profile keys: %s", list(profile.keys()))
         if request.GET.get("jwt", "false") == "true":
@@ -228,6 +280,10 @@ def authorize(request):
 
 async def authorize_usos(request):
     redirect_url = request.GET.get("redirect", "index")
+
+    if not is_safe_redirect_url(redirect_url):
+        logger.warning("Blocked unsafe redirect URL in authorize_usos: %s", redirect_url)
+        redirect_url = "index"
 
     async with USOSClient(
         "https://apps.usos.pwr.edu.pl/",
