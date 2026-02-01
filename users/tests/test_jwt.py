@@ -8,7 +8,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.exceptions import InvalidToken
 
-from users.models import User
+from users.models import EmailLoginToken, User
 from users.serializers import UserTokenObtainPairSerializer, UserTokenRefreshSerializer
 
 
@@ -262,3 +262,136 @@ class OTPLoginCookieTestCase(APITestCase):
 
         # Verify response body contains success message
         self.assertEqual(response.data.get("message"), "Login successful")
+
+
+class BannedUserTestCase(APITestCase):
+    """Tests for banned user functionality."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="test@example.com",
+            first_name="Test",
+            last_name="User",
+            student_number="123456",
+            password="testpassword123",
+        )
+        self.banned_user = User.objects.create_user(
+            email="banned@example.com",
+            first_name="Banned",
+            last_name="User",
+            student_number="654321",
+            password="testpassword123",
+            is_banned=True,
+            ban_reason="Violated terms of service",
+        )
+
+    def test_token_obtain_banned_user_returns_custom_error(self):
+        """Test that logging in as a banned user returns custom error message."""
+        url = reverse("token_obtain_pair")
+        data = {
+            "email": self.banned_user.email,
+            "password": "testpassword123",
+        }
+        response = self.client.post(url, data, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertIn("user_banned", str(response.data))
+        self.assertIn("Violated terms of service", str(response.data))
+
+    def test_token_refresh_banned_user_returns_401(self):
+        """Test that refreshing token for a banned user returns 401 with ban info."""
+        refresh = UserTokenObtainPairSerializer.get_token(self.banned_user)
+
+        url = reverse("token_refresh")
+        response = self.client.post(url, {"refresh": str(refresh)}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertIn("user_banned", str(response.data))
+
+    def test_banned_user_cannot_access_protected_endpoints(self):
+        """Test that banned users get 401 when accessing protected endpoints.
+
+        Note: With is_active=False for banned users, JWT authentication rejects
+        the user at the auth layer before permissions are even checked.
+        """
+        # First get a valid token for the banned user
+        refresh = UserTokenObtainPairSerializer.get_token(self.banned_user)
+        access_token = str(refresh.access_token)
+
+        # Try to access a protected endpoint
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
+        url = reverse("api_current_user")
+        response = self.client.get(url)
+
+        # Auth layer blocks with 401, not permission layer with 403
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_non_banned_user_can_access_protected_endpoints(self):
+        """Test that non-banned users can access protected endpoints normally."""
+        refresh = UserTokenObtainPairSerializer.get_token(self.user)
+        access_token = str(refresh.access_token)
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
+        url = reverse("api_current_user")
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_is_banned_claim_in_token(self):
+        """Test that is_banned is included in JWT token claims."""
+        # Non-banned user
+        token = UserTokenObtainPairSerializer.get_token(self.user)
+        self.assertFalse(token["is_banned"])
+
+        # Banned user
+        banned_token = UserTokenObtainPairSerializer.get_token(self.banned_user)
+        self.assertTrue(banned_token["is_banned"])
+
+    def test_unban_user_allows_access(self):
+        """Test that unbanning a user restores their access."""
+        # Unban the user
+        self.banned_user.is_banned = False
+        self.banned_user.ban_reason = None
+        self.banned_user.save()
+
+        # Get a new token
+        refresh = UserTokenObtainPairSerializer.get_token(self.banned_user)
+        access_token = str(refresh.access_token)
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
+        url = reverse("api_current_user")
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_login_otp_banned_user_returns_error(self):
+        """Test that OTP login for banned user returns 403 and custom error."""
+        # Create OTP token
+        token = EmailLoginToken.create_for_user(self.banned_user)
+
+        url = reverse("login_otp")
+        response = self.client.post(
+            url,
+            {"email": self.banned_user.email, "otp": token.otp_code},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("user_banned", str(response.data))
+        self.assertIn(self.banned_user.ban_reason, str(response.data))
+
+    def test_login_link_banned_user_returns_error(self):
+        """Test that magic link login for banned user returns 403 and custom error."""
+        # Create Link token
+        token = EmailLoginToken.create_for_user(self.banned_user)
+
+        url = reverse("login_link")
+        response = self.client.post(
+            url,
+            {"token": str(token.token)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("user_banned", str(response.data))
+        self.assertIn(self.banned_user.ban_reason, str(response.data))

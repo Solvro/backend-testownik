@@ -66,6 +66,9 @@ class User(AbstractBaseUser, PermissionsMixin):
         " user will still be able to be added by student_number",
     )
 
+    is_banned = BooleanField(default=False, help_text="Whether the user is banned from the platform")
+    ban_reason = models.TextField(null=True, blank=True, help_text="Reason for the ban")
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["first_name", "last_name"]
 
@@ -83,6 +86,11 @@ class User(AbstractBaseUser, PermissionsMixin):
     @property
     def full_name(self) -> str:
         return f"{self.first_name} {self.last_name}"
+
+    @property
+    def is_active(self) -> bool:
+        """User is active if not banned. Used by Django's authentication backends."""
+        return not self.is_banned
 
     @property
     def is_active_student_and_not_staff(self) -> bool:

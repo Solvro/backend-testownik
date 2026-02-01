@@ -24,21 +24,51 @@ class UserTokenObtainPairSerializer(TokenObtainPairSerializer):
         token["photo"] = user.photo
         token["is_staff"] = user.is_staff
         token["is_superuser"] = user.is_superuser
+        token["is_banned"] = user.is_banned
 
         return token
+
+    def validate(self, attrs):
+        email = attrs.get("email")
+        if email:
+            user = User.objects.filter(email=email).first()
+            if user and user.is_banned:
+                raise InvalidToken(
+                    {
+                        "code": "user_banned",
+                        "detail": "Your account has been banned.",
+                        "ban_reason": user.ban_reason or "No reason provided",
+                    }
+                )
+
+        return super().validate(attrs)
 
 
 class UserTokenRefreshSerializer(TokenRefreshSerializer):
     """Custom JWT refresh serializer that re-populates user data when refreshing tokens."""
 
     def validate(self, attrs):
+        refresh = RefreshToken(attrs["refresh"])
+        user_id = refresh.payload.get("user_id")
+
+        if user_id:
+            try:
+                user = User.objects.get(pk=user_id)
+                if user.is_banned:
+                    raise InvalidToken(
+                        {
+                            "code": "user_banned",
+                            "detail": "Your account has been banned.",
+                            "ban_reason": user.ban_reason or "No reason provided",
+                        }
+                    )
+            except User.DoesNotExist:
+                pass
+
         try:
             data = super().validate(attrs)
         except User.DoesNotExist:
             raise InvalidToken("User associated with this token no longer exists")
-
-        refresh = RefreshToken(attrs["refresh"])
-        user_id = refresh.payload.get("user_id")
 
         if user_id:
             try:

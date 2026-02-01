@@ -268,6 +268,17 @@ def authorize(request):
         },
     )
 
+    if user.is_banned:
+        logger.warning("Banned user attempted login. Email: %s", user.email)
+        if request.GET.get("jwt", "false") == "true":
+            auth_params = {"error": "user_banned"}
+            if user.ban_reason:
+                auth_params["ban_reason"] = user.ban_reason
+            return redirect(add_query_params(redirect_url, auth_params))
+
+        messages.error(request, f"Twoje konto zostało zablokowane: {user.ban_reason or 'Brak powodu'}")
+        return redirect(redirect_url)
+
     if request.GET.get("jwt", "false") == "true":
         refresh = UserTokenObtainPairSerializer.get_token(user)
         response = redirect(remove_query_params(redirect_url, ["error"]))
@@ -336,6 +347,17 @@ async def authorize_usos(request):
             return HttpResponseForbidden()
 
         user, created = await update_user_data_from_usos(client, access_token, access_token_secret)
+
+        if user.is_banned:
+            logger.warning("Banned user attempted USOS login. Email: %s", user.email)
+            if request.GET.get("jwt", "false") == "true":
+                auth_params = {"error": "user_banned"}
+                if user.ban_reason:
+                    auth_params["ban_reason"] = user.ban_reason
+                return redirect(add_query_params(redirect_url, auth_params))
+
+            messages.error(request, f"Twoje konto zostało zablokowane: {user.ban_reason or 'Brak powodu'}")
+            return redirect(redirect_url)
 
         if not user.is_student_and_not_staff:
             logger.warning(
@@ -781,6 +803,17 @@ class LoginOtpView(APIView):
             return Response({"error": "OTP code expired or retries limit reached"}, status=400)
 
         user = email_login_token.user
+        if user.is_banned:
+            email_login_token.delete()
+            return Response(
+                {
+                    "error": "user_banned",
+                    "detail": "Your account has been banned.",
+                    "ban_reason": user.ban_reason or "No reason provided",
+                },
+                status=403,
+            )
+
         refresh = UserTokenObtainPairSerializer.get_token(user)
         email_login_token.delete()
 
@@ -841,6 +874,17 @@ class LoginLinkView(APIView):
             return Response({"error": "Invalid or expired login link"}, status=400)
 
         user = email_login_token.user
+        if user.is_banned:
+            email_login_token.delete()
+            return Response(
+                {
+                    "error": "user_banned",
+                    "detail": "Your account has been banned.",
+                    "ban_reason": user.ban_reason or "No reason provided",
+                },
+                status=403,
+            )
+
         refresh = UserTokenObtainPairSerializer.get_token(user)
         email_login_token.delete()
 
