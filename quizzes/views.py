@@ -37,6 +37,7 @@ from quizzes.permissions import (
     IsFolderOwner,
     IsQuizMaintainer,
     IsQuizMaintainerOrCollaborator,
+    IsQuizReadable,
     IsSharedQuizMaintainerOrReadOnly,
 )
 from quizzes.serializers import (
@@ -244,27 +245,30 @@ class QuizViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
 
-        if not user.is_authenticated:
-            if self.action == "list":
+        if self.action == "list":
+            if not user.is_authenticated:
                 return Quiz.objects.none()
-            return Quiz.objects.filter(visibility__gte=2, allow_anonymous=True)
 
-        qs = Q(maintainer=user)
+            return Quiz.objects.filter(maintainer=user)
 
-        if self.action in ("retrieve", "update", "partial_update", "progress", "record_answer", "copy"):
-            qs |= Q(visibility__gte=2)  # Public/unlisted
-            qs |= Q(visibility__gte=1, sharedquiz__user=user)
-            qs |= Q(visibility__gte=1, sharedquiz__study_group__in=user.study_groups.all())
+        queryset = Quiz.objects.all()
 
-        queryset = Quiz.objects.filter(qs).distinct()
-
-        if self.action in ("retrieve", "copy"):
+        if self.action in ("retrieve", "copy", "metadata", "progress", "record_answer"):
             queryset = queryset.prefetch_related(
                 "questions__answers",
                 "sharedquiz_set__user",
             )
 
         return queryset
+
+    @extend_schema(
+        summary="Get quiz metadata",
+        responses={200: QuizMetaDataSerializer},
+    )
+    @action(detail=True, methods=["get"], serializer_class=QuizMetaDataSerializer)
+    def metadata(self, request, pk=None):
+        quiz = self.get_object()
+        return Response(self.get_serializer(quiz).data)
 
     def perform_create(self, serializer):
         serializer.save(maintainer=self.request.user)
@@ -280,6 +284,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         action_serializers = {
             "list": QuizMetaDataSerializer,
+            "metadata": QuizMetaDataSerializer,
             "move": MoveQuizSerializer,
         }
         return action_serializers.get(self.action, QuizSerializer)
@@ -316,7 +321,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         detail=True,
         methods=["get", "delete"],
         url_path="progress",
-        permission_classes=[permissions.IsAuthenticated],
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
     )
     def progress(self, request, pk=None):
         quiz = self.get_object()
@@ -336,7 +341,12 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         raise MethodNotAllowed(request.method)
 
-    @action(detail=True, methods=["post"], url_path="answer", permission_classes=[permissions.IsAuthenticated])
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="answer",
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
+    )
     def record_answer(self, request, pk=None):
         """Record an answer for the current session."""
         quiz = self.get_object()
@@ -403,6 +413,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         ),
         responses={
             201: OpenApiResponse(description="Created copy of quiz"),
+            403: OpenApiResponse(description="Forbidden"),
             404: OpenApiResponse(description="Not Found"),
             429: OpenApiResponse(description="Too Many Requests"),
         },
@@ -410,7 +421,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=["post"],
-        permission_classes=[permissions.IsAuthenticated],
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
         throttle_classes=[CopyQuizThrottle],
     )
     @transaction.atomic

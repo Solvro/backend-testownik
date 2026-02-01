@@ -62,8 +62,7 @@ class CopyQuizTestCase(APITestCase):
 
         url = reverse("quiz-copy", kwargs={"pk": self.quiz.id})
         response = self.client.post(url)
-        # Returns 404 because get_object() filters queryset
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_copy_own_quiz(self):
         # User owns a quiz
