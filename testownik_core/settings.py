@@ -34,7 +34,7 @@ SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-mo_va&2*lmj8z2ymm5i##wze&u
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", "False") == "True"
 
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost").split(",")
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
 CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 
@@ -48,7 +48,7 @@ PREVIEW_ORIGIN_REGEXES = [
 if ALLOW_PREVIEW_ENVIRONMENTS:
     CORS_ALLOWED_ORIGIN_REGEXES = PREVIEW_ORIGIN_REGEXES
 
-CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:8000").split(",")
+CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:3000").split(",")
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 
