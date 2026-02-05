@@ -1,22 +1,23 @@
 # Copilot Instructions (backend-testownik)
 
-## Kontekst projektu
+## Project context
 - Stack: Python 3 + Django + Django REST Framework.
-- Preferuj istniejące aplikacje i wzorce z katalogów w repozytorium.
+- Backend for Testownik app.
+- Prefer existing apps and patterns from the repository folders.
 
-## Zasady pracy z kodem
-- Trzymaj się istniejącej struktury modułów i stylu kodu.
-- Nie dodawaj nowych zależności bez wyraźnej potrzeby.
-- Przy zmianach API zachowuj kompatybilność i stosuj istniejące serializery, widoki i testy.
+## Coding rules
+- Stick to the existing module structure and code style.
+- Do not add new dependencies unless clearly needed.
+- When changing the API, aim for compatibility and use existing serializers, views, and tests; if bigger changes are required, explain the decision clearly.
 
-## Wymagania `@solvro/config` (commitlint)
-Stosujemy **Conventional Commits**. Format:
+## Rrequirements (commitlint)
+We use **Conventional Commits**. Format:
 
 ```
-<type>(opcjonalny scope): opis w czasie teraźniejszym
+<type>(optional scope): present-tense description
 ```
 
-Dozwolone typy commitów:
+Allowed commit types:
 - `feat`
 - `fix`
 - `refactor`
@@ -27,30 +28,28 @@ Dozwolone typy commitów:
 - `build`
 - `release`
 
-Inne typy (np. `perf`, `revert`, `style`) nie są akceptowane w tym projekcie.
+## Commit messages (style)
+- Short, in English, describing what the change is about.
+- Use present tense (e.g., `add`, not `added`).
+- Keep the first line concise so it fits the GitHub view.
+- Scopes are allowed, e.g., `feat(blog): code snippets`.
 
-## Opis commitów (styl)
-- Opis krótki, po angielsku, opisujący czego dotyczy zmiana.
-- Używaj czasu teraźniejszego (np. `add`, nie `added`).
-- Pierwsza linia powinna być zwięzła i nie wykraczać poza widoczne na GitHubie miejsce.
-- Dopuszczalne są zakresy, np. `feat(blog): code snippets`.
+## Commit naming (Solvro handbook)
+- Recommended format: `type: short description` (or `type(scope): short description`).
+- Handbook prefixes: `feat`, `fix`, `refactor`, `chore`, `docs`, `ci`, `test`.
+- This repo additionally allows `build` and `release` (from `@solvro/config`).
+- You may see other prefixes, but commitlint blocks them here.
+- Recommended spec: https://www.conventionalcommits.org/en/v1.0.0/
+- Examples of short descriptions: `login view`, `shopping list`, `auth service`, `offline message widget`.
 
-## Nazewnictwo commitów (z handbooka Solvro)
-- Proponowany format: `type: short description` (lub `type(scope): short description`).
-- Przedrostki z handbooka: `feat`, `fix`, `refactor`, `chore`, `docs`, `ci`, `test`.
-- W tym repo obowiązują dodatkowo `build` i `release` (wynika z `@solvro/config`).
-- Czasami spotkasz inne przedrostki, ale w tym repo są blokowane przez commitlint.
-- Polecana specyfikacja: https://www.conventionalcommits.org/en/v1.0.0/
-- Przykłady krótkiego opisu: `login view`, `shopping list`, `auth service`, `offline message widget`.
-
-## Nazewnictwo branchy (z README)
+## Branch naming (from README)
 Format:
 
 ```
 <prefix>/<issue>-short-description
 ```
 
-Dostępne prefiksy:
+Available prefixes:
 - `feat/`
 - `fix/`
 - `hotfix/`
@@ -59,15 +58,10 @@ Dostępne prefiksy:
 - `test/`
 - `docs/`
 
-Przykłady:
+Examples:
 
 ```
 feat/123-add-usos-integration
 fix/87-token-refresh-bug
 refactor/210-cleanup-serializers
 ```
-
-## Nazewnictwo repozytoriów (handbook Solvro)
-- Format: `typ-projektu-nazwa-projektu-suffixy` w pełnym lower-kebab-case.
-- Prefiksy typów: `backend-`, `web-`, `lib-web-`, `ml-`, `mobile-`, `script-`.
-- Gdy repo zawiera frontend i backend, preferuj rozdział, a jeśli to niemożliwe — wybierz prefiks `web-`.
