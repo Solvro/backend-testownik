@@ -483,20 +483,6 @@ class QuizViewSet(viewsets.ModelViewSet):
         )
 
 
-class QuizMetadataView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    @extend_schema(
-        summary="Get quiz metadata",
-        responses={
-            200: QuizMetaDataSerializer,
-        },
-    )
-    def get(self, request, quiz_id):
-        quiz = Quiz.objects.get(id=quiz_id)
-        return Response(QuizMetaDataSerializer(quiz, context={"request": request}).data)
-
-
 class SharedQuizViewSet(viewsets.ModelViewSet):
     queryset = SharedQuiz.objects.all()
     serializer_class = SharedQuizSerializer
