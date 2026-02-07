@@ -11,4 +11,4 @@ def create_archive_folder(sender, instance, created, **kwargs):
     Creates archive folder for each new user
     """
     if created:
-        Folder.objects.create(name="Archive", owner=instance, folder_type=Folder.Type.ARCHIVE)
+        Folder.objects.create(name="Archiwum", owner=instance, folder_type=Folder.Type.ARCHIVE)

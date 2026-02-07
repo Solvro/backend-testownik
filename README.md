@@ -49,7 +49,7 @@
    ```bash
    pip install -r requirements.txt
    ```
-   
+
 4. **Skopiuj plik środowiskowy**
 
    ```

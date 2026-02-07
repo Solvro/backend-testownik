@@ -14,11 +14,12 @@ QUIZ_VISIBILITY_CHOICES = [
 ]
 
 
-class Folder(models.Model):
-    class Type(models.TextChoices):
-        ARCHIVE = "ARCHIVE", "Archive"
-        REGULAR = "REGULAR", "Regular"
+class Type(models.TextChoices):
+    ARCHIVE = "archive", "Archive"
+    REGULAR = "regular", "Regular"
 
+
+class Folder(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=128)
     parent = models.ForeignKey(
