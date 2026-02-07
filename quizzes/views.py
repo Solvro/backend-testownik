@@ -30,6 +30,7 @@ from quizzes.models import (
     Quiz,
     QuizSession,
     SharedQuiz,
+    Type,
 )
 from quizzes.permissions import (
     IsFolderOwner,
@@ -316,7 +317,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         quiz = self.get_object()
 
         try:
-            archive_folder = Folder.objects.get(owner=request.user, folder_type=Folder.Type.ARCHIVE)
+            archive_folder = Folder.objects.get(owner=request.user, folder_type=Type.ARCHIVE)
         except Folder.DoesNotExist:
             return Response({"error": "Archive folder not found"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -615,7 +616,7 @@ class FolderViewSet(viewsets.ModelViewSet):
         serializer.save(owner=self.request.user)
 
     def perform_destroy(self, instance):
-        if instance.folder_type == Folder.Type.ARCHIVE:
+        if instance.folder_type == Type.ARCHIVE:
             raise PermissionDenied("You can't delete archive folder.")
         instance.delete()
 
@@ -623,7 +624,7 @@ class FolderViewSet(viewsets.ModelViewSet):
     def move(self, request, pk=None):
         folder = self.get_object()
 
-        if folder.folder_type == Folder.Type.ARCHIVE:
+        if folder.folder_type == Type.ARCHIVE:
             return Response({"error": "You can't move archive folder."}, status=status.HTTP_403_FORBIDDEN)
 
         serializer = self.get_serializer(data=request.data)
