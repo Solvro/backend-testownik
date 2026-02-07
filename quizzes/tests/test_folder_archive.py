@@ -1,3 +1,4 @@
+from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -14,7 +15,7 @@ class QuizArchiveTests(APITestCase):
         self.quiz = Quiz.objects.create(title="Test Quiz", maintainer=self.user)
 
     def test_archive_quiz_success(self):
-        url = f"/quizzes/{self.quiz.id}/move-to-archive/"
+        url = reverse("quiz-move-to-archive", kwargs={"pk": self.quiz.id})
         response = self.client.post(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -26,7 +27,7 @@ class QuizArchiveTests(APITestCase):
         self.quiz.folder = regular_folder
         self.quiz.save()
 
-        url = f"/quizzes/{self.quiz.id}/move-to-archive/"
+        url = reverse("quiz-move-to-archive", kwargs={"pk": self.quiz.id})
         response = self.client.post(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -36,7 +37,7 @@ class QuizArchiveTests(APITestCase):
     def test_archive_missing_folder_handling(self):
         Folder.objects.filter(owner=self.user, folder_type=Type.ARCHIVE).delete()
 
-        url = f"/quizzes/{self.quiz.id}/move-to-archive/"
+        url = reverse("quiz-move-to-archive", kwargs={"pk": self.quiz.id})
         response = self.client.post(url)
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -46,7 +47,7 @@ class QuizArchiveTests(APITestCase):
         self.quiz.folder = archive_folder
         self.quiz.save()
 
-        url = f"/quizzes/{self.quiz.id}/move-to-archive/"
+        url = reverse("quiz-move-to-archive", kwargs={"pk": self.quiz.id})
         response = self.client.post(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -59,20 +60,20 @@ class QuizArchiveTests(APITestCase):
         other_user.save()
         other_quiz = Quiz.objects.create(title="Other Quiz", maintainer=other_user)
 
-        url = f"/quizzes/{other_quiz.id}/move-to-archive/"
+        url = reverse("quiz-move-to-archive", kwargs={"pk": other_quiz.id})
         response = self.client.post(url)
 
         self.assertIn(response.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
 
     def test_unauthenticated_cannot_archive_quiz(self):
         self.client.logout()
-        url = f"/quizzes/{self.quiz.id}/move-to-archive/"
+        url = reverse("quiz-move-to-archive", kwargs={"pk": self.quiz.id})
         response = self.client.post(url)
 
         self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
 
     def test_archive_nonexistent_quiz(self):
-        url = "/quizzes/00000000-0000-0000-0000-000000000000/move-to-archive/"
+        url = reverse("quiz-move-to-archive", kwargs={"pk": "00000000-0000-0000-0000-000000000000"})
         response = self.client.post(url)
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -88,18 +89,17 @@ class FolderArchiveProtectionTests(APITestCase):
 
     def test_archive_folder_created_automatically(self):
         archive_exists = Folder.objects.filter(owner=self.user, folder_type=Type.ARCHIVE).exists()
-
         self.assertTrue(archive_exists)
 
     def test_cannot_delete_archive_folder(self):
-        url = f"/folders/{self.archive_folder.id}/"
+        url = reverse("folder-detail", kwargs={"pk": self.archive_folder.id})
         response = self.client.delete(url)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertTrue(Folder.objects.filter(id=self.archive_folder.id).exists())
 
     def test_cannot_rename_archive_folder(self):
-        url = f"/folders/{self.archive_folder.id}/"
+        url = reverse("folder-detail", kwargs={"pk": self.archive_folder.id})
         response = self.client.patch(url, {"name": "New Name"})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -108,7 +108,7 @@ class FolderArchiveProtectionTests(APITestCase):
 
     def test_cannot_move_archive_folder(self):
         regular_folder = Folder.objects.create(name="Regular", owner=self.user)
-        url = f"/folders/{self.archive_folder.id}/move/"
+        url = reverse("folder-move", kwargs={"pk": self.archive_folder.id})
         response = self.client.post(url, {"parent_id": str(regular_folder.id)})
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -117,7 +117,7 @@ class FolderArchiveProtectionTests(APITestCase):
 
     def test_cannot_make_archive_subfolder_via_patch(self):
         target_folder = Folder.objects.create(name="Regular", owner=self.user)
-        url = f"/folders/{self.archive_folder.id}/"
+        url = reverse("folder-detail", kwargs={"pk": self.archive_folder.id})
         response = self.client.patch(url, {"parent": str(target_folder.id)})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -125,14 +125,14 @@ class FolderArchiveProtectionTests(APITestCase):
         self.assertIsNone(self.archive_folder.parent)
 
     def test_cannot_create_subfolder_in_archive(self):
-        url = "/folders/"
+        url = reverse("folder-list")
         response = self.client.post(url, {"name": "Subfolder", "parent": str(self.archive_folder.id)})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_cannot_move_folder_into_archive(self):
         regular_folder = Folder.objects.create(name="Regular", owner=self.user)
-        url = f"/folders/{regular_folder.id}/move/"
+        url = reverse("folder-move", kwargs={"pk": regular_folder.id})
         response = self.client.post(url, {"parent_id": str(self.archive_folder.id)})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -140,7 +140,7 @@ class FolderArchiveProtectionTests(APITestCase):
         self.assertNotEqual(regular_folder.parent_id, self.archive_folder.id)
 
     def test_cannot_change_archive_folder_type(self):
-        url = f"/folders/{self.archive_folder.id}/"
+        url = reverse("folder-detail", kwargs={"pk": self.archive_folder.id})
         response = self.client.patch(url, {"folder_type": Type.REGULAR})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -164,14 +164,14 @@ class FolderArchiveProtectionTests(APITestCase):
         other_user.save()
         other_archive = Folder.objects.get(owner=other_user, folder_type=Type.ARCHIVE)
 
-        url = f"/folders/{other_archive.id}/"
+        url = reverse("folder-detail", kwargs={"pk": other_archive.id})
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_regular_folder_can_be_deleted(self):
         regular_folder = Folder.objects.create(name="Regular", owner=self.user)
-        url = f"/folders/{regular_folder.id}/"
+        url = reverse("folder-detail", kwargs={"pk": regular_folder.id})
         response = self.client.delete(url)
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
