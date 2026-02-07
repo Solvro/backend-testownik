@@ -13,25 +13,86 @@ from quizzes.models import (
     SharedQuiz,
     Type,
 )
-from users.models import StudyGroup, User
-from users.serializers import PublicUserSerializer, StudyGroupSerializer
+from uploads.models import UploadedImage
+from users.models import StudyGroup, User, UserSettings
+from users.serializers import (
+    PublicUserSerializer,
+    StudyGroupSerializer,
+    UserSettingsSerializer,
+)
 
 
 class AnswerSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(required=False)
 
+    image_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
+    image = serializers.SerializerMethodField()
+    image_upload = serializers.PrimaryKeyRelatedField(
+        queryset=UploadedImage.objects.all(), required=False, allow_null=True
+    )
+    image_width = serializers.IntegerField(source="image_upload.width", read_only=True, allow_null=True)
+    image_height = serializers.IntegerField(source="image_upload.height", read_only=True, allow_null=True)
+
     class Meta:
         model = Answer
-        fields = ["id", "order", "text", "image", "is_correct"]
+        fields = [
+            "id",
+            "order",
+            "text",
+            "image_url",
+            "image",
+            "image_upload",
+            "image_width",
+            "image_height",
+            "is_correct",
+        ]
+
+    def get_image(self, obj):
+        if obj.image_upload and obj.image_upload.image:
+            request = self.context.get("request")
+            url = obj.image_upload.image.url
+            if request is not None:
+                return request.build_absolute_uri(url)
+            return url
+        return obj.image_url
 
 
 class QuestionSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(required=False)
     answers = AnswerSerializer(many=True)
 
+    image_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
+    image = serializers.SerializerMethodField()
+    image_upload = serializers.PrimaryKeyRelatedField(
+        queryset=UploadedImage.objects.all(), required=False, allow_null=True
+    )
+    image_width = serializers.IntegerField(source="image_upload.width", read_only=True, allow_null=True)
+    image_height = serializers.IntegerField(source="image_upload.height", read_only=True, allow_null=True)
+
     class Meta:
         model = Question
-        fields = ["id", "order", "text", "image", "explanation", "multiple", "answers"]
+        fields = [
+            "id",
+            "order",
+            "text",
+            "image_url",
+            "image",
+            "image_upload",
+            "image_width",
+            "image_height",
+            "explanation",
+            "multiple",
+            "answers",
+        ]
+
+    def get_image(self, obj):
+        if obj.image_upload and obj.image_upload.image:
+            request = self.context.get("request")
+            url = obj.image_upload.image.url
+            if request is not None:
+                return request.build_absolute_uri(url)
+            return url
+        return obj.image_url
 
 
 class QuizSerializer(serializers.ModelSerializer):
@@ -66,8 +127,21 @@ class QuizSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         request = self.context.get("request")
         user = getattr(request, "user", None) if request else self.context.get("user")
-        if instance.is_anonymous and user and user != instance.maintainer:
+
+        if not user or (instance.is_anonymous and user != instance.maintainer):
             data["maintainer"] = None
+
+        if user and user.is_authenticated:
+            includes = [item.strip() for item in request.query_params.get("include", "").split(",")] if request else []
+
+            if "user_settings" in includes and hasattr(user, "settings"):
+                user_settings, _ = UserSettings.objects.get_or_create(user=request.user)
+                data["user_settings"] = UserSettingsSerializer(user_settings).data
+
+            if "current_session" in includes:
+                session, _ = QuizSession.get_or_create_active(instance, request.user)
+                data["current_session"] = QuizSessionSerializer(session).data
+
         return data
 
     @transaction.atomic
@@ -146,7 +220,7 @@ class QuizSerializer(serializers.ModelSerializer):
         questions_to_create = []
         answers_to_sync = []
 
-        question_fields = ["order", "text", "image", "explanation", "multiple"]
+        question_fields = ["order", "text", "image_url", "image_upload", "explanation", "multiple"]
 
         for q_data in questions_data:
             answers_data = q_data.pop("answers", [])
@@ -192,7 +266,7 @@ class QuizSerializer(serializers.ModelSerializer):
         all_answers_to_create = []
         all_answer_ids_to_delete = set()
 
-        answer_fields = ["order", "text", "image", "is_correct"]
+        answer_fields = ["order", "text", "image_url", "image_upload", "is_correct"]
 
         for question, answers_data in answers_to_sync:
             existing_answers = {a.id: a for a in question.answers.all()}
@@ -251,7 +325,7 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         request = self.context.get("request")
         user = getattr(request, "user", None) if request else self.context.get("user")
-        if instance.is_anonymous and user and user != instance.maintainer:
+        if not user or (instance.is_anonymous and user != instance.maintainer):
             data["maintainer"] = None
         return data
 
@@ -440,10 +514,11 @@ class QuizSessionSerializer(serializers.ModelSerializer):
             "study_time",
             "is_active",
             "started_at",
+            "updated_at",
             "ended_at",
             "answers",
         ]
-        read_only_fields = ["id", "quiz", "user", "started_at", "ended_at"]
+        read_only_fields = ["id", "quiz", "user", "started_at", "updated_at", "ended_at"]
 
 
 class MoveQuizSerializer(serializers.Serializer):

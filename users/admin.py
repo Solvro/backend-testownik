@@ -18,12 +18,14 @@ class UserAdmin(admin.ModelAdmin):
         "last_name",
         "student_number",
         "email",
+        "is_banned",
         "is_staff",
         "is_superuser",
         "created_at",
         "updated_at",
     ]
     list_filter = [
+        "is_banned",
         "is_staff",
         "is_superuser",
         "student_status",
@@ -52,14 +54,32 @@ class UserAdmin(admin.ModelAdmin):
         ),
         ("Status", {"fields": ("student_status", "staff_status")}),
         ("Permissions", {"fields": ("is_staff", "is_superuser")}),
+        (
+            "Ban Status",
+            {
+                "fields": ("is_banned", "ban_reason"),
+                "description": "Ban a user to prevent them from using the platform.",
+            },
+        ),
     )
     readonly_fields = ["id", "created_at", "updated_at"]
     date_hierarchy = "created_at"
 
     inlines = (UserSettingsInline,)
+    actions = ["ban_users", "unban_users"]
 
     def has_add_permission(self, request, obj=None):
         return False
+
+    @admin.action(description="Ban selected users")
+    def ban_users(self, request, queryset):
+        count = queryset.update(is_banned=True)
+        self.message_user(request, f"Successfully banned {count} user(s).")
+
+    @admin.action(description="Unban selected users")
+    def unban_users(self, request, queryset):
+        count = queryset.update(is_banned=False, ban_reason=None)
+        self.message_user(request, f"Successfully unbanned {count} user(s).")
 
 
 class StudyGroupAdmin(admin.ModelAdmin):

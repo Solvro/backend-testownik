@@ -14,10 +14,12 @@ from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
     extend_schema,
+    extend_schema_view,
 )
-from rest_framework import permissions, status, viewsets
+from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed, PermissionDenied
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -36,6 +38,7 @@ from quizzes.permissions import (
     IsFolderOwner,
     IsQuizMaintainer,
     IsQuizMaintainerOrCollaborator,
+    IsQuizReadable,
     IsSharedQuizMaintainerOrReadOnly,
 )
 from quizzes.serializers import (
@@ -127,8 +130,10 @@ class RandomQuestionView(APIView):
         )
 
 
-class LastUsedQuizzesView(APIView):
+class LastUsedQuizzesView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = QuizMetaDataSerializer
+    pagination_class = LimitOffsetPagination
 
     @extend_schema(
         summary="Get recently used quizzes",
@@ -136,31 +141,17 @@ class LastUsedQuizzesView(APIView):
             200: QuizMetaDataSerializer(many=True),
             401: OpenApiResponse(description="Unauthorized"),
         },
-        parameters=[
-            OpenApiParameter(
-                name="limit",
-                required=False,
-                type=int,
-                location=OpenApiParameter.QUERY,
-                description="Maximum number of recent quizzes to return (max: 20)",
-            )
-        ],
     )
-    def get(self, request):
-        try:
-            max_quizzes_count = min(int(request.query_params.get("limit", 4)), 20)
-        except (ValueError, TypeError):
-            max_quizzes_count = 4
+    def get(self, request, *args, **kwargs):
+        return self.list(request, *args, **kwargs)
 
-        sessions = (
-            QuizSession.objects.filter(user=request.user, is_active=True)
-            .select_related("quiz", "quiz__maintainer")
-            .order_by("-started_at")[:max_quizzes_count]
+    def get_queryset(self):
+        return (
+            Quiz.objects.filter(sessions__user=self.request.user, sessions__is_active=True)
+            .select_related("maintainer")
+            .order_by("-sessions__updated_at")
+            .distinct()
         )
-        last_used_quizzes = [session.quiz for session in sessions]
-
-        serializer = QuizMetaDataSerializer(last_used_quizzes, many=True, context={"request": request})
-        return Response(serializer.data)
 
 
 class SearchQuizzesView(APIView):
@@ -228,6 +219,22 @@ class SearchQuizzesView(APIView):
 # This is by design, if the user wants to view shared quizzes,
 #   they should use the SharedQuizViewSet and for public quizzes they should use the api_search_quizzes view.
 # It will also allow to create, update and delete quizzes only if the user is the maintainer of the quiz.
+@extend_schema_view(
+    retrieve=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="include",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Comma-separated list of extra data to include. "
+                "Available options: 'user_settings', 'current_session'.",
+                many=True,
+                style="simple",
+                enum=["user_settings", "current_session"],
+            )
+        ]
+    )
+)
 class QuizViewSet(viewsets.ModelViewSet):
     queryset = Quiz.objects.all()
     serializer_class = QuizSerializer
@@ -239,27 +246,30 @@ class QuizViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
 
-        if not user.is_authenticated:
-            if self.action == "list":
+        if self.action == "list":
+            if not user.is_authenticated:
                 return Quiz.objects.none()
-            return Quiz.objects.filter(visibility__gte=2, allow_anonymous=True)
 
-        qs = Q(maintainer=user)
+            return Quiz.objects.filter(maintainer=user)
 
-        if self.action in ("retrieve", "update", "partial_update", "progress", "record_answer", "copy"):
-            qs |= Q(visibility__gte=2)  # Public/unlisted
-            qs |= Q(visibility__gte=1, sharedquiz__user=user)
-            qs |= Q(visibility__gte=1, sharedquiz__study_group__in=user.study_groups.all())
+        queryset = Quiz.objects.all()
 
-        queryset = Quiz.objects.filter(qs).distinct()
-
-        if self.action in ("retrieve", "copy"):
+        if self.action in ("retrieve", "copy", "metadata", "progress", "record_answer"):
             queryset = queryset.prefetch_related(
                 "questions__answers",
                 "sharedquiz_set__user",
             )
 
         return queryset
+
+    @extend_schema(
+        summary="Get quiz metadata",
+        responses={200: QuizMetaDataSerializer},
+    )
+    @action(detail=True, methods=["get"], serializer_class=QuizMetaDataSerializer)
+    def metadata(self, request, pk=None):
+        quiz = self.get_object()
+        return Response(self.get_serializer(quiz).data)
 
     def perform_create(self, serializer):
         serializer.save(maintainer=self.request.user)
@@ -275,6 +285,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         action_serializers = {
             "list": QuizMetaDataSerializer,
+            "metadata": QuizMetaDataSerializer,
             "move": MoveQuizSerializer,
         }
         return action_serializers.get(self.action, QuizSerializer)
@@ -329,7 +340,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         detail=True,
         methods=["get", "delete"],
         url_path="progress",
-        permission_classes=[permissions.IsAuthenticated],
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
     )
     def progress(self, request, pk=None):
         quiz = self.get_object()
@@ -348,7 +359,12 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         raise MethodNotAllowed(request.method)
 
-    @action(detail=True, methods=["post"], url_path="answer", permission_classes=[permissions.IsAuthenticated])
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="answer",
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
+    )
     def record_answer(self, request, pk=None):
         quiz = self.get_object()
         session, _ = QuizSession.get_or_create_active(quiz, request.user)
@@ -380,7 +396,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             was_correct=was_correct,
         )
 
-        update_fields = []
+        update_fields = ["updated_at"]
         if "study_time" in request.data:
             try:
                 study_time_seconds = float(request.data["study_time"])
@@ -401,8 +417,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             session.current_question_id = next_question_id
             update_fields.append("current_question_id")
 
-        if update_fields:
-            session.save(update_fields=update_fields)
+        session.save(update_fields=update_fields)
 
         return Response(AnswerRecordSerializer(record).data, status=201)
 
@@ -415,6 +430,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         ),
         responses={
             201: OpenApiResponse(description="Created copy of quiz"),
+            403: OpenApiResponse(description="Forbidden"),
             404: OpenApiResponse(description="Not Found"),
             429: OpenApiResponse(description="Too Many Requests"),
         },
@@ -422,7 +438,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=["post"],
-        permission_classes=[permissions.IsAuthenticated],
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
         throttle_classes=[CopyQuizThrottle],
     )
     @transaction.atomic
@@ -451,7 +467,8 @@ class QuizViewSet(viewsets.ModelViewSet):
                     quiz=new_quiz,
                     order=q.order,
                     text=q.text,
-                    image=q.image,
+                    image_url=q.image_url,
+                    image_upload_id=q.image_upload_id,
                     explanation=q.explanation,
                     multiple=q.multiple,
                 )
@@ -467,7 +484,8 @@ class QuizViewSet(viewsets.ModelViewSet):
                         question_id=new_q.id,
                         order=answer.order,
                         text=answer.text,
-                        image=answer.image,
+                        image_url=answer.image_url,
+                        image_upload_id=answer.image_upload_id,
                         is_correct=answer.is_correct,
                     )
                 )
@@ -573,14 +591,18 @@ class ReportQuestionIssueView(APIView):
                 status=400,
             )
 
-        # Email details
+        try:
+            question = Question.objects.get(id=data.get("question_id"), quiz=quiz)
+        except Question.DoesNotExist:
+            return Response({"error": "Question not found"}, status=404)
+
         subject = "Zgłoszenie błędu w pytaniu"
-        query_params = urllib.parse.urlencode({"scroll_to": f"question-{data.get('question_id')}"})
+        query_params = urllib.parse.urlencode({"scroll_to": f"question-{question.id}"})
         cta_url = f"{settings.FRONTEND_URL}/edit-quiz/{quiz.id}/?{query_params}"
 
         content = (
             f"{escape(request.user.full_name)} zgłosił błąd w pytaniu "
-            f"{escape(str(data.get('question_id')))} quizu {escape(quiz.title)}.\n\n"
+            f'"{escape(question.text)}" quizu {escape(quiz.title)}.\n\n'
             f"{escape(data.get('issue'))}"
         )
 

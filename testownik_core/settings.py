@@ -10,12 +10,15 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
+import logging
 import os
 from datetime import timedelta
 from pathlib import Path
 
 import dotenv
 from authlib.integrations.django_client import OAuth
+
+logger = logging.getLogger(__name__)
 
 dotenv.load_dotenv()
 
@@ -31,18 +34,32 @@ SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-mo_va&2*lmj8z2ymm5i##wze&u
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", "False") == "True"
 
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost").split(",")
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
-CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 
-if os.getenv("ALLOW_CORS_PREVIEW", "False") == "True":
-    CORS_ALLOWED_ORIGIN_REGEXES = [
-        r"^https://[\w-]+-testownik\.b\.solvro\.pl$",
-    ]
+# Allow preview environments (e.g. PR builds) for CORS and Redirects
+ALLOW_PREVIEW_ENVIRONMENTS = os.getenv("ALLOW_PREVIEW_ENVIRONMENTS", "False") == "True"
 
-CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:8000").split(",")
+PREVIEW_ORIGIN_REGEXES = [
+    r"^https://[\w-]+-testownik\.b\.solvro\.pl$",
+]
 
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+if ALLOW_PREVIEW_ENVIRONMENTS:
+    CORS_ALLOWED_ORIGIN_REGEXES = PREVIEW_ORIGIN_REGEXES
+
+CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:3000").split(",")
+
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+
+_additional_redirect_origins = os.environ.get("ALLOWED_REDIRECT_ORIGINS", "").split(",")
+ALLOWED_REDIRECT_ORIGINS = [FRONTEND_URL] + [o.strip().rstrip("/") for o in _additional_redirect_origins if o.strip()]
+
+JWT_COOKIE_SECURE = not DEBUG
+JWT_COOKIE_SAMESITE = "Lax"
+JWT_COOKIE_DOMAIN = os.getenv("JWT_COOKIE_DOMAIN", None)
+
+CORS_ALLOW_CREDENTIALS = True
 
 # Application definition
 
@@ -59,6 +76,7 @@ INSTALLED_APPS = [
     "alerts.apps.AlertsConfig",
     "maintenance.apps.MaintenanceConfig",
     "testownik_core.apps.TestownikCoreConfig",
+    "uploads.apps.UploadsConfig",
     "constance",
     "constance.backends.database",
     "rest_framework",
@@ -106,10 +124,15 @@ REST_FRAMEWORK = {
     ],
 }
 
+if os.getenv("JWT_SECRET") is None:
+    logger.warning("JWT_SECRET is not set in the environment, fallback to SECRET_KEY")
+    logger.warning("This is not recommended for production")
+
 SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
     "ROTATE_REFRESH_TOKENS": True,
+    "SIGNING_KEY": os.getenv("JWT_SECRET", SECRET_KEY),
 }
 
 ROOT_URLCONF = "testownik_core.urls"
@@ -198,7 +221,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
-STATIC_URL = "static/"
+STATIC_URL = "api/static/"
 
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
@@ -206,17 +229,53 @@ STATICFILES_DIRS = [
     BASE_DIR / "static",
 ]
 
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+if os.getenv("S3_BUCKET_NAME"):
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3.S3Storage",
+            "OPTIONS": {
+                "access_key": os.getenv("S3_ACCESS_KEY_ID"),
+                "secret_key": os.getenv("S3_SECRET_ACCESS_KEY"),
+                "bucket_name": os.getenv("S3_BUCKET_NAME"),
+                "region_name": os.getenv("S3_REGION_NAME", "eu-central-1"),
+                "endpoint_url": os.getenv("S3_ENDPOINT_URL"),
+                "custom_domain": os.getenv("S3_CUSTOM_DOMAIN"),
+                "file_overwrite": False,
+                "default_acl": "public-read",
+                "querystring_auth": False,
+            },
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Email settings
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = os.getenv("EMAIL_HOST")
+if EMAIL_HOST:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "False") == "True"
 EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "False") == "True"
-EMAIL_PORT = os.getenv("EMAIL_PORT", 587)
+EMAIL_PORT_ENV = os.getenv("EMAIL_PORT")
+if EMAIL_PORT_ENV is None:
+    EMAIL_PORT = 587
+else:
+    try:
+        EMAIL_PORT = int(EMAIL_PORT_ENV)
+    except ValueError:
+        logger.warning("Invalid EMAIL_PORT '%s', falling back to default 587", EMAIL_PORT_ENV)
+        EMAIL_PORT = 587
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Testownik Solvro <testownik@solvro.pl>")

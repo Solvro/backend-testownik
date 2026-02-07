@@ -1,5 +1,7 @@
 from rest_framework import permissions
 
+from .models import Quiz
+
 
 class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):
     """
@@ -26,16 +28,45 @@ class IsQuizMaintainer(permissions.BasePermission):
         return obj.maintainer == request.user
 
 
+class IsQuizReadable(permissions.BasePermission):
+    """
+    Custom permission for read access to a quiz.
+    Allowed if:
+    - User is the maintainer
+    - Quiz is public or unlisted (visibility >= 2)
+    - Quiz is shared with the user explicitly
+    - Quiz is shared with a group the user belongs to
+
+    If the user is not authenticated:
+    - Anonymous access is allowed for the quiz and visibility >= 2
+    """
+
+    def has_object_permission(self, request, view, obj: Quiz):
+        if obj.maintainer == request.user:
+            return True
+
+        if obj.visibility >= 2 and (request.user.is_authenticated or obj.allow_anonymous):
+            return True
+
+        if request.user.is_authenticated and obj.sharedquiz_set.filter(user=request.user).exists():
+            return True
+
+        return (
+            request.user.is_authenticated
+            and obj.sharedquiz_set.filter(study_group__in=request.user.study_groups.all()).exists()
+        )
+
+
 class IsQuizMaintainerOrCollaborator(permissions.BasePermission):
     """
-    Custom permission to allow quiz maintainers and accepted collaborators to edit the quiz.
+    Custom permission to allow quiz maintainers and accepted collaborators to edit the quiz while
+    maintaining read access to IsQuizReadable logic.
     """
 
     def has_object_permission(self, request, view, obj):
-        # Read permissions are allowed to any request,
-        # so we'll always allow GET, HEAD or OPTIONS requests.
+        # Read permissions are delegated to IsQuizReadable logic
         if request.method in permissions.SAFE_METHODS:
-            return True
+            return IsQuizReadable().has_object_permission(request, view, obj)
 
         # Write permissions are only allowed to the maintainer or accepted collaborators
         return obj.can_edit(request.user)

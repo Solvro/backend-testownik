@@ -84,9 +84,16 @@ class Question(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="questions")
     order = models.PositiveIntegerField()
-    text = models.TextField()
-    image = models.URLField(blank=True, null=True, max_length=512)
-    explanation = models.TextField(blank=True, null=True)
+    text = models.TextField(blank=True)
+    image_url = models.URLField(blank=True, null=True, max_length=512)
+    image_upload = models.ForeignKey(
+        "uploads.UploadedImage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="questions",
+    )
+    explanation = models.TextField(blank=True)
     multiple = models.BooleanField(default=False)
 
     class Meta:
@@ -95,13 +102,26 @@ class Question(models.Model):
     def __str__(self):
         return f"Q{self.order}: {self.text[:50]}"
 
+    @property
+    def image(self):
+        if self.image_upload:
+            return self.image_upload.image.url
+        return self.image_url
+
 
 class Answer(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="answers")
     order = models.PositiveIntegerField()
-    text = models.TextField()
-    image = models.URLField(blank=True, null=True, max_length=512)
+    text = models.TextField(blank=True)
+    image_url = models.URLField(blank=True, null=True, max_length=512)
+    image_upload = models.ForeignKey(
+        "uploads.UploadedImage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="answers",
+    )
     is_correct = models.BooleanField(default=False)
 
     class Meta:
@@ -109,6 +129,12 @@ class Answer(models.Model):
 
     def __str__(self):
         return f"{'✓' if self.is_correct else '✗'} {self.text[:50]}"
+
+    @property
+    def image(self):
+        if self.image_upload:
+            return self.image_upload.image.url
+        return self.image_url
 
 
 class SharedQuiz(models.Model):
@@ -162,6 +188,7 @@ class QuizSession(models.Model):
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="sessions")
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="quiz_sessions")
     started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     ended_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     study_time = models.DurationField(default=timedelta)
