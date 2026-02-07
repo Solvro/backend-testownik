@@ -3,6 +3,7 @@ from datetime import timedelta
 from warnings import deprecated
 
 from django.db import models
+from django.db.models import Q, UniqueConstraint
 
 from users.models import StudyGroup, User
 
@@ -36,6 +37,11 @@ class Folder(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            UniqueConstraint(
+                fields=["owner", "folder_type"], condition=Q(folder_type=Type.ARCHIVE), name="unique_archive_per_user"
+            )
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.owner})"
