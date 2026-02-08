@@ -537,3 +537,28 @@ class MoveQuizSerializer(serializers.Serializer):
                 raise serializers.ValidationError("The folder does not exist or you do not have access to it.")
 
         return value
+
+
+class LibraryItemSerializer(serializers.Serializer):
+    def to_representation(self, instance):
+        user = self.context["user"]
+
+        if isinstance(instance, Folder):
+            return {
+                "id": instance.id,
+                "name": instance.name,
+                "type": "folder",
+                "is_shared": (instance.owner != user),
+                "created_at": instance.created_at,
+            }
+
+        if isinstance(instance, Quiz):
+            return {
+                "id": instance.id,
+                "title": instance.title,
+                "type": "quiz",
+                "is_shared": (instance.maintainer != user),
+                "created_at": instance.created_at,
+            }
+
+        return super().to_representation(instance)

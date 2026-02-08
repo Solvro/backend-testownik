@@ -45,6 +45,7 @@ from quizzes.serializers import (
     AnswerRecordSerializer,
     AnswerSerializer,
     FolderSerializer,
+    LibraryItemSerializer,
     MoveFolderSerializer,
     MoveQuizSerializer,
     QuestionSerializer,
@@ -698,3 +699,90 @@ class FolderViewSet(viewsets.ModelViewSet):
             return Response({"status": "Folder moved successfully"})
 
         return Response(serializer.errors)
+
+
+class LibraryBaseView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_available_folders(self, user):
+        return Folder.objects.filter(
+            Q(owner=user) | Q(shares__user=user) | Q(shares__study_group__in=user.study_groups.all())
+        ).distinct()
+
+    def is_folder_content_available(self, user, folder_id):
+        return self.get_available_folders(user).filter(id=folder_id).exists()
+
+
+class LibraryRootView(LibraryBaseView):
+    def get_toplevel_folders(self, user):
+        # user owns root folder
+        is_user_root_folder = Q(owner=user, parent=None)
+
+        # user has access to shared folder
+        is_shared_with_user = Q(shares__user=user) | Q(shares__study_group__in=user.study_groups.all())
+
+        # user owns folder
+        is_user_owner = Q(owner=user)
+
+        # folder doesn't have a parent OR its parent is not in the list of available folders
+        appears_as_root = Q(parent=None) | ~Q(
+            parent_id__in=self.get_available_folders(user).values_list("id", flat=True)
+        )
+
+        return (
+            Folder.objects.filter(is_user_root_folder | (is_shared_with_user & ~is_user_owner & appears_as_root))
+            .distinct()
+            .order_by("-created_at")
+        )
+
+    def get_toplevel_quizzes(self, user):
+        is_user_owner = Q(maintainer=user)
+
+        is_shared_with_user = Q(sharedquiz__user=user) | Q(sharedquiz__study_group__in=user.study_groups.all())
+
+        # quiz is not contained in any folder OR the folder it is contained is, is not accessible by user
+        appears_as_root = Q(folder=None) | ~Q(
+            folder_id__in=self.get_available_folders(user).values_list("id", flat=True)
+        )
+
+        return (
+            Quiz.objects.filter((is_user_owner | is_shared_with_user) & appears_as_root)
+            .distinct()
+            .order_by("-created_at")
+        )
+
+    def get(self, request):
+        user = request.user
+        items = list(self.get_toplevel_folders(user)) + list(self.get_toplevel_quizzes(user))
+
+        return Response(LibraryItemSerializer(items, many=True, context={"user": user}).data)
+
+
+class LibraryFolderView(LibraryBaseView):
+    def get_quizzes(self, user, folder_id):
+        has_access = (
+            Q(maintainer=user) | Q(sharedquiz__user=user) | Q(sharedquiz__study_group__in=user.study_groups.all())
+        )
+
+        return Quiz.objects.filter(has_access, folder_id=folder_id).distinct().order_by("-created_at")
+
+    def get_subfolders(self, user, folder_id):
+        available_folder_ids = self.get_available_folders(user).values_list("id", flat=True)
+        is_visible = Q(id__in=available_folder_ids)
+
+        if folder_id:
+            return Folder.objects.filter(is_visible, parent_id=folder_id).distinct()
+
+    def get(self, request, folder_id=None):
+        user = request.user
+
+        if folder_id is None:
+            return Response({"error": "folder_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not self.is_folder_content_available(user, folder_id):
+            return Response(
+                {"error": "You do not have permission to access this folder"}, status=status.HTTP_403_FORBIDDEN
+            )
+
+        items = list(self.get_subfolders(user, folder_id)) + list(self.get_quizzes(user, folder_id))
+        return Response(LibraryItemSerializer(items, many=True, context={"user": user}).data)
