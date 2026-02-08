@@ -23,7 +23,7 @@ class UploadedImageSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
-    @extend_schema_field(serializers.URLField)
+    @extend_schema_field(serializers.URLField(allow_null=True))
     def get_url(self, obj):
         """Return absolute URL for the image."""
         request = self.context.get("request")

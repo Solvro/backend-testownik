@@ -309,7 +309,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         - Unlisted/Public (≥2): Everyone
 
         Preview Question Rules:
-        - Included only if include_preview_question=true AND visibility ≥ 2
+        - Included only if ?include=preview_question AND visibility ≥ 2
         - Selected based on: no images (q/a), ≥3 answers
         """
 
@@ -325,9 +325,15 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         data = QuizMetaDataSerializer(quiz, context={"request": request}).data
 
-        include_preview = request.query_params.get("include") == "preview_question"
+        raw_includes = request.query_params.getlist("include")
+        include_values = set()
+        for value in raw_includes:
+            if value:
+                include_values.update(part.strip() for part in value.split(",") if part.strip())
+        include_preview = "preview_question" in include_values
+
         preview_question = None
-        question_count = quiz.questions.count()
+        question_count = len(quiz.questions.all())
 
         if include_preview and quiz.visibility >= 2:
             preview_question = get_preview_question(quiz)

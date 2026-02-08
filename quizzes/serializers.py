@@ -47,7 +47,7 @@ class AnswerSerializer(serializers.ModelSerializer):
             "is_correct",
         ]
 
-    @extend_schema_field(serializers.URLField)
+    @extend_schema_field(serializers.URLField(allow_null=True))
     def get_image(self, obj):
         if obj.image_upload and obj.image_upload.image:
             request = self.context.get("request")
@@ -86,7 +86,7 @@ class QuestionSerializer(serializers.ModelSerializer):
             "answers",
         ]
 
-    @extend_schema_field(serializers.URLField)
+    @extend_schema_field(serializers.URLField(allow_null=True))
     def get_image(self, obj):
         if obj.image_upload and obj.image_upload.image:
             request = self.context.get("request")
@@ -97,7 +97,7 @@ class QuestionSerializer(serializers.ModelSerializer):
         return obj.image_url
 
 
-@extend_schema_field(serializers.FloatField)
+@extend_schema_field(serializers.FloatField())
 class DurationInSecondsField(serializers.Field):
     """Field for handling DurationField as total seconds."""
 
@@ -192,10 +192,17 @@ class QuizSerializer(serializers.ModelSerializer):
             if "user_settings" in includes and hasattr(user, "settings"):
                 user_settings, _ = UserSettings.objects.get_or_create(user=user)
                 data["user_settings"] = UserSettingsSerializer(user_settings).data
+            else:
+                data.pop("user_settings", None)
 
             if "current_session" in includes:
                 session, _ = QuizSession.get_or_create_active(instance, user)
                 data["current_session"] = QuizSessionSerializer(session).data
+            else:
+                data.pop("current_session", None)
+        else:
+            data.pop("user_settings", None)
+            data.pop("current_session", None)
 
         return data
 

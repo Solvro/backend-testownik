@@ -123,7 +123,12 @@ class MetadataActionTestCase(APITestCase):
 
         # Access by non-shared user
         self.client.logout()
-        non_shared_user = User.objects.create(email="rando@example.com")
+        non_shared_user = User.objects.create(
+            email="rando@example.com",
+            first_name="Rando",
+            last_name="User",
+            student_number="000000",
+        )
         self.client.force_authenticate(user=non_shared_user)
         response = self.client.get(url, HTTP_API_KEY="test-api-key")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
