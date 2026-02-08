@@ -298,3 +298,5 @@ SPECTACULAR_SETTINGS = {
     "SERVE_PUBLIC": True,
     "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
 }
+
+TASKS = {"default": {"BACKEND": "django.tasks.backends.immediate.ImmediateBackend"}}
