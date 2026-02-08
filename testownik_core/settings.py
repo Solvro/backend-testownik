@@ -52,6 +52,9 @@ CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:3000"
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 
+# Internal API key for server-to-server authentication (e.g., Next.js server-side)
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
+
 _additional_redirect_origins = os.environ.get("ALLOWED_REDIRECT_ORIGINS", "").split(",")
 ALLOWED_REDIRECT_ORIGINS = [FRONTEND_URL] + [o.strip().rstrip("/") for o in _additional_redirect_origins if o.strip()]
 

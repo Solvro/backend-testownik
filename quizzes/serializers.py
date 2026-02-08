@@ -335,6 +335,16 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
         return False
 
 
+class QuizMetaDataWithQuestionSerializer(QuizMetaDataSerializer):
+    """Extended metadata serializer that optionally includes a preview question."""
+
+    preview_question = QuestionSerializer(read_only=True, allow_null=True)
+    question_count = serializers.IntegerField(read_only=True)
+
+    class Meta(QuizMetaDataSerializer.Meta):
+        fields = QuizMetaDataSerializer.Meta.fields + ["preview_question", "question_count"]
+
+
 class SharedQuizSerializer(serializers.ModelSerializer):
     quiz = QuizMetaDataSerializer(read_only=True)
     user = PublicUserSerializer(read_only=True)
