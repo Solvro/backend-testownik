@@ -1,6 +1,20 @@
+from django.conf import settings
 from rest_framework import permissions
 
 from .models import Quiz
+
+
+class IsInternalApiRequest(permissions.BasePermission):
+    """
+    Permission class that validates Api-Key header against INTERNAL_API_KEY.
+    Used for server-to-server authentication (e.g., Next.js server-side).
+    """
+
+    def has_permission(self, request, view):
+        api_key = request.headers.get("Api-Key")
+        if not api_key or not settings.INTERNAL_API_KEY:
+            return False
+        return api_key == settings.INTERNAL_API_KEY
 
 
 class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):

@@ -18,7 +18,7 @@ from drf_spectacular.utils import (
 )
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed, PermissionDenied
+from rest_framework.exceptions import MethodNotAllowed, NotFound, PermissionDenied
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -35,6 +35,7 @@ from quizzes.models import (
 )
 from quizzes.permissions import (
     IsFolderOwner,
+    IsInternalApiRequest,
     IsQuizMaintainer,
     IsQuizMaintainerOrCollaborator,
     IsQuizReadable,
@@ -46,12 +47,15 @@ from quizzes.serializers import (
     FolderSerializer,
     MoveFolderSerializer,
     MoveQuizSerializer,
+    QuestionSerializer,
     QuizMetaDataSerializer,
+    QuizMetaDataWithQuestionSerializer,
     QuizSearchResultSerializer,
     QuizSerializer,
     QuizSessionSerializer,
     SharedQuizSerializer,
 )
+from quizzes.services.metadata import get_preview_question
 from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
@@ -263,12 +267,89 @@ class QuizViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         summary="Get quiz metadata",
-        responses={200: QuizMetaDataSerializer},
+        description=(
+            "Returns quiz metadata with optional preview question. Requires Api-Key header for authentication. "
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="Api-Key",
+                required=True,
+                type=str,
+                location=OpenApiParameter.HEADER,
+                description="Api-Key header for authentication",
+            ),
+            OpenApiParameter(
+                name="include",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Comma-separated list of extra data to include. Available options: 'preview_question'.",
+                many=True,
+                style="simple",
+                enum=["preview_question"],
+            ),
+        ],
+        responses={
+            200: QuizMetaDataWithQuestionSerializer,
+            403: OpenApiResponse(description="Forbidden - no access to quiz metadata"),
+        },
     )
-    @action(detail=True, methods=["get"], serializer_class=QuizMetaDataSerializer)
+    @action(
+        detail=True,
+        methods=["get"],
+        permission_classes=[IsInternalApiRequest],
+        serializer_class=QuizMetaDataWithQuestionSerializer,
+    )
     def metadata(self, request, pk=None):
-        quiz = self.get_object()
-        return Response(self.get_serializer(quiz).data)
+        """
+        Get quiz metadata for Next.js server-side rendering.
+
+        Access Rules:
+        - Private (0): Only maintainer
+        - Shared (1): Everyone but without preview question and always anonymous
+        - Unlisted/Public (≥2): Everyone
+
+        Preview Question Rules:
+        - Included only if ?include=preview_question AND visibility ≥ 2
+        - Selected based on: no images (q/a), ≥3 answers
+        """
+
+        try:
+            quiz = Quiz.objects.prefetch_related("questions__answers").get(pk=pk)
+        except Quiz.DoesNotExist:
+            raise NotFound("Quiz not found")
+
+        user = request.user
+
+        if not (quiz.visibility >= 1 or user == quiz.maintainer):
+            raise PermissionDenied("You do not have permission to access this quiz metadata.")
+
+        data = QuizMetaDataSerializer(quiz, context={"request": request}).data
+
+        raw_includes = request.query_params.getlist("include")
+        include_values = set()
+        for value in raw_includes:
+            if value:
+                include_values.update(part.strip() for part in value.split(",") if part.strip())
+        include_preview = "preview_question" in include_values
+
+        preview_question = None
+        question_count = len(quiz.questions.all())
+
+        if include_preview and quiz.visibility >= 2:
+            preview_question = get_preview_question(quiz)
+
+        if preview_question:
+            data["preview_question"] = QuestionSerializer(preview_question).data
+        else:
+            data["preview_question"] = None
+
+        if quiz.visibility == 1:
+            data["is_anonymous"] = True
+            data["maintainer"] = None
+
+        data["question_count"] = question_count
+
+        return Response(data)
 
     def perform_create(self, serializer):
         serializer.save(maintainer=self.request.user)
@@ -284,7 +365,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         action_serializers = {
             "list": QuizMetaDataSerializer,
-            "metadata": QuizMetaDataSerializer,
+            "metadata": QuizMetaDataWithQuestionSerializer,
             "move": MoveQuizSerializer,
         }
         return action_serializers.get(self.action, QuizSerializer)
@@ -481,20 +562,6 @@ class QuizViewSet(viewsets.ModelViewSet):
             QuizSerializer(new_quiz, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
         )
-
-
-class QuizMetadataView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    @extend_schema(
-        summary="Get quiz metadata",
-        responses={
-            200: QuizMetaDataSerializer,
-        },
-    )
-    def get(self, request, quiz_id):
-        quiz = Quiz.objects.get(id=quiz_id)
-        return Response(QuizMetaDataSerializer(quiz, context={"request": request}).data)
 
 
 class SharedQuizViewSet(viewsets.ModelViewSet):
