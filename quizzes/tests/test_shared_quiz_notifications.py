@@ -67,7 +67,7 @@ class ShouldSendNotificationTests(TransactionTestCase):
 class NotifyQuizSharedToUsersTests(TransactionTestCase):
     """Testy funkcji notify_quiz_shared_to_users"""
 
-    @patch("quizzes.services.notifications.send_quiz_shared_email_task")
+    @patch("quizzes.services.notifications.send_quiz_shared_emails_task")
     @patch("quizzes.services.notifications.should_send_notification")
     def test_enqueues_task_when_should_send_returns_true(self, mock_should_send, mock_task):
         """Kolejkuje task gdy should_send_notification zwraca True"""
@@ -79,9 +79,9 @@ class NotifyQuizSharedToUsersTests(TransactionTestCase):
 
         notify_quiz_shared_to_users(mock_quiz, mock_user)
 
-        mock_task.enqueue.assert_called_once_with("quiz-id", "user-id")
+        mock_task.enqueue.assert_called_once_with("quiz-id", ["user-id"])
 
-    @patch("quizzes.services.notifications.send_quiz_shared_email_task")
+    @patch("quizzes.services.notifications.send_quiz_shared_emails_task")
     @patch("quizzes.services.notifications.should_send_notification")
     def test_does_not_enqueue_task_when_should_send_returns_false(self, mock_should_send, mock_task):
         """Nie kolejkuje taska gdy should_send_notification zwraca False"""
@@ -97,10 +97,10 @@ class NotifyQuizSharedToUsersTests(TransactionTestCase):
 class NotifyQuizSharedToGroupsTests(TransactionTestCase):
     """Testy funkcji notify_quiz_shared_to_groups"""
 
-    @patch("quizzes.services.notifications.send_quiz_shared_email_task")
+    @patch("quizzes.services.notifications.send_quiz_shared_emails_task")
     @patch("quizzes.services.notifications.should_send_notification")
-    def test_enqueues_for_all_eligible_group_members(self, mock_should_send, mock_task):
-        """Kolejkuje task dla wszystkich użytkowników z grupy, którzy powinni dostać powiadomienie"""
+    def test_enqueues_task_for_eligible_group_members(self, mock_should_send, mock_task):
+        """Kolejkuje task z listą user_ids dla użytkowników, którzy powinni dostać powiadomienie"""
         mock_should_send.side_effect = [True, False, True]
 
         mock_quiz = Mock()
@@ -118,11 +118,9 @@ class NotifyQuizSharedToGroupsTests(TransactionTestCase):
 
         notify_quiz_shared_to_groups(mock_quiz, mock_group)
 
-        mock_task.enqueue.assert_any_call("quiz-id", "user1")
-        mock_task.enqueue.assert_any_call("quiz-id", "user3")
-        self.assertEqual(mock_task.enqueue.call_count, 2)
+        mock_task.enqueue.assert_called_once_with("quiz-id", ["user1", "user3"])
 
-    @patch("quizzes.services.notifications.send_quiz_shared_email_task")
+    @patch("quizzes.services.notifications.send_quiz_shared_emails_task")
     @patch("quizzes.services.notifications.should_send_notification")
     def test_skips_users_who_should_not_receive_notification(self, mock_should_send, mock_task):
         """Pomija użytkowników, dla których should_send_notification zwraca False"""
@@ -143,5 +141,25 @@ class NotifyQuizSharedToGroupsTests(TransactionTestCase):
 
         notify_quiz_shared_to_groups(mock_quiz, mock_group)
 
-        mock_task.enqueue.assert_any_call("quiz-id", "user3")
-        self.assertEqual(mock_task.enqueue.call_count, 1)
+        mock_task.enqueue.assert_called_once_with("quiz-id", ["user3"])
+
+    @patch("quizzes.services.notifications.send_quiz_shared_emails_task")
+    @patch("quizzes.services.notifications.should_send_notification")
+    def test_does_not_enqueue_when_no_eligible_users(self, mock_should_send, mock_task):
+        """Nie kolejkuje taska gdy żaden użytkownik nie powinien dostać powiadomienia"""
+        mock_should_send.return_value = False
+
+        mock_quiz = Mock()
+        mock_quiz.id = "quiz-id"
+
+        user1 = Mock()
+        user1.id = "user1"
+        user2 = Mock()
+        user2.id = "user2"
+
+        mock_group = Mock()
+        mock_group.members.all.return_value = [user1, user2]
+
+        notify_quiz_shared_to_groups(mock_quiz, mock_group)
+
+        mock_task.enqueue.assert_not_called()
