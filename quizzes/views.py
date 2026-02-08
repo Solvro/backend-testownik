@@ -701,19 +701,29 @@ class FolderViewSet(viewsets.ModelViewSet):
         return Response(serializer.errors)
 
 
-class LibraryBaseView(APIView):
+class BaseLibraryView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get_available_folders(self, user):
-        return Folder.objects.filter(
-            Q(owner=user) | Q(shares__user=user) | Q(shares__study_group__in=user.study_groups.all())
-        ).distinct()
+    # cache
+    available_folder_ids = None
+
+    def get_available_folder_ids(self, user):
+        if self.available_folder_ids is None:
+            self.available_folder_ids = list(
+                Folder.objects.filter(
+                    Q(owner=user) | Q(shares__user=user) | Q(shares__study_group__in=user.study_groups.all())
+                )
+                .distinct()
+                .values_list("id", flat=True)
+            )
+
+        return self.available_folder_ids
 
     def is_folder_content_available(self, user, folder_id):
-        return self.get_available_folders(user).filter(id=folder_id).exists()
+        return folder_id in self.get_available_folder_ids(user)
 
 
-class LibraryRootView(LibraryBaseView):
+class LibraryRootView(BaseLibraryView):
     def get_toplevel_folders(self, user):
         # user owns root folder
         is_user_root_folder = Q(owner=user, parent=None)
@@ -725,9 +735,7 @@ class LibraryRootView(LibraryBaseView):
         is_user_owner = Q(owner=user)
 
         # folder doesn't have a parent OR its parent is not in the list of available folders
-        appears_as_root = Q(parent=None) | ~Q(
-            parent_id__in=self.get_available_folders(user).values_list("id", flat=True)
-        )
+        appears_as_root = Q(parent=None) | ~Q(parent_id__in=self.get_available_folder_ids(user))
 
         return (
             Folder.objects.filter(is_user_root_folder | (is_shared_with_user & ~is_user_owner & appears_as_root))
@@ -741,9 +749,7 @@ class LibraryRootView(LibraryBaseView):
         is_shared_with_user = Q(sharedquiz__user=user) | Q(sharedquiz__study_group__in=user.study_groups.all())
 
         # quiz is not contained in any folder OR the folder it is contained is, is not accessible by user
-        appears_as_root = Q(folder=None) | ~Q(
-            folder_id__in=self.get_available_folders(user).values_list("id", flat=True)
-        )
+        appears_as_root = Q(folder=None) | ~Q(folder_id__in=self.get_available_folder_ids(user))
 
         return (
             Quiz.objects.filter((is_user_owner | is_shared_with_user) & appears_as_root)
@@ -755,10 +761,10 @@ class LibraryRootView(LibraryBaseView):
         user = request.user
         items = list(self.get_toplevel_folders(user)) + list(self.get_toplevel_quizzes(user))
 
-        return Response(LibraryItemSerializer(items, many=True, context={"user": user}).data)
+        return Response(LibraryItemSerializer(items, many=True, context={"request": request}).data)
 
 
-class LibraryFolderView(LibraryBaseView):
+class LibraryFolderView(BaseLibraryView):
     def get_quizzes(self, user, folder_id):
         has_access = (
             Q(maintainer=user) | Q(sharedquiz__user=user) | Q(sharedquiz__study_group__in=user.study_groups.all())
@@ -767,11 +773,10 @@ class LibraryFolderView(LibraryBaseView):
         return Quiz.objects.filter(has_access, folder_id=folder_id).distinct().order_by("-created_at")
 
     def get_subfolders(self, user, folder_id):
-        available_folder_ids = self.get_available_folders(user).values_list("id", flat=True)
+        available_folder_ids = self.get_available_folder_ids(user)
         is_visible = Q(id__in=available_folder_ids)
 
-        if folder_id:
-            return Folder.objects.filter(is_visible, parent_id=folder_id).distinct()
+        return Folder.objects.filter(is_visible, parent_id=folder_id).distinct().order_by("-created_at")
 
     def get(self, request, folder_id=None):
         user = request.user
@@ -785,4 +790,4 @@ class LibraryFolderView(LibraryBaseView):
             )
 
         items = list(self.get_subfolders(user, folder_id)) + list(self.get_quizzes(user, folder_id))
-        return Response(LibraryItemSerializer(items, many=True, context={"user": user}).data)
+        return Response(LibraryItemSerializer(items, many=True, context={"request": request}).data)

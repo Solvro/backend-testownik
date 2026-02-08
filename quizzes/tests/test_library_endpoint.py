@@ -3,7 +3,8 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quizzes.models import Folder, Quiz, SharedFolder, StudyGroup
+from quizzes.models import Folder, Quiz, SharedFolder
+from users.models import StudyGroup
 
 User = get_user_model()
 

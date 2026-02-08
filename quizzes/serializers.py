@@ -541,14 +541,14 @@ class MoveQuizSerializer(serializers.Serializer):
 
 class LibraryItemSerializer(serializers.Serializer):
     def to_representation(self, instance):
-        user = self.context["user"]
+        user = self.context["request"].user
 
         if isinstance(instance, Folder):
             return {
                 "id": instance.id,
                 "name": instance.name,
                 "type": "folder",
-                "is_shared": (instance.owner != user),
+                "is_shared": (instance.owner_id != user.id),
                 "created_at": instance.created_at,
             }
 
@@ -557,7 +557,7 @@ class LibraryItemSerializer(serializers.Serializer):
                 "id": instance.id,
                 "title": instance.title,
                 "type": "quiz",
-                "is_shared": (instance.maintainer != user),
+                "is_shared": (instance.maintainer_id != user.id),
                 "created_at": instance.created_at,
             }
 
