@@ -2,7 +2,6 @@
 Tests for the metadata action with API key authentication and visibility-based access control.
 """
 
-
 from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status

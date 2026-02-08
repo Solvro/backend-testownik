@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.db import transaction
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from quizzes.models import (
@@ -46,6 +47,7 @@ class AnswerSerializer(serializers.ModelSerializer):
             "is_correct",
         ]
 
+    @extend_schema_field(serializers.URLField)
     def get_image(self, obj):
         if obj.image_upload and obj.image_upload.image:
             request = self.context.get("request")
@@ -84,6 +86,7 @@ class QuestionSerializer(serializers.ModelSerializer):
             "answers",
         ]
 
+    @extend_schema_field(serializers.URLField)
     def get_image(self, obj):
         if obj.image_upload and obj.image_upload.image:
             request = self.context.get("request")
@@ -94,10 +97,61 @@ class QuestionSerializer(serializers.ModelSerializer):
         return obj.image_url
 
 
+@extend_schema_field(serializers.FloatField)
+class DurationInSecondsField(serializers.Field):
+    """Field for handling DurationField as total seconds."""
+
+    def to_representation(self, value):
+        if isinstance(value, timedelta):
+            return value.total_seconds()
+        return value
+
+    def to_internal_value(self, data):
+        try:
+            return timedelta(seconds=float(data))
+        except (ValueError, TypeError):
+            self.fail("invalid")
+
+
+class AnswerRecordSerializer(serializers.ModelSerializer):
+    """Serializer for AnswerRecord."""
+
+    class Meta:
+        model = AnswerRecord
+        fields = ["id", "question", "selected_answers", "was_correct", "answered_at"]
+        read_only_fields = ["id", "answered_at", "was_correct"]
+
+
+class QuizSessionSerializer(serializers.ModelSerializer):
+    """Serializer for QuizSession (new progress tracking)."""
+
+    study_time = DurationInSecondsField(required=False)
+    answers = AnswerRecordSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = QuizSession
+        fields = [
+            "id",
+            "quiz",
+            "user",
+            "current_question",
+            "study_time",
+            "is_active",
+            "started_at",
+            "updated_at",
+            "ended_at",
+            "answers",
+        ]
+        read_only_fields = ["id", "quiz", "user", "started_at", "updated_at", "ended_at"]
+
+
 class QuizSerializer(serializers.ModelSerializer):
     maintainer = PublicUserSerializer(read_only=True)
     can_edit = serializers.SerializerMethodField()
     questions = QuestionSerializer(many=True)
+
+    user_settings = UserSettingsSerializer(read_only=True, required=False, allow_null=True)
+    current_session = QuizSessionSerializer(read_only=True, required=False, allow_null=True)
 
     class Meta:
         model = Quiz
@@ -113,6 +167,8 @@ class QuizSerializer(serializers.ModelSerializer):
             "questions",
             "can_edit",
             "folder",
+            "user_settings",
+            "current_session",
         ]
         read_only_fields = ["maintainer", "version", "can_edit", "folder"]
 
@@ -134,11 +190,11 @@ class QuizSerializer(serializers.ModelSerializer):
             includes = [item.strip() for item in request.query_params.get("include", "").split(",")] if request else []
 
             if "user_settings" in includes and hasattr(user, "settings"):
-                user_settings, _ = UserSettings.objects.get_or_create(user=request.user)
+                user_settings, _ = UserSettings.objects.get_or_create(user=user)
                 data["user_settings"] = UserSettingsSerializer(user_settings).data
 
             if "current_session" in includes:
-                session, _ = QuizSession.get_or_create_active(instance, request.user)
+                session, _ = QuizSession.get_or_create_active(instance, user)
                 data["current_session"] = QuizSessionSerializer(session).data
 
         return data
@@ -461,53 +517,6 @@ class QuizSearchResultSerializer(serializers.ModelSerializer):
         if instance.is_anonymous and user and user != instance.maintainer:
             data["maintainer"] = None
         return data
-
-
-class DurationInSecondsField(serializers.Field):
-    """Field for handling DurationField as total seconds."""
-
-    def to_representation(self, value):
-        if isinstance(value, timedelta):
-            return value.total_seconds()
-        return value
-
-    def to_internal_value(self, data):
-        try:
-            return timedelta(seconds=float(data))
-        except (ValueError, TypeError):
-            self.fail("invalid")
-
-
-class AnswerRecordSerializer(serializers.ModelSerializer):
-    """Serializer for AnswerRecord."""
-
-    class Meta:
-        model = AnswerRecord
-        fields = ["id", "question", "selected_answers", "was_correct", "answered_at"]
-        read_only_fields = ["id", "answered_at", "was_correct"]
-
-
-class QuizSessionSerializer(serializers.ModelSerializer):
-    """Serializer for QuizSession (new progress tracking)."""
-
-    study_time = DurationInSecondsField(required=False)
-    answers = AnswerRecordSerializer(many=True, read_only=True)
-
-    class Meta:
-        model = QuizSession
-        fields = [
-            "id",
-            "quiz",
-            "user",
-            "current_question",
-            "study_time",
-            "is_active",
-            "started_at",
-            "updated_at",
-            "ended_at",
-            "answers",
-        ]
-        read_only_fields = ["id", "quiz", "user", "started_at", "updated_at", "ended_at"]
 
 
 class MoveQuizSerializer(serializers.Serializer):
