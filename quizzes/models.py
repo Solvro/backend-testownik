@@ -227,3 +227,29 @@ class AnswerRecord(models.Model):
     def __str__(self):
         result = "✓" if self.was_correct else "✗"
         return f"{result} {self.question.text[:30]}"
+
+
+class QuestionIssue(models.Model):
+    """
+    Records issues or errors reported by users for specific quiz questions.
+
+    Allows users to flag problems with question content, answer options, or explanations.
+    Can be submitted anonymously or by a logged-in user.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    email = models.EmailField(null=True, blank=True)
+    question = models.ForeignKey(Question, on_delete=models.CASCADE)
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        if self.user and self.user.email:
+            reporter = self.user.email
+        elif self.email:
+            reporter = self.email
+        else:
+            reporter = "Anonymous"
+
+        return f"Issue on Question(id={self.question_id}) by {reporter}"
