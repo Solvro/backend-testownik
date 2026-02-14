@@ -1,4 +1,4 @@
-import random
+import secrets
 import uuid
 from datetime import date, timedelta
 
@@ -194,7 +194,7 @@ class EmailLoginToken(models.Model):
 
     @staticmethod
     def generate_otp():
-        return f"{random.randint(100000, 999999)}"
+        return f"{secrets.randbelow(900000) + 100000}"
 
     @staticmethod
     def create_for_user(user):
