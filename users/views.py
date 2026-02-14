@@ -687,6 +687,7 @@ class StudyGroupViewSet(viewsets.ModelViewSet):
 class GenerateOtpView(APIView):
     permission_classes = [AllowAny]
 
+    @method_decorator(ratelimit(key="post:email", rate="5/h", method="POST", block=True))
     @method_decorator(ratelimit(key="ip", rate="3/m", method="POST", block=True))
     @extend_schema(
         summary="Request login OTP",
@@ -708,6 +709,7 @@ class GenerateOtpView(APIView):
                 },
             },
             404: OpenApiResponse(description="User not found"),
+            403: OpenApiResponse(description="Rate limit exceeded"),
         },
         examples=[
             OpenApiExample(
@@ -741,6 +743,7 @@ class GenerateOtpView(APIView):
 class LoginOtpView(APIView):
     permission_classes = [AllowAny]
 
+    @method_decorator(ratelimit(key="ip", rate="10/m", method="POST", block=True))
     @extend_schema(
         summary="Verify OTP for login",
         description="Verify the OTP provided by the user and return JWT tokens.",
@@ -762,6 +765,7 @@ class LoginOtpView(APIView):
                 },
             },
             400: OpenApiResponse(description="Invalid or expired OTP"),
+            403: OpenApiResponse(description="Rate limit exceeded"),
         },
         examples=[
             OpenApiExample("Valid request", value={"email": "user@example.com", "otp": "123456"}),
