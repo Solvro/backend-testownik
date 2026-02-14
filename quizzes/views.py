@@ -1,3 +1,4 @@
+import logging
 import random
 import urllib.parse
 import uuid
@@ -62,6 +63,8 @@ from quizzes.services.notifications import (
 )
 from quizzes.throttling import CopyQuizThrottle
 from testownik_core.emails import send_email
+
+logger = logging.getLogger(__name__)
 
 
 class RandomQuestionView(APIView):
@@ -671,7 +674,8 @@ class ReportQuestionIssueView(APIView):
                 fail_silently=False,
             )
         except Exception as e:
-            return Response({"error": str(e)}, status=500)
+            logger.exception("Email sending failed: %s", str(e))
+            return Response({"error": "Email sending failed"}, status=500)
 
         return Response({"status": "ok"}, status=201)
 
