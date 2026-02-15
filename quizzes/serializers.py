@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.db import transaction
+from django.db.models import Q
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -153,6 +154,8 @@ class QuizSerializer(serializers.ModelSerializer):
     user_settings = UserSettingsSerializer(read_only=True, required=False, allow_null=True)
     current_session = QuizSessionSerializer(read_only=True, required=False, allow_null=True)
 
+    has_external_images = serializers.SerializerMethodField()
+
     class Meta:
         model = Quiz
         fields = [
@@ -169,6 +172,7 @@ class QuizSerializer(serializers.ModelSerializer):
             "folder",
             "user_settings",
             "current_session",
+            "has_external_images",
         ]
         read_only_fields = ["maintainer", "version", "can_edit", "folder"]
 
@@ -177,6 +181,16 @@ class QuizSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             return obj.can_edit(request.user)
         return False
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_external_images(self, obj) -> bool:
+        """Check if any question or answer uses an external image URL (not uploaded)."""
+        external_image_filter = Q(image_url__isnull=False) & ~Q(image_url="") & Q(image_upload__isnull=True)
+
+        return (
+            obj.questions.filter(external_image_filter).exists()
+            or Answer.objects.filter(question__quiz=obj).filter(external_image_filter).exists()
+        )
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
