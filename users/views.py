@@ -25,7 +25,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from usos_api import USOSAPIException, USOSClient
 
-from quizzes.models import QuizProgress, SharedQuiz
+from quizzes.models import QuizSession, SharedQuiz
 from testownik_core.settings import (
     ALLOW_PREVIEW_ENVIRONMENTS,
     ALLOWED_REDIRECT_ORIGINS,
@@ -932,7 +932,7 @@ class DeleteAccountView(APIView):
                 quiz.maintainer = transfer_to_user
                 quiz.save()
 
-        QuizProgress.objects.filter(user=request.user).delete()
+        QuizSession.objects.filter(user=request.user).delete()
         SharedQuiz.objects.filter(user=request.user).delete()
         request.user.delete()
 

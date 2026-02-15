@@ -10,7 +10,6 @@ from .models import (
     Folder,
     Question,
     Quiz,
-    QuizProgress,
     QuizSession,
     SharedQuiz,
 )
@@ -159,6 +158,5 @@ class SharedQuizAdmin(admin.ModelAdmin):
 admin.site.register(Quiz, QuizAdmin)
 admin.site.register(Question, QuestionAdmin)
 admin.site.register(QuizSession, QuizSessionAdmin)
-admin.site.register(QuizProgress, QuizProgressAdmin)
 admin.site.register(SharedQuiz, SharedQuizAdmin)
 admin.site.register(Folder, FolderAdmin)
