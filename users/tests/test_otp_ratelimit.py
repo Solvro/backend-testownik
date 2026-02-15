@@ -56,31 +56,6 @@ class GenerateOtpRateLimitTestCase(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_email_rate_limit_blocks_after_limit(self):
-        """Test that email-based rate limiting blocks after 5 requests/hour to the same email."""
-        # Use different REMOTE_ADDR for each request to bypass IP rate limit
-        for i in range(5):
-            response = self.client.post(
-                self.url,
-                {"email": "test@example.com"},
-                format="json",
-                REMOTE_ADDR=f"10.0.0.{i + 1}",
-            )
-            self.assertEqual(
-                response.status_code,
-                status.HTTP_200_OK,
-                f"Request {i + 1} should succeed within email rate limit",
-            )
-
-        # 6th request to the same email (from a different IP) should be blocked
-        response = self.client.post(
-            self.url,
-            {"email": "test@example.com"},
-            format="json",
-            REMOTE_ADDR="10.0.0.100",
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
 
 class LoginOtpRateLimitTestCase(APITestCase):
     """Tests for rate limiting on the login-otp endpoint."""

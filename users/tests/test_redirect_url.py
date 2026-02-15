@@ -14,6 +14,10 @@ class IsSafeRedirectUrlTestCase(TestCase):
 
     # --- VALID CASES ---
 
+    def test_admin_index_view_name_is_safe(self):
+        """The Django admin:index view name should be accepted as safe."""
+        self.assertTrue(is_safe_redirect_url("admin:index"))
+
     def test_relative_path_is_safe(self):
         """Relative paths starting with / should be allowed."""
         self.assertTrue(is_safe_redirect_url("/dashboard"))

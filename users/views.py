@@ -681,7 +681,6 @@ class StudyGroupViewSet(viewsets.ModelViewSet):
 class GenerateOtpView(APIView):
     permission_classes = [AllowAny]
 
-    @method_decorator(ratelimit(key="post:email", rate="5/h", method="POST", block=True))
     @method_decorator(ratelimit(key="ip", rate="3/m", method="POST", block=True))
     @extend_schema(
         summary="Request login OTP",
@@ -702,7 +701,6 @@ class GenerateOtpView(APIView):
                     "message": {"type": "string"},
                 },
             },
-            404: OpenApiResponse(description="User not found"),
             403: OpenApiResponse(description="Rate limit exceeded"),
         },
         examples=[
@@ -714,12 +712,6 @@ class GenerateOtpView(APIView):
                 "Success response",
                 response_only=True,
                 value={"message": "Login email sent."},
-            ),
-            OpenApiExample(
-                "Error response (user not found)",
-                response_only=True,
-                value={"error": "User not found"},
-                status_codes=["404"],
             ),
         ],
     )
