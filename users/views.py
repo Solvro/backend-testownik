@@ -8,7 +8,6 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 import dotenv
 from asgiref.sync import sync_to_async
 from django.contrib import messages
-from django.contrib.auth import aget_user
 from django.contrib.auth import alogin as async_auth_login
 from django.contrib.auth import login as auth_login
 from django.db.models import Q
@@ -104,6 +103,9 @@ def remove_query_params(url, params):
 def is_safe_redirect_url(url: str) -> bool:
     if not url:
         return False
+
+    if url == "admin:index":
+        return True
 
     if url.startswith("//"):
         return False
@@ -224,7 +226,11 @@ async def login_usos(request):
 
 
 def admin_login(request):
-    next_url = request.GET.get("next", "/admin")
+    next_url = request.GET.get("next", "admin:index")
+    if not is_safe_redirect_url(next_url):
+        logger.warning("Blocked unsafe redirect URL in admin_login: %s", next_url)
+        messages.error(request, "Unsafe redirect URL, defaulting to admin index")
+        next_url = "admin:index"
     if request.user.is_authenticated and request.user.is_superuser:
         return redirect(next_url)
     return render(request, "users/admin_login.html", {"next": next_url, "username": request.user})
@@ -552,18 +558,6 @@ class SettingsViewSet(
     def partial_update(self, request, *args, **kwargs):
         """PATCH /api/settings/"""
         return super().partial_update(request, *args, **kwargs)
-
-
-async def refresh_user_data(request):
-    try:
-        request_user = await aget_user(request)
-        await update_user_data_from_usos(
-            access_token=request_user.access_token,
-            access_token_secret=request_user.access_token_secret,
-        )
-    except Exception as e:
-        messages.error(request, f"Wystąpił błąd podczas odświeżania danych użytkownika: {e}")
-    return redirect(request.GET.get("next", "index"))
 
 
 class CurrentUserView(GenericAPIView):
