@@ -1,6 +1,8 @@
 import re
 
 from django.contrib import admin
+from django.urls import reverse
+from django.utils.html import format_html
 
 from .models import (
     Answer,
@@ -28,6 +30,7 @@ class QuestionInline(admin.StackedInline):
     model = Question
     extra = 0
     show_change_link = True
+    autocomplete_fields = ["image_upload"]
 
 
 class QuestionAdmin(admin.ModelAdmin):
@@ -67,23 +70,6 @@ class AnswerRecordInline(admin.TabularInline):
         return False
 
 
-class QuizSessionInline(admin.TabularInline):
-    model = QuizSession
-    extra = 0
-    readonly_fields = ["started_at", "ended_at", "score_display", "is_active"]
-    fields = ["user", "started_at", "ended_at", "is_active", "score_display"]
-    can_delete = False
-    show_change_link = True
-
-    def score_display(self, obj):
-        return f"{obj.correct_count} / {obj.correct_count + obj.wrong_count}"
-
-    score_display.short_description = "Score"
-
-    def has_add_permission(self, request, obj=None):
-        return False
-
-
 class QuizSessionAdmin(admin.ModelAdmin):
     list_display = [
         "quiz",
@@ -112,7 +98,15 @@ class QuizSessionAdmin(admin.ModelAdmin):
 
 
 class QuizAdmin(admin.ModelAdmin):
-    list_display = ["title", "maintainer", "visibility", "is_anonymous", "version"]
+    list_display = [
+        "title",
+        "maintainer",
+        "visibility",
+        "is_anonymous",
+        "version",
+        "view_questions_link",
+        "view_sessions_link",
+    ]
     list_filter = ["visibility", "is_anonymous"]
     search_fields = [
         "title",
@@ -122,10 +116,23 @@ class QuizAdmin(admin.ModelAdmin):
         "maintainer__email",
         "maintainer__student_number",
     ]
-    readonly_fields = ["version", "created_at", "updated_at"]
+    readonly_fields = ["version", "created_at", "updated_at", "view_questions_link", "view_sessions_link"]
     autocomplete_fields = ["maintainer", "folder"]
-    inlines = [QuestionInline, QuizSessionInline]
     date_hierarchy = "created_at"
+
+    def view_questions_link(self, obj):
+        count = obj.questions.count()
+        url = reverse("admin:quizzes_question_changelist") + f"?quiz__id__exact={obj.id}"
+        return format_html('<a href="{}">View {} Questions</a>', url, count)
+
+    view_questions_link.short_description = "Questions"
+
+    def view_sessions_link(self, obj):
+        count = obj.sessions.count()
+        url = reverse("admin:quizzes_quizsession_changelist") + f"?quiz__id__exact={obj.id}"
+        return format_html('<a href="{}">View {} Sessions</a>', url, count)
+
+    view_sessions_link.short_description = "Sessions"
 
 
 class QuizProgressAdmin(admin.ModelAdmin):
