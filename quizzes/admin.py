@@ -1,5 +1,6 @@
 import re
 
+from django.conf import settings
 from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
@@ -97,6 +98,13 @@ class QuizSessionAdmin(admin.ModelAdmin):
 
 
 class QuizAdmin(admin.ModelAdmin):
+    change_form_template = "admin/quizzes/quiz/change_form.html"
+
+    def render_change_form(self, request, context, add=False, change=False, form_url="", obj=None):
+        context = context or {}
+        context["frontend_url"] = settings.FRONTEND_URL
+        return super().render_change_form(request, context, add, change, form_url, obj)
+
     list_display = [
         "title",
         "maintainer",
