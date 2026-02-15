@@ -134,13 +134,6 @@ class QuizAdmin(admin.ModelAdmin):
     view_sessions_link.short_description = "Sessions"
 
 
-class QuizProgressAdmin(admin.ModelAdmin):
-    list_display = ["quiz", "user", "current_question", "correct_answers_count", "wrong_answers_count", "last_activity"]
-    list_filter = ["last_activity"]
-    search_fields = ["quiz__title", "user__first_name", "user__last_name", "user__email", "user__student_number"]
-    date_hierarchy = "last_activity"
-
-
 class SharedQuizAdmin(admin.ModelAdmin):
     list_display = ["quiz", "user", "study_group", "allow_edit"]
     list_filter = ["allow_edit"]
