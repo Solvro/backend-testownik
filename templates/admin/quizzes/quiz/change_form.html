@@ -1,0 +1,11 @@
+{% extends "admin/change_form.html" %}
+{% block object-tools-items %} {{block.super }} {% if original %}
+<li>
+  <a
+    href="{{ frontend_url }}/quiz/{{ original.id }}"
+    target="_blank"
+    class="viewsitelink"
+    >Open in App</a
+  >
+</li>
+{% endif %} {% endblock %}

@@ -1,6 +1,5 @@
 import uuid
 from datetime import timedelta
-from warnings import deprecated
 
 from django.db import models
 
@@ -56,6 +55,8 @@ class Quiz(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        verbose_name = "quiz"
+        verbose_name_plural = "quizzes"
 
     def __str__(self):
         return self.title or f"Quiz {self.id}"
@@ -146,27 +147,6 @@ class SharedQuiz(models.Model):
 
     def __str__(self):
         return f"{self.quiz.title} shared with {self.user or self.study_group}"
-
-
-@deprecated(
-    "QuizProgress is deprecated and will be removed in future versions. Use QuizSession and AnswerRecord instead."
-)
-class QuizProgress(models.Model):
-    """
-    Legacy model for quiz progress tracking.
-    """
-
-    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE)
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    current_question = models.PositiveIntegerField(default=0)
-    reoccurrences = models.JSONField(default=list, blank=True)
-    correct_answers_count = models.PositiveIntegerField(default=0)
-    wrong_answers_count = models.PositiveIntegerField(default=0)
-    study_time = models.DurationField(default=timedelta)
-    last_activity = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return f"{self.quiz.title} - {self.user} - {self.current_question}"
 
 
 class QuizSession(models.Model):
