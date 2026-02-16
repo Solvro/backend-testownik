@@ -1,5 +1,7 @@
 from rest_framework import permissions
 
+from .models import Question, Quiz
+
 
 class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):
     """
@@ -38,7 +40,11 @@ class IsQuizMaintainerOrCollaborator(permissions.BasePermission):
             return True
 
         # Write permissions are only allowed to the maintainer or accepted collaborators
-        return obj.can_edit(request.user)
+        if isinstance(obj, Quiz):
+            return obj.can_edit(request.user)
+
+        if isinstance(obj, Question):
+            return obj.quiz.can_edit(request.user)
 
 
 class IsFolderOwner(permissions.BasePermission):

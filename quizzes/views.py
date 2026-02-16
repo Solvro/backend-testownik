@@ -43,6 +43,7 @@ from quizzes.serializers import (
     FolderSerializer,
     MoveFolderSerializer,
     MoveQuizSerializer,
+    QuestionSerializer,
     QuizMetaDataSerializer,
     QuizSearchResultSerializer,
     QuizSerializer,
@@ -585,6 +586,23 @@ class ReportQuestionIssueView(APIView):
             return Response({"error": str(e)}, status=500)
 
         return Response({"status": "ok"}, status=201)
+
+
+class QuestionViewSet(viewsets.ModelViewSet):
+    serializer_class = QuestionSerializer
+    queryset = Question.objects.all()
+    permission_classes = [permissions.IsAuthenticated, IsQuizMaintainerOrCollaborator]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        accessible_quizzes = Quiz.objects.filter(
+            Q(maintainer=user)
+            | Q(sharedquiz__user=user, sharedquiz__allow_edit=True)
+            | Q(sharedquiz__study_group__in=user.study_groups.all(), sharedquiz__allow_edit=True)
+        ).values("id")
+
+        return Question.objects.filter(quiz__in=accessible_quizzes).order_by("quiz", "order")
 
 
 class FolderViewSet(viewsets.ModelViewSet):

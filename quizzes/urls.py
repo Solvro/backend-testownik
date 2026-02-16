@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from quizzes.views import (
     FolderViewSet,
     LastUsedQuizzesView,
+    QuestionViewSet,
     QuizMetadataView,
     QuizViewSet,
     RandomQuestionView,
@@ -16,6 +17,7 @@ router = DefaultRouter()
 router.register("quizzes", QuizViewSet)
 router.register("shared-quizzes", SharedQuizViewSet)
 router.register("folders", FolderViewSet)
+router.register("questions", QuestionViewSet)
 
 urlpatterns = [
     path("", include(router.urls)),
