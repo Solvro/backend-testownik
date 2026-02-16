@@ -1,5 +1,6 @@
 from django.conf import settings
 from rest_framework import permissions
+
 from .models import Question, Quiz
 
 
@@ -14,7 +15,6 @@ class IsInternalApiRequest(permissions.BasePermission):
         if not api_key or not settings.INTERNAL_API_KEY:
             return False
         return api_key == settings.INTERNAL_API_KEY
-
 
 
 class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):
@@ -56,7 +56,7 @@ class IsQuizReadable(permissions.BasePermission):
     """
 
     def has_object_permission(self, request, view, obj):
-        quiz = getattr(obj, 'quiz', obj)
+        quiz = getattr(obj, "quiz", obj)
 
         if quiz.maintainer == request.user:
             return True
