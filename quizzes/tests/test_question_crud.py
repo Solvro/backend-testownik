@@ -46,7 +46,7 @@ class QuestionCRUDTestCase(APITestCase):
         response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 1)
-        self.assertTrue("answers" in response.data[0])
+        self.assertIn("answers", response.data[0])
 
     def test_create_question_with_answers(self):
         data = {
