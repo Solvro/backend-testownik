@@ -1,6 +1,5 @@
 import uuid
 from datetime import timedelta
-from warnings import deprecated
 
 from django.db import models
 
@@ -56,6 +55,8 @@ class Quiz(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        verbose_name = "quiz"
+        verbose_name_plural = "quizzes"
 
     def __str__(self):
         return self.title or f"Quiz {self.id}"
@@ -72,9 +73,16 @@ class Question(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="questions")
     order = models.PositiveIntegerField()
-    text = models.TextField()
-    image = models.URLField(blank=True, null=True, max_length=512)
-    explanation = models.TextField(blank=True, null=True)
+    text = models.TextField(blank=True)
+    image_url = models.URLField(blank=True, null=True, max_length=512)
+    image_upload = models.ForeignKey(
+        "uploads.UploadedImage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="questions",
+    )
+    explanation = models.TextField(blank=True)
     multiple = models.BooleanField(default=False)
 
     class Meta:
@@ -83,13 +91,26 @@ class Question(models.Model):
     def __str__(self):
         return f"Q{self.order}: {self.text[:50]}"
 
+    @property
+    def image(self):
+        if self.image_upload:
+            return self.image_upload.image.url
+        return self.image_url
+
 
 class Answer(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="answers")
     order = models.PositiveIntegerField()
-    text = models.TextField()
-    image = models.URLField(blank=True, null=True, max_length=512)
+    text = models.TextField(blank=True)
+    image_url = models.URLField(blank=True, null=True, max_length=512)
+    image_upload = models.ForeignKey(
+        "uploads.UploadedImage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="answers",
+    )
     is_correct = models.BooleanField(default=False)
 
     class Meta:
@@ -97,6 +118,12 @@ class Answer(models.Model):
 
     def __str__(self):
         return f"{'✓' if self.is_correct else '✗'} {self.text[:50]}"
+
+    @property
+    def image(self):
+        if self.image_upload:
+            return self.image_upload.image.url
+        return self.image_url
 
 
 class SharedQuiz(models.Model):
@@ -122,27 +149,6 @@ class SharedQuiz(models.Model):
         return f"{self.quiz.title} shared with {self.user or self.study_group}"
 
 
-@deprecated(
-    "QuizProgress is deprecated and will be removed in future versions. Use QuizSession and AnswerRecord instead."
-)
-class QuizProgress(models.Model):
-    """
-    Legacy model for quiz progress tracking.
-    """
-
-    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE)
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    current_question = models.PositiveIntegerField(default=0)
-    reoccurrences = models.JSONField(default=list, blank=True)
-    correct_answers_count = models.PositiveIntegerField(default=0)
-    wrong_answers_count = models.PositiveIntegerField(default=0)
-    study_time = models.DurationField(default=timedelta)
-    last_activity = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return f"{self.quiz.title} - {self.user} - {self.current_question}"
-
-
 class QuizSession(models.Model):
     """Tracks a user's quiz attempt session. Archived on reset, new session created."""
 
@@ -150,6 +156,7 @@ class QuizSession(models.Model):
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="sessions")
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="quiz_sessions")
     started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     ended_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     study_time = models.DurationField(default=timedelta)

@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 from django.views.generic import TemplateView
@@ -11,10 +12,13 @@ from drf_spectacular.views import (
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from testownik_core.views import ApiIndexView
-from users.views import admin_login
+from users.views import (
+    CustomTokenObtainPairView,
+    CustomTokenRefreshView,
+    admin_login,
+)
 
 
 @extend_schema(exclude=True)
@@ -24,8 +28,8 @@ def status(request):
     return Response({"status": "ok"})
 
 
-urlpatterns = [
-    path("", ApiIndexView.as_view(), name="index"),
+base_urlpatterns = [
+    path("", ApiIndexView.as_view(), name="api_index"),
     path(
         "scalar/",
         TemplateView.as_view(template_name="scalar.html"),
@@ -37,8 +41,8 @@ urlpatterns = [
     path("admin/login/", admin_login, name="admin_login"),
     path("admin/", admin.site.urls),
     # Authentication
-    path("token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
-    path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("token/", CustomTokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("token/refresh/", CustomTokenRefreshView.as_view(), name="token_refresh"),
     # Docs
     path(
         "schema/",
@@ -61,7 +65,16 @@ urlpatterns = [
     path("", include("grades.urls")),
     path("", include("feedback.urls")),
     path("", include("alerts.urls")),
+    path("", include("uploads.urls")),
 ]
+
+urlpatterns = [
+    path("api/", include(base_urlpatterns)),
+    path("", ApiIndexView.as_view(), name="index"),
+]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 # Admin site settings
 admin.site.site_url = settings.FRONTEND_URL

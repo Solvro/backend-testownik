@@ -1,6 +1,97 @@
 from rest_framework import serializers
+from rest_framework_simplejwt.exceptions import InvalidToken
+from rest_framework_simplejwt.serializers import (
+    TokenObtainPairSerializer,
+    TokenRefreshSerializer,
+)
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from users.models import StudyGroup, Term, User, UserSettings
+
+
+class UserTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """Custom JWT token serializer that includes user data in the token."""
+
+    @classmethod
+    def get_token(cls, user: User):
+        token = super().get_token(user)
+
+        token["first_name"] = user.first_name
+        token["last_name"] = user.last_name
+        token["full_name"] = user.full_name
+        token["email"] = user.email
+        token["student_number"] = user.student_number
+        token["photo"] = user.photo
+        token["is_staff"] = user.is_staff
+        token["is_superuser"] = user.is_superuser
+        token["is_banned"] = user.is_banned
+
+        return token
+
+    def validate(self, attrs):
+        email = attrs.get("email")
+        if email:
+            user = User.objects.filter(email=email).first()
+            if user and user.is_banned:
+                raise InvalidToken(
+                    {
+                        "code": "user_banned",
+                        "detail": "Your account has been banned.",
+                        "ban_reason": user.ban_reason or "No reason provided",
+                    }
+                )
+
+        return super().validate(attrs)
+
+
+class UserTokenRefreshSerializer(TokenRefreshSerializer):
+    """Custom JWT refresh serializer that re-populates user data when refreshing tokens."""
+
+    def validate(self, attrs):
+        refresh = RefreshToken(attrs["refresh"])
+        user_id = refresh.payload.get("user_id")
+
+        if user_id:
+            try:
+                user = User.objects.get(pk=user_id)
+                if user.is_banned:
+                    raise InvalidToken(
+                        {
+                            "code": "user_banned",
+                            "detail": "Your account has been banned.",
+                            "ban_reason": user.ban_reason or "No reason provided",
+                        }
+                    )
+            except User.DoesNotExist:
+                pass
+
+        try:
+            data = super().validate(attrs)
+        except User.DoesNotExist:
+            raise InvalidToken("User associated with this token no longer exists")
+
+        if user_id:
+            try:
+                user = User.objects.get(pk=user_id)
+                new_access = UserTokenObtainPairSerializer.get_token(user).access_token
+                data["access"] = str(new_access)
+            except User.DoesNotExist:
+                raise InvalidToken("User associated with this token no longer exists")
+
+        return data
+
+
+class CurrentUserDefault:
+    """Default class that returns the currently authenticated user."""
+
+    requires_context = True
+
+    def __call__(self, serializer_field):
+        request = serializer_field.context.get("request") if serializer_field.context else None
+        user = getattr(request, "user", None)
+        if user is None or not getattr(user, "is_authenticated", False):
+            raise serializers.ValidationError("Authenticated user is required.")
+        return user
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -36,6 +127,7 @@ class UserSettingsSerializer(serializers.ModelSerializer):
             "notify_quiz_shared",
             "notify_bug_reported",
             "notify_marketing",
+            "max_question_reoccurrences",
         ]
 
     def validate_initial_reoccurrences(self, value):

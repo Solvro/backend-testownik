@@ -24,11 +24,6 @@ urlpatterns = [
     path("random-question/", RandomQuestionView.as_view(), name="random-question"),
     path("last-used-quizzes/", LastUsedQuizzesView.as_view(), name="last-used-quizzes"),
     path(
-        "quiz/<uuid:quiz_id>/metadata/",
-        QuizMetadataView.as_view(),
-        name="quiz-metadata",
-    ),
-    path(
         "report-question-issue/",
         ReportQuestionIssueView.as_view(),
         name="report-question-issue",

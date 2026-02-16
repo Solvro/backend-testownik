@@ -9,7 +9,7 @@ def send_login_email_to_user(user):
     user.emaillogintoken_set.all().delete()
     login_token = EmailLoginToken.create_for_user(user)
 
-    login_link = f"{settings.FRONTEND_URL}/login-link/{login_token.token}"
+    login_link = f"{settings.FRONTEND_URL}/auth/login-link?token={login_token.token}"
     otp_code = login_token.otp_code
 
     subject = f"Twój kod logowania: {otp_code}"

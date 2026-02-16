@@ -1,8 +1,10 @@
-import random
+import secrets
 import uuid
 from datetime import date, timedelta
 
+from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import BooleanField
 from django.utils.timezone import now
@@ -11,9 +13,33 @@ from rest_framework import serializers
 from usos_api.models import Sex, StaffStatus, StudentStatus
 
 
+class CustomUserManager(BaseUserManager):
+    def create_user(self, email, password=None, **extra_fields):
+        if not email:
+            raise ValueError("The Email field must be set")
+        email = self.normalize_email(email)
+        user = self.model(email=email, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, email, password=None, **extra_fields):
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+
+        if extra_fields.get("is_staff") is not True:
+            raise ValueError("Superuser must have is_staff=True.")
+        if extra_fields.get("is_superuser") is not True:
+            raise ValueError("Superuser must have is_superuser=True.")
+
+        return self.create_user(email, password, **extra_fields)
+
+
 class User(AbstractBaseUser, PermissionsMixin):
+    objects = CustomUserManager()
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    email = models.EmailField(null=True, blank=True)
+    email = models.EmailField(unique=True)
     student_number = models.CharField(max_length=6)
     usos_id = models.IntegerField(null=True, blank=True)
     first_name = models.CharField(max_length=30)
@@ -40,7 +66,10 @@ class User(AbstractBaseUser, PermissionsMixin):
         " user will still be able to be added by student_number",
     )
 
-    USERNAME_FIELD = "id"
+    is_banned = BooleanField(default=False, help_text="Whether the user is banned from the platform")
+    ban_reason = models.TextField(null=True, blank=True, help_text="Reason for the ban")
+
+    USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["first_name", "last_name"]
 
     def __str__(self):
@@ -57,6 +86,11 @@ class User(AbstractBaseUser, PermissionsMixin):
     @property
     def full_name(self) -> str:
         return f"{self.first_name} {self.last_name}"
+
+    @property
+    def is_active(self) -> bool:
+        """User is active if not banned. Used by Django's authentication backends."""
+        return not self.is_banned
 
     @property
     def is_active_student_and_not_staff(self) -> bool:
@@ -94,8 +128,15 @@ class UserSettings(models.Model):
     sync_progress = models.BooleanField(default=True)
 
     # quiz settings
-    initial_reoccurrences = models.IntegerField(default=1)
+    initial_reoccurrences = models.IntegerField(default=1, validators=[MinValueValidator(1)])
     wrong_answer_reoccurrences = models.IntegerField(default=1)
+    max_question_reoccurrences = models.PositiveIntegerField(
+        default=None,
+        help_text="Maksymalna liczba powtórzeń tego samego pytania w jednej sesji",
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1)],
+    )
 
     # user notification preferences
     notify_quiz_shared = models.BooleanField(default=True)
@@ -153,7 +194,7 @@ class EmailLoginToken(models.Model):
 
     @staticmethod
     def generate_otp():
-        return f"{random.randint(100000, 999999)}"
+        return f"{secrets.randbelow(900000) + 100000}"
 
     @staticmethod
     def create_for_user(user):

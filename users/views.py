@@ -1,13 +1,13 @@
 import json
 import logging
 import os
+import re
 from asyncio import CancelledError, sleep
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import dotenv
 from asgiref.sync import sync_to_async
 from django.contrib import messages
-from django.contrib.auth import aget_user
 from django.contrib.auth import alogin as async_auth_login
 from django.contrib.auth import login as auth_login
 from django.db.models import Q
@@ -22,23 +22,65 @@ from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from usos_api import USOSAPIException, USOSClient
 
-from quizzes.models import QuizProgress, SharedQuiz
-from testownik_core.settings import oauth
+from quizzes.models import QuizSession, SharedQuiz
+from testownik_core.settings import (
+    ALLOW_PREVIEW_ENVIRONMENTS,
+    ALLOWED_REDIRECT_ORIGINS,
+    PREVIEW_ORIGIN_REGEXES,
+    oauth,
+)
+from users.auth_cookies import set_jwt_cookies
 from users.models import EmailLoginToken, StudyGroup, Term, User, UserSettings
 from users.serializers import (
     PublicUserSerializer,
     StudyGroupSerializer,
     UserSerializer,
     UserSettingsSerializer,
+    UserTokenObtainPairSerializer,
+    UserTokenRefreshSerializer,
 )
 from users.utils import send_login_email_to_user
 
 dotenv.load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    """Custom token obtain view that includes user data in the access token."""
+
+    serializer_class = UserTokenObtainPairSerializer
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200:
+            set_jwt_cookies(
+                response,
+                response.data.get("access"),
+                response.data.get("refresh"),
+            )
+            response.data = {"message": "Login successful"}
+        return response
+
+
+class CustomTokenRefreshView(TokenRefreshView):
+    """Custom token refresh view that re-populates user data in the access token."""
+
+    serializer_class = UserTokenRefreshSerializer
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200:
+            set_jwt_cookies(
+                response,
+                response.data.get("access"),
+                response.data.get("refresh"),
+            )
+            response.data = {"message": "Token refreshed"}
+        return response
 
 
 def add_query_params(url, params):
@@ -58,12 +100,53 @@ def remove_query_params(url, params):
     return str(urlunparse(url_parts))
 
 
+def is_safe_redirect_url(url: str) -> bool:
+    if not url:
+        return False
+
+    if url == "admin:index":
+        return True
+
+    if url.startswith("//"):
+        return False
+
+    if url.startswith("/"):
+        return True
+
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+
+        if not parsed.netloc:
+            return False
+
+        url_origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+
+        if url_origin in ALLOWED_REDIRECT_ORIGINS:
+            return True
+
+        if ALLOW_PREVIEW_ENVIRONMENTS:
+            for regex in PREVIEW_ORIGIN_REGEXES:
+                if re.match(regex, url_origin):
+                    return True
+
+        return False
+    except Exception:
+        return False
+
+
 def login(request):
     confirm_user = request.GET.get("confirm_user", "false") == "true"
     jwt = request.GET.get("jwt", "false") == "true"
     redirect_url = request.GET.get("redirect", "")
+
+    if redirect_url and not is_safe_redirect_url(redirect_url):
+        logger.warning("Blocked unsafe redirect URL in login: %s", redirect_url)
+        return HttpResponseBadRequest("Invalid redirect URL")
+
     callback_url = request.build_absolute_uri(
-        f"/authorize/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
+        f"/api/authorize/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
     )
     additional_params = {}
     if confirm_user:
@@ -79,8 +162,12 @@ async def login_usos(request):
     if jwt and not redirect_url:
         return HttpResponseForbidden("Redirect URL must be provided when using JWT")
 
+    if redirect_url and not is_safe_redirect_url(redirect_url):
+        logger.warning("Blocked unsafe redirect URL in login_usos: %s", redirect_url)
+        return HttpResponseBadRequest("Invalid redirect URL")
+
     callback_url = request.build_absolute_uri(
-        f"/authorize/usos/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
+        f"/api/authorize/usos/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
     )
 
     max_retries = 3  # max tries
@@ -139,7 +226,11 @@ async def login_usos(request):
 
 
 def admin_login(request):
-    next_url = request.GET.get("next", "/admin")
+    next_url = request.GET.get("next", "admin:index")
+    if not is_safe_redirect_url(next_url):
+        logger.warning("Blocked unsafe redirect URL in admin_login: %s", next_url)
+        messages.error(request, "Unsafe redirect URL, defaulting to admin index")
+        next_url = "admin:index"
     if request.user.is_authenticated and request.user.is_superuser:
         return redirect(next_url)
     return render(request, "users/admin_login.html", {"next": next_url, "username": request.user})
@@ -165,6 +256,10 @@ def authorize(request):
 
     redirect_url = request.GET.get("redirect", "index")
 
+    if not is_safe_redirect_url(redirect_url):
+        logger.warning("Blocked unsafe redirect URL in authorize: %s", redirect_url)
+        redirect_url = "index"
+
     if not profile.get("email"):
         logger.error("Solvro user profile missing email. Profile keys: %s", list(profile.keys()))
         if request.GET.get("jwt", "false") == "true":
@@ -179,17 +274,22 @@ def authorize(request):
         },
     )
 
+    if user.is_banned:
+        logger.warning("Banned user attempted login. Email: %s", user.email)
+        if request.GET.get("jwt", "false") == "true":
+            auth_params = {"error": "user_banned"}
+            if user.ban_reason:
+                auth_params["ban_reason"] = user.ban_reason
+            return redirect(add_query_params(redirect_url, auth_params))
+
+        messages.error(request, f"Twoje konto zostało zablokowane: {user.ban_reason or 'Brak powodu'}")
+        return redirect(redirect_url)
+
     if request.GET.get("jwt", "false") == "true":
-        refresh = RefreshToken.for_user(user)
-        return redirect(
-            add_query_params(
-                remove_query_params(redirect_url, ["error"]),
-                {
-                    "access_token": str(refresh.access_token),
-                    "refresh_token": str(refresh),
-                },
-            )
-        )
+        refresh = UserTokenObtainPairSerializer.get_token(user)
+        response = redirect(remove_query_params(redirect_url, ["error"]))
+        set_jwt_cookies(response, str(refresh.access_token), str(refresh))
+        return response
 
     auth_login(request, user)
     return redirect(redirect_url)
@@ -197,6 +297,10 @@ def authorize(request):
 
 async def authorize_usos(request):
     redirect_url = request.GET.get("redirect", "index")
+
+    if not is_safe_redirect_url(redirect_url):
+        logger.warning("Blocked unsafe redirect URL in authorize_usos: %s", redirect_url)
+        redirect_url = "index"
 
     async with USOSClient(
         "https://apps.usos.pwr.edu.pl/",
@@ -250,6 +354,17 @@ async def authorize_usos(request):
 
         user, created = await update_user_data_from_usos(client, access_token, access_token_secret)
 
+        if user.is_banned:
+            logger.warning("Banned user attempted USOS login. Email: %s", user.email)
+            if request.GET.get("jwt", "false") == "true":
+                auth_params = {"error": "user_banned"}
+                if user.ban_reason:
+                    auth_params["ban_reason"] = user.ban_reason
+                return redirect(add_query_params(redirect_url, auth_params))
+
+            messages.error(request, f"Twoje konto zostało zablokowane: {user.ban_reason or 'Brak powodu'}")
+            return redirect(redirect_url)
+
         if not user.is_student_and_not_staff:
             logger.warning(
                 "User rejected: not an active student. Email: %s, Created: %s",
@@ -267,16 +382,10 @@ async def authorize_usos(request):
             return redirect("index")
 
     if request.GET.get("jwt", "false") == "true":
-        refresh = await sync_to_async(RefreshToken.for_user)(user)
-        return redirect(
-            add_query_params(
-                remove_query_params(redirect_url, ["error"]),
-                {
-                    "access_token": str(refresh.access_token),
-                    "refresh_token": str(refresh),
-                },
-            )
-        )
+        refresh = await sync_to_async(UserTokenObtainPairSerializer.get_token)(user)
+        response = redirect(remove_query_params(redirect_url, ["error"]))
+        set_jwt_cookies(response, str(refresh.access_token), str(refresh))
+        return response
 
     await async_auth_login(request, user)
     return redirect(redirect_url)
@@ -451,18 +560,6 @@ class SettingsViewSet(
         return super().partial_update(request, *args, **kwargs)
 
 
-async def refresh_user_data(request):
-    try:
-        request_user = await aget_user(request)
-        await update_user_data_from_usos(
-            access_token=request_user.access_token,
-            access_token_secret=request_user.access_token_secret,
-        )
-    except Exception as e:
-        messages.error(request, f"Wystąpił błąd podczas odświeżania danych użytkownika: {e}")
-    return redirect(request.GET.get("next", "index"))
-
-
 class CurrentUserView(GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = UserSerializer
@@ -604,7 +701,7 @@ class GenerateOtpView(APIView):
                     "message": {"type": "string"},
                 },
             },
-            404: OpenApiResponse(description="User not found"),
+            403: OpenApiResponse(description="Rate limit exceeded"),
         },
         examples=[
             OpenApiExample(
@@ -615,12 +712,6 @@ class GenerateOtpView(APIView):
                 "Success response",
                 response_only=True,
                 value={"message": "Login email sent."},
-            ),
-            OpenApiExample(
-                "Error response (user not found)",
-                response_only=True,
-                value={"error": "User not found"},
-                status_codes=["404"],
             ),
         ],
     )
@@ -638,6 +729,7 @@ class GenerateOtpView(APIView):
 class LoginOtpView(APIView):
     permission_classes = [AllowAny]
 
+    @method_decorator(ratelimit(key="ip", rate="10/m", method="POST", block=True))
     @extend_schema(
         summary="Verify OTP for login",
         description="Verify the OTP provided by the user and return JWT tokens.",
@@ -655,21 +747,18 @@ class LoginOtpView(APIView):
             200: {
                 "type": "object",
                 "properties": {
-                    "access_token": {"type": "string"},
-                    "refresh_token": {"type": "string"},
+                    "message": {"type": "string"},
                 },
             },
             400: OpenApiResponse(description="Invalid or expired OTP"),
+            403: OpenApiResponse(description="Rate limit exceeded"),
         },
         examples=[
             OpenApiExample("Valid request", value={"email": "user@example.com", "otp": "123456"}),
             OpenApiExample(
                 "Success response",
                 response_only=True,
-                value={
-                    "access_token": "eyJ0eXAiOiJKV1QiLCJh...",
-                    "refresh_token": "eyJ0eXAiOiJKV1QiLCJi...",
-                },
+                value={"message": "Login successful"},
             ),
             OpenApiExample(
                 "Error response (invalid OTP)",
@@ -704,15 +793,23 @@ class LoginOtpView(APIView):
             return Response({"error": "OTP code expired or retries limit reached"}, status=400)
 
         user = email_login_token.user
-        refresh = RefreshToken.for_user(user)
+        if user.is_banned:
+            email_login_token.delete()
+            return Response(
+                {
+                    "error": "user_banned",
+                    "detail": "Your account has been banned.",
+                    "ban_reason": user.ban_reason or "No reason provided",
+                },
+                status=403,
+            )
+
+        refresh = UserTokenObtainPairSerializer.get_token(user)
         email_login_token.delete()
 
-        return Response(
-            {
-                "access": str(refresh.access_token),
-                "refresh": str(refresh),
-            }
-        )
+        response = Response({"message": "Login successful"})
+        set_jwt_cookies(response, str(refresh.access_token), str(refresh))
+        return response
 
 
 class LoginLinkView(APIView):
@@ -734,8 +831,7 @@ class LoginLinkView(APIView):
             200: {
                 "type": "object",
                 "properties": {
-                    "access_token": {"type": "string"},
-                    "refresh_token": {"type": "string"},
+                    "message": {"type": "string"},
                 },
             },
             400: OpenApiResponse(description="Token not provided or invalid/expired"),
@@ -745,10 +841,7 @@ class LoginLinkView(APIView):
             OpenApiExample(
                 "Success response",
                 response_only=True,
-                value={
-                    "access_token": "eyJ0eXAiOiJKV1QiLCJh...",
-                    "refresh_token": "eyJ0eXAiOiJKV1QiLCJi...",
-                },
+                value={"message": "Login successful"},
             ),
             OpenApiExample(
                 "Error response (invalid token)",
@@ -771,15 +864,23 @@ class LoginLinkView(APIView):
             return Response({"error": "Invalid or expired login link"}, status=400)
 
         user = email_login_token.user
-        refresh = RefreshToken.for_user(user)
+        if user.is_banned:
+            email_login_token.delete()
+            return Response(
+                {
+                    "error": "user_banned",
+                    "detail": "Your account has been banned.",
+                    "ban_reason": user.ban_reason or "No reason provided",
+                },
+                status=403,
+            )
+
+        refresh = UserTokenObtainPairSerializer.get_token(user)
         email_login_token.delete()
 
-        return Response(
-            {
-                "access": str(refresh.access_token),
-                "refresh": str(refresh),
-            }
-        )
+        response = Response({"message": "Login successful"})
+        set_jwt_cookies(response, str(refresh.access_token), str(refresh))
+        return response
 
 
 class DeleteAccountView(APIView):
@@ -831,7 +932,7 @@ class DeleteAccountView(APIView):
                 quiz.maintainer = transfer_to_user
                 quiz.save()
 
-        QuizProgress.objects.filter(user=request.user).delete()
+        QuizSession.objects.filter(user=request.user).delete()
         SharedQuiz.objects.filter(user=request.user).delete()
         request.user.delete()
 

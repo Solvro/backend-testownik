@@ -1,6 +1,9 @@
 import re
 
+from django.conf import settings
 from django.contrib import admin
+from django.urls import reverse
+from django.utils.html import format_html
 
 from .models import (
     Answer,
@@ -8,7 +11,6 @@ from .models import (
     Folder,
     Question,
     Quiz,
-    QuizProgress,
     QuizSession,
     SharedQuiz,
 )
@@ -28,6 +30,7 @@ class QuestionInline(admin.StackedInline):
     model = Question
     extra = 0
     show_change_link = True
+    autocomplete_fields = ["image_upload"]
 
 
 class QuestionAdmin(admin.ModelAdmin):
@@ -67,23 +70,6 @@ class AnswerRecordInline(admin.TabularInline):
         return False
 
 
-class QuizSessionInline(admin.TabularInline):
-    model = QuizSession
-    extra = 0
-    readonly_fields = ["started_at", "ended_at", "score_display", "is_active"]
-    fields = ["user", "started_at", "ended_at", "is_active", "score_display"]
-    can_delete = False
-    show_change_link = True
-
-    def score_display(self, obj):
-        return f"{obj.correct_count} / {obj.correct_count + obj.wrong_count}"
-
-    score_display.short_description = "Score"
-
-    def has_add_permission(self, request, obj=None):
-        return False
-
-
 class QuizSessionAdmin(admin.ModelAdmin):
     list_display = [
         "quiz",
@@ -92,6 +78,7 @@ class QuizSessionAdmin(admin.ModelAdmin):
         "started_at",
         "correct_count_display",
         "wrong_count_display",
+        "updated_at",
     ]
     list_filter = ["is_active", "started_at"]
     search_fields = ["quiz__title", "user__first_name", "user__last_name", "user__email"]
@@ -111,7 +98,22 @@ class QuizSessionAdmin(admin.ModelAdmin):
 
 
 class QuizAdmin(admin.ModelAdmin):
-    list_display = ["title", "maintainer", "visibility", "is_anonymous", "version"]
+    change_form_template = "admin/quizzes/quiz/change_form.html"
+
+    def render_change_form(self, request, context, add=False, change=False, form_url="", obj=None):
+        context = context or {}
+        context["frontend_url"] = settings.FRONTEND_URL
+        return super().render_change_form(request, context, add, change, form_url, obj)
+
+    list_display = [
+        "title",
+        "maintainer",
+        "visibility",
+        "is_anonymous",
+        "version",
+        "view_questions_link",
+        "view_sessions_link",
+    ]
     list_filter = ["visibility", "is_anonymous"]
     search_fields = [
         "title",
@@ -121,17 +123,23 @@ class QuizAdmin(admin.ModelAdmin):
         "maintainer__email",
         "maintainer__student_number",
     ]
-    readonly_fields = ["version", "created_at", "updated_at"]
+    readonly_fields = ["version", "created_at", "updated_at", "view_questions_link", "view_sessions_link"]
     autocomplete_fields = ["maintainer", "folder"]
-    inlines = [QuestionInline, QuizSessionInline]
     date_hierarchy = "created_at"
 
+    def view_questions_link(self, obj):
+        count = obj.questions.count()
+        url = reverse("admin:quizzes_question_changelist") + f"?quiz__id__exact={obj.id}"
+        return format_html('<a href="{}">View {} Questions</a>', url, count)
 
-class QuizProgressAdmin(admin.ModelAdmin):
-    list_display = ["quiz", "user", "current_question", "correct_answers_count", "wrong_answers_count", "last_activity"]
-    list_filter = ["last_activity"]
-    search_fields = ["quiz__title", "user__first_name", "user__last_name", "user__email", "user__student_number"]
-    date_hierarchy = "last_activity"
+    view_questions_link.short_description = "Questions"
+
+    def view_sessions_link(self, obj):
+        count = obj.sessions.count()
+        url = reverse("admin:quizzes_quizsession_changelist") + f"?quiz__id__exact={obj.id}"
+        return format_html('<a href="{}">View {} Sessions</a>', url, count)
+
+    view_sessions_link.short_description = "Sessions"
 
 
 class SharedQuizAdmin(admin.ModelAdmin):
@@ -151,6 +159,5 @@ class SharedQuizAdmin(admin.ModelAdmin):
 admin.site.register(Quiz, QuizAdmin)
 admin.site.register(Question, QuestionAdmin)
 admin.site.register(QuizSession, QuizSessionAdmin)
-admin.site.register(QuizProgress, QuizProgressAdmin)
 admin.site.register(SharedQuiz, SharedQuizAdmin)
 admin.site.register(Folder, FolderAdmin)

@@ -201,13 +201,12 @@ class QuizCRUDTestCase(APITestCase):
         self.assertFalse(Quiz.objects.filter(id=quiz.id).exists())
 
     def test_cannot_delete_other_users_quiz(self):
-        """Test that user cannot delete another user's quiz (returns 404 as not in queryset)."""
+        """Test that user cannot delete another user's quiz."""
         quiz = Quiz.objects.create(title="Other's Quiz", maintainer=self.other_user)
         url = reverse("quiz-detail", kwargs={"pk": quiz.id})
 
         response = self.client.delete(url)
-        # Returns 404 because get_queryset filters by maintainer
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     # --- PERMISSIONS ---
     def test_unauthenticated_cannot_create(self):

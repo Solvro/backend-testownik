@@ -1,3 +1,4 @@
+import logging
 import random
 import urllib.parse
 import uuid
@@ -14,10 +15,12 @@ from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
     extend_schema,
+    extend_schema_view,
 )
-from rest_framework import permissions, status, viewsets
+from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed, PermissionDenied
+from rest_framework.exceptions import MethodNotAllowed, NotFound, PermissionDenied
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -33,8 +36,10 @@ from quizzes.models import (
 )
 from quizzes.permissions import (
     IsFolderOwner,
+    IsInternalApiRequest,
     IsQuizMaintainer,
     IsQuizMaintainerOrCollaborator,
+    IsQuizReadable,
     IsSharedQuizMaintainerOrReadOnly,
 )
 from quizzes.serializers import (
@@ -45,17 +50,21 @@ from quizzes.serializers import (
     MoveQuizSerializer,
     QuestionSerializer,
     QuizMetaDataSerializer,
+    QuizMetaDataWithQuestionSerializer,
     QuizSearchResultSerializer,
     QuizSerializer,
     QuizSessionSerializer,
     SharedQuizSerializer,
 )
+from quizzes.services.metadata import get_preview_question
 from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
 )
 from quizzes.throttling import CopyQuizThrottle
 from testownik_core.emails import send_email
+
+logger = logging.getLogger(__name__)
 
 
 class RandomQuestionView(APIView):
@@ -127,8 +136,10 @@ class RandomQuestionView(APIView):
         )
 
 
-class LastUsedQuizzesView(APIView):
+class LastUsedQuizzesView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = QuizMetaDataSerializer
+    pagination_class = LimitOffsetPagination
 
     @extend_schema(
         summary="Get recently used quizzes",
@@ -136,31 +147,17 @@ class LastUsedQuizzesView(APIView):
             200: QuizMetaDataSerializer(many=True),
             401: OpenApiResponse(description="Unauthorized"),
         },
-        parameters=[
-            OpenApiParameter(
-                name="limit",
-                required=False,
-                type=int,
-                location=OpenApiParameter.QUERY,
-                description="Maximum number of recent quizzes to return (max: 20)",
-            )
-        ],
     )
-    def get(self, request):
-        try:
-            max_quizzes_count = min(int(request.query_params.get("limit", 4)), 20)
-        except (ValueError, TypeError):
-            max_quizzes_count = 4
+    def get(self, request, *args, **kwargs):
+        return self.list(request, *args, **kwargs)
 
-        sessions = (
-            QuizSession.objects.filter(user=request.user, is_active=True)
-            .select_related("quiz", "quiz__maintainer")
-            .order_by("-started_at")[:max_quizzes_count]
+    def get_queryset(self):
+        return (
+            Quiz.objects.filter(sessions__user=self.request.user, sessions__is_active=True)
+            .select_related("maintainer")
+            .order_by("-sessions__updated_at")
+            .distinct()
         )
-        last_used_quizzes = [session.quiz for session in sessions]
-
-        serializer = QuizMetaDataSerializer(last_used_quizzes, many=True, context={"request": request})
-        return Response(serializer.data)
 
 
 class SearchQuizzesView(APIView):
@@ -228,6 +225,22 @@ class SearchQuizzesView(APIView):
 # This is by design, if the user wants to view shared quizzes,
 #   they should use the SharedQuizViewSet and for public quizzes they should use the api_search_quizzes view.
 # It will also allow to create, update and delete quizzes only if the user is the maintainer of the quiz.
+@extend_schema_view(
+    retrieve=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="include",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Comma-separated list of extra data to include. "
+                "Available options: 'user_settings', 'current_session'.",
+                many=True,
+                style="simple",
+                enum=["user_settings", "current_session"],
+            )
+        ]
+    )
+)
 class QuizViewSet(viewsets.ModelViewSet):
     queryset = Quiz.objects.all()
     serializer_class = QuizSerializer
@@ -239,27 +252,107 @@ class QuizViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
 
-        if not user.is_authenticated:
-            if self.action == "list":
+        if self.action == "list":
+            if not user.is_authenticated:
                 return Quiz.objects.none()
-            return Quiz.objects.filter(visibility__gte=2, allow_anonymous=True)
 
-        qs = Q(maintainer=user)
+            return Quiz.objects.filter(maintainer=user)
 
-        if self.action in ("retrieve", "update", "partial_update", "progress", "record_answer", "copy"):
-            qs |= Q(visibility__gte=2)  # Public/unlisted
-            qs |= Q(visibility__gte=1, sharedquiz__user=user)
-            qs |= Q(visibility__gte=1, sharedquiz__study_group__in=user.study_groups.all())
+        queryset = Quiz.objects.all()
 
-        queryset = Quiz.objects.filter(qs).distinct()
-
-        if self.action in ("retrieve", "copy"):
+        if self.action in ("retrieve", "copy", "metadata", "progress", "record_answer"):
             queryset = queryset.prefetch_related(
                 "questions__answers",
                 "sharedquiz_set__user",
             )
 
         return queryset
+
+    @extend_schema(
+        summary="Get quiz metadata",
+        description=(
+            "Returns quiz metadata with optional preview question. Requires Api-Key header for authentication. "
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="Api-Key",
+                required=True,
+                type=str,
+                location=OpenApiParameter.HEADER,
+                description="Api-Key header for authentication",
+            ),
+            OpenApiParameter(
+                name="include",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Comma-separated list of extra data to include. Available options: 'preview_question'.",
+                many=True,
+                style="simple",
+                enum=["preview_question"],
+            ),
+        ],
+        responses={
+            200: QuizMetaDataWithQuestionSerializer,
+            403: OpenApiResponse(description="Forbidden - no access to quiz metadata"),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        permission_classes=[IsInternalApiRequest],
+        serializer_class=QuizMetaDataWithQuestionSerializer,
+    )
+    def metadata(self, request, pk=None):
+        """
+        Get quiz metadata for Next.js server-side rendering.
+
+        Access Rules:
+        - Private (0): Only maintainer
+        - Shared (1): Everyone but without preview question and always anonymous
+        - Unlisted/Public (≥2): Everyone
+
+        Preview Question Rules:
+        - Included only if ?include=preview_question AND visibility ≥ 2
+        - Selected based on: no images (q/a), ≥3 answers
+        """
+
+        try:
+            quiz = Quiz.objects.prefetch_related("questions__answers").get(pk=pk)
+        except Quiz.DoesNotExist:
+            raise NotFound("Quiz not found")
+
+        user = request.user
+
+        if not (quiz.visibility >= 1 or user == quiz.maintainer):
+            raise PermissionDenied("You do not have permission to access this quiz metadata.")
+
+        data = QuizMetaDataSerializer(quiz, context={"request": request}).data
+
+        raw_includes = request.query_params.getlist("include")
+        include_values = set()
+        for value in raw_includes:
+            if value:
+                include_values.update(part.strip() for part in value.split(",") if part.strip())
+        include_preview = "preview_question" in include_values
+
+        preview_question = None
+        question_count = len(quiz.questions.all())
+
+        if include_preview and quiz.visibility >= 2:
+            preview_question = get_preview_question(quiz)
+
+        if preview_question:
+            data["preview_question"] = QuestionSerializer(preview_question).data
+        else:
+            data["preview_question"] = None
+
+        if quiz.visibility == 1:
+            data["is_anonymous"] = True
+            data["maintainer"] = None
+
+        data["question_count"] = question_count
+
+        return Response(data)
 
     def perform_create(self, serializer):
         serializer.save(maintainer=self.request.user)
@@ -275,6 +368,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         action_serializers = {
             "list": QuizMetaDataSerializer,
+            "metadata": QuizMetaDataWithQuestionSerializer,
             "move": MoveQuizSerializer,
         }
         return action_serializers.get(self.action, QuizSerializer)
@@ -311,7 +405,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         detail=True,
         methods=["get", "delete"],
         url_path="progress",
-        permission_classes=[permissions.IsAuthenticated],
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
     )
     def progress(self, request, pk=None):
         quiz = self.get_object()
@@ -331,7 +425,12 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         raise MethodNotAllowed(request.method)
 
-    @action(detail=True, methods=["post"], url_path="answer", permission_classes=[permissions.IsAuthenticated])
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="answer",
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
+    )
     def record_answer(self, request, pk=None):
         """Record an answer for the current session."""
         quiz = self.get_object()
@@ -364,7 +463,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             was_correct=was_correct,
         )
 
-        update_fields = []
+        update_fields = ["updated_at"]
         if "study_time" in request.data:
             try:
                 study_time_seconds = float(request.data["study_time"])
@@ -385,8 +484,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             session.current_question_id = next_question_id
             update_fields.append("current_question_id")
 
-        if update_fields:
-            session.save(update_fields=update_fields)
+        session.save(update_fields=update_fields)
 
         return Response(AnswerRecordSerializer(record).data, status=201)
 
@@ -399,6 +497,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         ),
         responses={
             201: OpenApiResponse(description="Created copy of quiz"),
+            403: OpenApiResponse(description="Forbidden"),
             404: OpenApiResponse(description="Not Found"),
             429: OpenApiResponse(description="Too Many Requests"),
         },
@@ -406,7 +505,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=["post"],
-        permission_classes=[permissions.IsAuthenticated],
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
         throttle_classes=[CopyQuizThrottle],
     )
     @transaction.atomic
@@ -435,7 +534,8 @@ class QuizViewSet(viewsets.ModelViewSet):
                     quiz=new_quiz,
                     order=q.order,
                     text=q.text,
-                    image=q.image,
+                    image_url=q.image_url,
+                    image_upload_id=q.image_upload_id,
                     explanation=q.explanation,
                     multiple=q.multiple,
                 )
@@ -451,7 +551,8 @@ class QuizViewSet(viewsets.ModelViewSet):
                         question_id=new_q.id,
                         order=answer.order,
                         text=answer.text,
-                        image=answer.image,
+                        image_url=answer.image_url,
+                        image_upload_id=answer.image_upload_id,
                         is_correct=answer.is_correct,
                     )
                 )
@@ -464,20 +565,6 @@ class QuizViewSet(viewsets.ModelViewSet):
             QuizSerializer(new_quiz, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
         )
-
-
-class QuizMetadataView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    @extend_schema(
-        summary="Get quiz metadata",
-        responses={
-            200: QuizMetaDataSerializer,
-        },
-    )
-    def get(self, request, quiz_id):
-        quiz = Quiz.objects.get(id=quiz_id)
-        return Response(QuizMetaDataSerializer(quiz, context={"request": request}).data)
 
 
 class SharedQuizViewSet(viewsets.ModelViewSet):
@@ -557,14 +644,18 @@ class ReportQuestionIssueView(APIView):
                 status=400,
             )
 
-        # Email details
+        try:
+            question = Question.objects.get(id=data.get("question_id"), quiz=quiz)
+        except Question.DoesNotExist:
+            return Response({"error": "Question not found"}, status=404)
+
         subject = "Zgłoszenie błędu w pytaniu"
-        query_params = urllib.parse.urlencode({"scroll_to": f"question-{data.get('question_id')}"})
+        query_params = urllib.parse.urlencode({"scroll_to": f"question-{question.id}"})
         cta_url = f"{settings.FRONTEND_URL}/edit-quiz/{quiz.id}/?{query_params}"
 
         content = (
             f"{escape(request.user.full_name)} zgłosił błąd w pytaniu "
-            f"{escape(str(data.get('question_id')))} quizu {escape(quiz.title)}.\n\n"
+            f'"{escape(question.text)}" quizu {escape(quiz.title)}.\n\n'
             f"{escape(data.get('issue'))}"
         )
 
@@ -583,7 +674,8 @@ class ReportQuestionIssueView(APIView):
                 fail_silently=False,
             )
         except Exception as e:
-            return Response({"error": str(e)}, status=500)
+            logger.exception("Email sending failed: %s", str(e))
+            return Response({"error": "Email sending failed"}, status=500)
 
         return Response({"status": "ok"}, status=201)
 
