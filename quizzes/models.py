@@ -34,6 +34,19 @@ class Folder(models.Model):
         return f"{self.name} ({self.owner})"
 
 
+class SharedFolder(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    folder = models.ForeignKey(Folder, on_delete=models.CASCADE, related_name="shares")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name="shared_folders")
+    study_group = models.ForeignKey(
+        StudyGroup, on_delete=models.CASCADE, null=True, blank=True, related_name="shared_folders"
+    )
+    allow_edit = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Folder {self.folder.name} shared with {self.user or self.study_group}"
+
+
 class Quiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255)
