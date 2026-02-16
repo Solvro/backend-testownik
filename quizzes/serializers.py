@@ -62,6 +62,7 @@ class AnswerSerializer(serializers.ModelSerializer):
 class QuestionSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(required=False)
     answers = AnswerSerializer(many=True)
+    quiz = serializers.PrimaryKeyRelatedField(queryset=Quiz.objects.all(), required=False)
 
     image_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
     image = serializers.SerializerMethodField()
@@ -73,6 +74,7 @@ class QuestionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Question
+
         fields = [
             "id",
             "order",
@@ -85,7 +87,73 @@ class QuestionSerializer(serializers.ModelSerializer):
             "explanation",
             "multiple",
             "answers",
+            "quiz",
         ]
+
+    def validate(self, data):
+        user = self.context["request"].user
+        new_quiz = data.get("quiz")
+
+        if not self.instance and not new_quiz and self.root == self:
+            raise serializers.ValidationError({"quiz": "This field is required."})
+
+        if new_quiz and not new_quiz.can_edit(user):
+            raise serializers.ValidationError({"quiz": "You do not have permission to add a question to this quiz."})
+
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        answers_data = validated_data.pop("answers")
+        question = Question.objects.create(**validated_data)
+
+        for answer_data in answers_data:
+            Answer.objects.create(question=question, **answer_data)
+
+        return question
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        answers_data = validated_data.pop("answers", None)
+
+        instance.order = validated_data.get("order", instance.order)
+        instance.text = validated_data.get("text", instance.text)
+
+        instance.image_url = validated_data.get("image_url", instance.image_url)
+        instance.image_upload = validated_data.get("image_upload", instance.image_upload)
+
+        instance.explanation = validated_data.get("explanation", instance.explanation)
+        instance.multiple = validated_data.get("multiple", instance.multiple)
+        instance.save()
+
+        if answers_data is not None:
+            existing_ids = set(instance.answers.values_list("id", flat=True))
+            incoming_ids = set(item["id"] for item in answers_data if "id" in item)
+
+            ids_to_delete = existing_ids - incoming_ids
+            Answer.objects.filter(id__in=ids_to_delete).delete()
+
+            for answer_data in answers_data:
+                answer_id = answer_data.get("id", None)
+
+                if answer_id and answer_id in existing_ids:
+                    answer = Answer.objects.get(id=answer_id, question=instance)
+                    answer.order = answer_data.get("order", answer.order)
+                    answer.text = answer_data.get("text", answer.text)
+
+                    if "image_url" in answer_data:
+                        answer.image_url = answer_data["image_url"]
+                    if "image_upload" in answer_data:
+                        answer.image_upload = answer_data["image_upload"]
+
+                    answer.is_correct = answer_data.get("is_correct", answer.is_correct)
+                    answer.save()
+                else:
+                    if "id" in answer_data:
+                        del answer_data["id"]
+                    Answer.objects.create(question=instance, **answer_data)
+
+        return instance
 
     @extend_schema_field(serializers.URLField(allow_null=True))
     def get_image(self, obj):
