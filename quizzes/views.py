@@ -33,6 +33,7 @@ from quizzes.models import (
     Quiz,
     QuizSession,
     SharedQuiz,
+    Type,
 )
 from quizzes.permissions import (
     IsFolderOwner,
@@ -403,6 +404,24 @@ class QuizViewSet(viewsets.ModelViewSet):
 
     @action(
         detail=True,
+        methods=["post"],
+        url_path="move-to-archive",
+        permission_classes=[permissions.IsAuthenticated, IsQuizMaintainer],
+    )
+    def move_to_archive(self, request, pk=None):
+        quiz = self.get_object()
+
+        try:
+            archive_folder = Folder.objects.get(owner=request.user, folder_type=Type.ARCHIVE)
+        except Folder.DoesNotExist:
+            return Response({"error": "Archive folder not found"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        quiz.folder = archive_folder
+        quiz.save()
+        return Response({"status": "Quiz moved successfully"}, status=status.HTTP_200_OK)
+
+    @action(
+        detail=True,
         methods=["get", "delete"],
         url_path="progress",
         permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
@@ -415,7 +434,6 @@ class QuizViewSet(viewsets.ModelViewSet):
             return Response(QuizSessionSerializer(session).data)
 
         elif request.method == "DELETE":
-            # Archive current session and create new one
             with transaction.atomic():
                 QuizSession.objects.filter(quiz=quiz, user=request.user, is_active=True).update(
                     is_active=False, ended_at=timezone.now()
@@ -432,7 +450,6 @@ class QuizViewSet(viewsets.ModelViewSet):
         permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
     )
     def record_answer(self, request, pk=None):
-        """Record an answer for the current session."""
         quiz = self.get_object()
         session, _ = QuizSession.get_or_create_active(quiz, request.user)
 
@@ -691,14 +708,22 @@ class FolderViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
 
+    def perform_destroy(self, instance):
+        if instance.folder_type == Type.ARCHIVE:
+            raise PermissionDenied("You can't delete archive folder.")
+        instance.delete()
+
     @action(detail=True, methods=["post"], serializer_class=MoveFolderSerializer)
     def move(self, request, pk=None):
         folder = self.get_object()
+
+        if folder.folder_type == Type.ARCHIVE:
+            return Response({"error": "You can't move archive folder."}, status=status.HTTP_403_FORBIDDEN)
 
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
             folder.parent_id = serializer.validated_data["parent_id"]
             folder.save()
-            return Response({"status": "Folder moved successfully"})
+            return Response({"status": "Folder moved successfully"}, status=status.HTTP_200_OK)
 
-        return Response(serializer.errors)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

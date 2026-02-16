@@ -2,6 +2,7 @@ import uuid
 from datetime import timedelta
 
 from django.db import models
+from django.db.models import Q, UniqueConstraint
 
 from users.models import StudyGroup, User
 
@@ -11,6 +12,11 @@ QUIZ_VISIBILITY_CHOICES = [
     (2, "Niepubliczny (z linkiem)"),
     (3, "Publiczny"),
 ]
+
+
+class Type(models.TextChoices):
+    ARCHIVE = "archive", "Archive"
+    REGULAR = "regular", "Regular"
 
 
 class Folder(models.Model):
@@ -26,9 +32,15 @@ class Folder(models.Model):
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="folders")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    folder_type = models.CharField(max_length=10, choices=Type.choices, default=Type.REGULAR)
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            UniqueConstraint(
+                fields=["owner", "folder_type"], condition=Q(folder_type=Type.ARCHIVE), name="unique_archive_per_user"
+            )
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.owner})"
