@@ -5,7 +5,6 @@ from quizzes.views import (
     FolderViewSet,
     LastUsedQuizzesView,
     QuestionViewSet,
-    QuizMetadataView,
     QuizViewSet,
     RandomQuestionView,
     ReportQuestionIssueView,

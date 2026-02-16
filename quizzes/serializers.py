@@ -118,9 +118,10 @@ class QuestionSerializer(serializers.ModelSerializer):
 
         instance.order = validated_data.get("order", instance.order)
         instance.text = validated_data.get("text", instance.text)
-        instance.image = validated_data.get("image", instance.image)
+        
         instance.image_url = validated_data.get("image_url", instance.image_url)
         instance.image_upload = validated_data.get("image_upload", instance.image_upload)
+        
         instance.explanation = validated_data.get("explanation", instance.explanation)
         instance.multiple = validated_data.get("multiple", instance.multiple)
         instance.save()
@@ -139,7 +140,12 @@ class QuestionSerializer(serializers.ModelSerializer):
                     answer = Answer.objects.get(id=answer_id, question=instance)
                     answer.order = answer_data.get("order", answer.order)
                     answer.text = answer_data.get("text", answer.text)
-                    answer.image = answer_data.get("image", answer.image)
+                    
+                    if 'image_url' in answer_data:
+                        answer.image_url = answer_data['image_url']
+                    if 'image_upload' in answer_data:
+                        answer.image_upload = answer_data['image_upload']
+                        
                     answer.is_correct = answer_data.get("is_correct", answer.is_correct)
                     answer.save()
                 else:
