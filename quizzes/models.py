@@ -2,6 +2,7 @@ import uuid
 from datetime import timedelta
 
 from django.db import models
+from django.db.models import ProtectedError
 
 from users.models import StudyGroup, User
 
@@ -33,6 +34,14 @@ class Folder(models.Model):
     def __str__(self):
         return f"{self.name} ({self.owner})"
 
+    def delete(self, *args, **kwargs):
+        if hasattr(self, "root_owner"):
+            raise ProtectedError(
+                "Cannot delete root folder.",
+                set([self]),
+            )
+        super().delete(*args, **kwargs)
+
 
 class SharedFolder(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -51,7 +60,7 @@ class Quiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255)
     description = models.TextField(null=True, blank=True)
-    maintainer = models.ForeignKey(User, on_delete=models.CASCADE)
+    creator = models.ForeignKey(User, on_delete=models.CASCADE, related_name="created_quizzes")
     visibility = models.PositiveIntegerField(choices=QUIZ_VISIBILITY_CHOICES, default=2)
     allow_anonymous = models.BooleanField(
         default=False,
@@ -64,7 +73,7 @@ class Quiz(models.Model):
     version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    folder = models.ForeignKey(Folder, on_delete=models.SET_NULL, null=True, blank=True, related_name="quizzes")
+    folder = models.ForeignKey(Folder, on_delete=models.CASCADE, related_name="quizzes")
 
     class Meta:
         ordering = ["-created_at"]
@@ -76,7 +85,7 @@ class Quiz(models.Model):
 
     def can_edit(self, user):
         return (
-            user == self.maintainer
+            user == self.creator
             or self.sharedquiz_set.filter(user=user, allow_edit=True).exists()
             or self.sharedquiz_set.filter(study_group__in=user.study_groups.all(), allow_edit=True).exists()
         )

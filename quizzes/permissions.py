@@ -19,7 +19,7 @@ class IsInternalApiRequest(permissions.BasePermission):
 
 class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):
     """
-    Custom permission to only allow maintainer of a shared quiz to edit it.
+    Custom permission to only allow creator of a shared quiz to edit it.
     """
 
     def has_object_permission(self, request, view, obj):
@@ -28,25 +28,25 @@ class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
 
-        # Write permissions are only allowed to the maintainer of the shared quiz.
-        return obj.quiz.maintainer == request.user
+        # Write permissions are only allowed to the creator of the shared quiz.
+        return obj.quiz.creator == request.user
 
 
-class IsQuizMaintainer(permissions.BasePermission):
+class IsQuizCreator(permissions.BasePermission):
     """
     Custom permission for critical actions like Move or Delete.
-    Blocks collaborators - only the quiz maintainer can perform these actions.
+    Blocks collaborators - only the quiz creator can perform these actions.
     """
 
     def has_object_permission(self, request, view, obj):
-        return obj.maintainer == request.user
+        return obj.creator == request.user
 
 
 class IsQuizReadable(permissions.BasePermission):
     """
     Custom permission for read access to a quiz.
     Allowed if:
-    - User is the maintainer
+    - User is the creator
     - Quiz is public or unlisted (visibility >= 2)
     - Quiz is shared with the user explicitly
     - Quiz is shared with a group the user belongs to
@@ -56,7 +56,7 @@ class IsQuizReadable(permissions.BasePermission):
     """
 
     def has_object_permission(self, request, view, obj: Quiz):
-        if obj.maintainer == request.user:
+        if obj.creator == request.user:
             return True
 
         if obj.visibility >= 2 and (request.user.is_authenticated or obj.allow_anonymous):
@@ -71,9 +71,9 @@ class IsQuizReadable(permissions.BasePermission):
         )
 
 
-class IsQuizMaintainerOrCollaborator(permissions.BasePermission):
+class IsQuizCreatorOrCollaborator(permissions.BasePermission):
     """
-    Custom permission to allow quiz maintainers and accepted collaborators to edit the quiz while
+    Custom permission to allow quiz creators and accepted collaborators to edit the quiz while
     maintaining read access to IsQuizReadable logic.
     """
 
@@ -82,7 +82,7 @@ class IsQuizMaintainerOrCollaborator(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return IsQuizReadable().has_object_permission(request, view, obj)
 
-        # Write permissions are only allowed to the maintainer or accepted collaborators
+        # Write permissions are only allowed to the creator or accepted collaborators
         return obj.can_edit(request.user)
 
 

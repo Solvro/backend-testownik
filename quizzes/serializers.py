@@ -147,7 +147,7 @@ class QuizSessionSerializer(serializers.ModelSerializer):
 
 
 class QuizSerializer(serializers.ModelSerializer):
-    maintainer = PublicUserSerializer(read_only=True)
+    creator = PublicUserSerializer(read_only=True)
     can_edit = serializers.SerializerMethodField()
     questions = QuestionSerializer(many=True)
 
@@ -162,7 +162,7 @@ class QuizSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "description",
-            "maintainer",
+            "creator",
             "visibility",
             "is_anonymous",
             "allow_anonymous",
@@ -174,7 +174,7 @@ class QuizSerializer(serializers.ModelSerializer):
             "current_session",
             "has_external_images",
         ]
-        read_only_fields = ["maintainer", "version", "can_edit", "folder"]
+        read_only_fields = ["creator", "version", "can_edit", "folder"]
 
     def get_can_edit(self, obj) -> bool:
         request = self.context.get("request")
@@ -197,8 +197,8 @@ class QuizSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         user = getattr(request, "user", None) if request else self.context.get("user")
 
-        if not user or (instance.is_anonymous and user != instance.maintainer):
-            data["maintainer"] = None
+        if not user or (instance.is_anonymous and user != instance.creator):
+            data["creator"] = None
 
         if user and user.is_authenticated:
             includes = [item.strip() for item in request.query_params.get("include", "").split(",")] if request else []
@@ -376,7 +376,7 @@ class QuizSerializer(serializers.ModelSerializer):
 
 
 class QuizMetaDataSerializer(serializers.ModelSerializer):
-    maintainer = PublicUserSerializer(read_only=True)
+    creator = PublicUserSerializer(read_only=True)
     can_edit = serializers.SerializerMethodField()
 
     class Meta:
@@ -385,7 +385,7 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "description",
-            "maintainer",
+            "creator",
             "visibility",
             "is_anonymous",
             "allow_anonymous",
@@ -395,14 +395,14 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "can_edit",
             "folder",
         ]
-        read_only_fields = ["maintainer", "created_at", "updated_at", "version", "can_edit", "folder"]
+        read_only_fields = ["creator", "created_at", "updated_at", "version", "can_edit", "folder"]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
         request = self.context.get("request")
         user = getattr(request, "user", None) if request else self.context.get("user")
-        if not user or (instance.is_anonymous and user != instance.maintainer):
-            data["maintainer"] = None
+        if not user or (instance.is_anonymous and user != instance.creator):
+            data["creator"] = None
         return data
 
     def get_can_edit(self, obj) -> bool:
@@ -519,7 +519,7 @@ class MoveFolderSerializer(serializers.Serializer):
 class QuizSearchResultSerializer(serializers.ModelSerializer):
     """Serializer for search results."""
 
-    maintainer = serializers.CharField(source="maintainer.full_name", read_only=True)
+    creator = serializers.CharField(source="creator.full_name", read_only=True)
 
     class Meta:
         model = Quiz
@@ -527,7 +527,7 @@ class QuizSearchResultSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "description",
-            "maintainer",
+            "creator",
             "is_anonymous",
         ]
 
@@ -535,8 +535,8 @@ class QuizSearchResultSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         request = self.context.get("request")
         user = getattr(request, "user", None) if request else self.context.get("user")
-        if instance.is_anonymous and user and user != instance.maintainer:
-            data["maintainer"] = None
+        if instance.is_anonymous and user and user != instance.creator:
+            data["creator"] = None
         return data
 
 
@@ -571,7 +571,7 @@ class LibraryItemSerializer(serializers.Serializer):
                 "id": instance.id,
                 "title": instance.title,
                 "type": "quiz",
-                "is_shared": (instance.maintainer_id != user.id),
+                "is_shared": (instance.creator_id != user.id),
                 "created_at": instance.created_at,
             }
 

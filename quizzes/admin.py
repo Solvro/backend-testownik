@@ -107,7 +107,7 @@ class QuizAdmin(admin.ModelAdmin):
 
     list_display = [
         "title",
-        "maintainer",
+        "creator",
         "visibility",
         "is_anonymous",
         "version",
@@ -118,13 +118,13 @@ class QuizAdmin(admin.ModelAdmin):
     search_fields = [
         "title",
         "description",
-        "maintainer__first_name",
-        "maintainer__last_name",
-        "maintainer__email",
-        "maintainer__student_number",
+        "creator__first_name",
+        "creator__last_name",
+        "creator__email",
+        "creator__student_number",
     ]
     readonly_fields = ["version", "created_at", "updated_at", "view_questions_link", "view_sessions_link"]
-    autocomplete_fields = ["maintainer", "folder"]
+    autocomplete_fields = ["creator", "folder"]
     date_hierarchy = "created_at"
 
     def view_questions_link(self, obj):

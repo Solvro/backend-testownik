@@ -16,7 +16,9 @@ class CopyQuizTestCase(APITestCase):
         )
         self.client.force_authenticate(user=self.user)
 
-        self.quiz = Quiz.objects.create(title="Original Quiz", maintainer=self.owner, visibility=1)
+        self.quiz = Quiz.objects.create(
+            title="Original Quiz", creator=self.owner, folder=self.owner.root_folder, visibility=1
+        )
         self.question = Question.objects.create(quiz=self.quiz, order=1, text="Q1")
         self.answer = Answer.objects.create(question=self.question, order=1, text="A1", is_correct=True)
 
@@ -31,7 +33,7 @@ class CopyQuizTestCase(APITestCase):
         # Original quiz ID is self.quiz.id. We expect a new one.
         new_quiz = Quiz.objects.exclude(id=self.quiz.id).first()
         self.assertIsNotNone(new_quiz)
-        self.assertEqual(new_quiz.maintainer, self.user)
+        self.assertEqual(new_quiz.creator, self.user)
         self.assertEqual(new_quiz.title, "Original Quiz - kopia")
         self.assertEqual(new_quiz.questions.count(), 1)
         new_question = new_quiz.questions.first()
@@ -52,7 +54,7 @@ class CopyQuizTestCase(APITestCase):
 
         new_quiz = Quiz.objects.exclude(id=self.quiz.id).first()
         self.assertIsNotNone(new_quiz)
-        self.assertEqual(new_quiz.maintainer, self.user)
+        self.assertEqual(new_quiz.creator, self.user)
 
     def test_forbidden_if_not_shared(self):
         # Create a quiz that is NOT shared with the current user at all
@@ -66,7 +68,7 @@ class CopyQuizTestCase(APITestCase):
 
     def test_copy_own_quiz(self):
         # User owns a quiz
-        my_quiz = Quiz.objects.create(title="My Quiz", maintainer=self.user)
+        my_quiz = Quiz.objects.create(title="My Quiz", creator=self.user, folder=self.user.root_folder)
         Question.objects.create(quiz=my_quiz, order=1, text="Q1")
 
         url = reverse("quiz-copy", kwargs={"pk": my_quiz.id})
@@ -75,7 +77,7 @@ class CopyQuizTestCase(APITestCase):
 
         new_quiz = Quiz.objects.exclude(id=my_quiz.id).exclude(id=self.quiz.id).first()
         self.assertIsNotNone(new_quiz)
-        self.assertEqual(new_quiz.maintainer, self.user)
+        self.assertEqual(new_quiz.creator, self.user)
         self.assertEqual(new_quiz.title, "My Quiz - kopia")
 
     def test_throttling(self):
@@ -84,7 +86,7 @@ class CopyQuizTestCase(APITestCase):
         )
         self.client.force_authenticate(user=throttle_user)
 
-        my_quiz = Quiz.objects.create(title="Throttle Quiz", maintainer=throttle_user)
+        my_quiz = Quiz.objects.create(title="Throttle Quiz", creator=throttle_user, folder=throttle_user.root_folder)
         url = reverse("quiz-copy", kwargs={"pk": my_quiz.id})
 
         for _ in range(5):
@@ -96,7 +98,9 @@ class CopyQuizTestCase(APITestCase):
 
     def test_copy_complex_structure(self):
         # Create a quiz with multiple questions and answers
-        complex_quiz = Quiz.objects.create(title="Complex Quiz", maintainer=self.owner, visibility=2)
+        complex_quiz = Quiz.objects.create(
+            title="Complex Quiz", creator=self.owner, folder=self.owner.root_folder, visibility=2
+        )
 
         # Q1: 2 answers
         q1 = Question.objects.create(quiz=complex_quiz, order=1, text="Q1")
@@ -130,7 +134,9 @@ class CopyQuizTestCase(APITestCase):
     def test_copy_public_quiz(self):
         # Public quiz (visibility=3) not owned/shared
         # Using visibility=3 to ensure it's fully public
-        public_quiz = Quiz.objects.create(title="Public Quiz", maintainer=self.owner, visibility=3)
+        public_quiz = Quiz.objects.create(
+            title="Public Quiz", creator=self.owner, folder=self.owner.root_folder, visibility=3
+        )
 
         url = reverse("quiz-copy", kwargs={"pk": public_quiz.id})
         response = self.client.post(url)
@@ -138,12 +144,14 @@ class CopyQuizTestCase(APITestCase):
 
         new_quiz = Quiz.objects.exclude(id=public_quiz.id).filter(title="Public Quiz - kopia").first()
         self.assertIsNotNone(new_quiz)
-        self.assertEqual(new_quiz.maintainer, self.user)
+        self.assertEqual(new_quiz.creator, self.user)
         # Verify visibility is reset to default (2 - Unlisted)
         self.assertEqual(new_quiz.visibility, 2)
 
     def test_copy_empty_quiz(self):
-        empty_quiz = Quiz.objects.create(title="Empty Quiz", maintainer=self.owner, visibility=2)
+        empty_quiz = Quiz.objects.create(
+            title="Empty Quiz", creator=self.owner, folder=self.owner.root_folder, visibility=2
+        )
 
         url = reverse("quiz-copy", kwargs={"pk": empty_quiz.id})
         response = self.client.post(url)

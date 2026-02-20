@@ -60,6 +60,14 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_superuser = BooleanField(default=False)
     is_staff = BooleanField(default=False)
 
+    root_folder = models.OneToOneField(
+        "quizzes.Folder",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="root_owner",
+    )
+
     hide_profile = BooleanField(
         default=False,
         help_text="Hide profile from other users in search and leaderboards,"
