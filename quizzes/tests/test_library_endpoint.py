@@ -210,3 +210,90 @@ class RootFolderTests(APITestCase):
         user.refresh_from_db()
         self.assertEqual(user.root_folder_id, root_id)
         self.assertEqual(Folder.objects.filter(root_owner=user).count(), 1)
+
+
+class FolderCRUDTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="crud@example.com", password="password123", first_name="Crud", last_name="User"
+        )
+        self.user.refresh_from_db()
+        self.client.force_authenticate(user=self.user)
+
+    def test_create_folder_via_api(self):
+        """POST /folders/ creates a new folder owned by the user."""
+        url = reverse("folder-list")
+        response = self.client.post(
+            url, {"name": "Nowy Folder", "parent": str(self.user.root_folder_id)}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        folder = Folder.objects.get(id=response.data["id"])
+        self.assertEqual(folder.name, "Nowy Folder")
+        self.assertEqual(folder.owner, self.user)
+        self.assertEqual(folder.parent_id, self.user.root_folder_id)
+
+    def test_rename_folder_via_api(self):
+        """PATCH /folders/{id}/ renames the folder."""
+        folder = Folder.objects.create(name="Old Name", owner=self.user, parent=self.user.root_folder)
+        url = reverse("folder-detail", kwargs={"pk": folder.id})
+        response = self.client.patch(url, {"name": "New Name"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        folder.refresh_from_db()
+        self.assertEqual(folder.name, "New Name")
+
+    def test_move_quiz_between_folders(self):
+        """POST /quizzes/{id}/move/ moves quiz to another folder."""
+        folder_a = Folder.objects.create(name="A", owner=self.user, parent=self.user.root_folder)
+        folder_b = Folder.objects.create(name="B", owner=self.user, parent=self.user.root_folder)
+        quiz = Quiz.objects.create(title="Movable", creator=self.user, folder=folder_a)
+
+        url = reverse("quiz-move", kwargs={"pk": quiz.id})
+        response = self.client.post(url, {"folder_id": str(folder_b.id)}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        quiz.refresh_from_db()
+        self.assertEqual(quiz.folder_id, folder_b.id)
+
+    def test_cannot_delete_other_users_folder(self):
+        """DELETE /folders/{id}/ on another user's folder returns 404."""
+        other = User.objects.create_user(
+            email="other@example.com", password="password123", first_name="Other", last_name="User"
+        )
+        other.refresh_from_db()
+        folder = Folder.objects.create(name="Other's Folder", owner=other, parent=other.root_folder)
+
+        url = reverse("folder-detail", kwargs={"pk": folder.id})
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(Folder.objects.filter(id=folder.id).exists())
+
+    def test_cannot_rename_other_users_folder(self):
+        """PATCH /folders/{id}/ on another user's folder returns 404."""
+        other = User.objects.create_user(
+            email="other@example.com", password="password123", first_name="Other", last_name="User"
+        )
+        other.refresh_from_db()
+        folder = Folder.objects.create(name="Private", owner=other, parent=other.root_folder)
+
+        url = reverse("folder-detail", kwargs={"pk": folder.id})
+        response = self.client.patch(url, {"name": "Hacked"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        folder.refresh_from_db()
+        self.assertEqual(folder.name, "Private")
+
+    def test_cannot_move_quiz_to_other_users_folder(self):
+        """Moving quiz to another user's folder fails validation."""
+        other = User.objects.create_user(
+            email="other@example.com", password="password123", first_name="Other", last_name="User"
+        )
+        other.refresh_from_db()
+        other_folder = Folder.objects.create(name="Other's", owner=other, parent=other.root_folder)
+        quiz = Quiz.objects.create(title="My Quiz", creator=self.user, folder=self.user.root_folder)
+
+        url = reverse("quiz-move", kwargs={"pk": quiz.id})
+        response = self.client.post(url, {"folder_id": str(other_folder.id)}, format="json")
+        self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_403_FORBIDDEN])
+        quiz.refresh_from_db()
+        self.assertEqual(quiz.folder_id, self.user.root_folder_id)
