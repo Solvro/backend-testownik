@@ -160,3 +160,14 @@ class CopyQuizTestCase(APITestCase):
         new_quiz = Quiz.objects.exclude(id=empty_quiz.id).filter(title="Empty Quiz - kopia").first()
         self.assertIsNotNone(new_quiz)
         self.assertEqual(new_quiz.questions.count(), 0)
+
+    def test_copy_lands_in_copier_root_folder(self):
+        """Copied quiz is placed in the copier's root folder, not original owner's."""
+        SharedQuiz.objects.create(quiz=self.quiz, user=self.user)
+        url = reverse("quiz-copy", kwargs={"pk": self.quiz.id})
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        new_quiz = Quiz.objects.exclude(id=self.quiz.id).first()
+        self.assertEqual(new_quiz.folder_id, self.user.root_folder_id)
+        self.assertNotEqual(new_quiz.folder_id, self.owner.root_folder_id)

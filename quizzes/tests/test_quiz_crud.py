@@ -216,6 +216,26 @@ class QuizCRUDTestCase(APITestCase):
         response = self.client.post(url, {"title": "Test", "questions": []}, format="json")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_create_quiz_lands_in_root_folder(self):
+        """Quiz created via API is assigned to creator's root folder."""
+        url = reverse("quiz-list")
+        data = {"title": "Auto Folder Quiz", "questions": []}
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        quiz = Quiz.objects.get(id=response.data["id"])
+        self.assertEqual(quiz.folder_id, self.user.root_folder_id)
+
+    def test_quiz_response_includes_folder(self):
+        """GET /quizzes/{id}/ response contains folder field."""
+        quiz = Quiz.objects.create(title="Folder Quiz", creator=self.user, folder=self.user.root_folder)
+        url = reverse("quiz-detail", kwargs={"pk": quiz.id})
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("folder", response.data)
+        self.assertEqual(str(response.data["folder"]), str(self.user.root_folder_id))
+
 
 class QuizQuestionAnswerTestCase(APITestCase):
     """Comprehensive tests for question and answer management."""

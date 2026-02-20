@@ -122,3 +122,91 @@ class RootFolderTests(APITestCase):
 
         folder.delete()
         self.assertFalse(Quiz.objects.filter(id=quiz.id).exists())
+
+    def test_nested_folder_deletion_cascades(self):
+        """Deleting a parent folder cascades to subfolders and their quizzes."""
+        user = User.objects.create_user(
+            email="test@example.com", password="password123", first_name="Test", last_name="User"
+        )
+        user.refresh_from_db()
+        parent = Folder.objects.create(name="Parent", owner=user, parent=user.root_folder)
+        child = Folder.objects.create(name="Child", owner=user, parent=parent)
+        quiz_in_child = Quiz.objects.create(title="Child Quiz", creator=user, folder=child)
+
+        parent.delete()
+        self.assertFalse(Folder.objects.filter(id=child.id).exists())
+        self.assertFalse(Quiz.objects.filter(id=quiz_in_child.id).exists())
+
+    def test_empty_root_folder_returns_empty_list(self):
+        """New user with no quizzes gets empty library response."""
+        user = User.objects.create_user(
+            email="empty@example.com", password="password123", first_name="Empty", last_name="User"
+        )
+        self.client.force_authenticate(user=user)
+        response = self.client.get(reverse("library-root"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
+
+    def test_unauthenticated_library_access(self):
+        """Unauthenticated request to /library returns 401."""
+        response = self.client.get(reverse("library-root"))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_cannot_access_other_users_root_folder(self):
+        """User B cannot browse User A's root folder."""
+        user_a = User.objects.create_user(
+            email="a@example.com", password="password123", first_name="A", last_name="User"
+        )
+        user_b = User.objects.create_user(
+            email="b@example.com", password="password123", first_name="B", last_name="User"
+        )
+        self.client.force_authenticate(user=user_b)
+
+        url = reverse("library-folder", kwargs={"folder_id": user_a.root_folder_id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_delete_root_via_api_blocked(self):
+        """DELETE /folders/{root_id}/ is blocked."""
+        user = User.objects.create_user(
+            email="del@example.com", password="password123", first_name="Del", last_name="User"
+        )
+        user.refresh_from_db()
+        self.client.force_authenticate(user=user)
+
+        url = reverse("folder-detail", kwargs={"pk": user.root_folder_id})
+        response = self.client.delete(url)
+        self.assertNotEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertTrue(Folder.objects.filter(id=user.root_folder_id).exists())
+
+    def test_move_folder_to_root(self):
+        """Moving a folder to root folder works via API."""
+        user = User.objects.create_user(
+            email="move@example.com", password="password123", first_name="Move", last_name="User"
+        )
+        user.refresh_from_db()
+        self.client.force_authenticate(user=user)
+
+        parent = Folder.objects.create(name="Parent", owner=user, parent=user.root_folder)
+        child = Folder.objects.create(name="Child", owner=user, parent=parent)
+
+        url = reverse("folder-move", kwargs={"pk": child.id})
+        response = self.client.post(url, {"parent_id": str(user.root_folder_id)}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        child.refresh_from_db()
+        self.assertEqual(child.parent_id, user.root_folder_id)
+
+    def test_unique_root_folder_per_user(self):
+        """Each user gets exactly one root folder, not duplicated on save."""
+        user = User.objects.create_user(
+            email="unique@example.com", password="password123", first_name="Unique", last_name="User"
+        )
+        user.refresh_from_db()
+        root_id = user.root_folder_id
+
+        user.save()
+        user.refresh_from_db()
+        self.assertEqual(user.root_folder_id, root_id)
+        self.assertEqual(Folder.objects.filter(root_owner=user).count(), 1)
