@@ -25,7 +25,7 @@ class QuizProgressTestCase(APITestCase):
         self.client.force_authenticate(user=self.user)
 
         # Create quiz with questions
-        self.quiz = Quiz.objects.create(title="Test Quiz", maintainer=self.user)
+        self.quiz = Quiz.objects.create(title="Test Quiz", creator=self.user, folder=self.user.root_folder)
         self.q1 = Question.objects.create(quiz=self.quiz, order=1, text="Q1")
         self.a1_correct = Answer.objects.create(question=self.q1, order=1, text="Correct", is_correct=True)
         self.a1_wrong = Answer.objects.create(question=self.q1, order=2, text="Wrong", is_correct=False)
@@ -84,7 +84,7 @@ class RecordAnswerTestCase(APITestCase):
         )
         self.client.force_authenticate(user=self.user)
 
-        self.quiz = Quiz.objects.create(title="Test Quiz", maintainer=self.user)
+        self.quiz = Quiz.objects.create(title="Test Quiz", creator=self.user, folder=self.user.root_folder)
         self.q1 = Question.objects.create(quiz=self.quiz, order=1, text="Q1")
         self.a1_correct = Answer.objects.create(question=self.q1, order=1, text="Correct", is_correct=True)
         self.a1_wrong = Answer.objects.create(question=self.q1, order=2, text="Wrong", is_correct=False)
@@ -173,7 +173,7 @@ class RecordAnswerTestCase(APITestCase):
 
     def test_record_answer_question_not_in_quiz(self):
         """Test that question from another quiz returns 404."""
-        other_quiz = Quiz.objects.create(title="Other Quiz", maintainer=self.user)
+        other_quiz = Quiz.objects.create(title="Other Quiz", creator=self.user, folder=self.user.root_folder)
         other_question = Question.objects.create(quiz=other_quiz, order=1, text="Other Q")
 
         url = reverse("quiz-record-answer", kwargs={"pk": self.quiz.id})
@@ -225,7 +225,7 @@ class RecordAnswerTestCase(APITestCase):
 
     def test_record_answer_next_question_not_in_quiz(self):
         """Test that next_question from another quiz returns 400."""
-        other_quiz = Quiz.objects.create(title="Other Quiz", maintainer=self.user)
+        other_quiz = Quiz.objects.create(title="Other Quiz", creator=self.user, folder=self.user.root_folder)
         other_question = Question.objects.create(quiz=other_quiz, order=1, text="Other Q")
 
         url = reverse("quiz-record-answer", kwargs={"pk": self.quiz.id})

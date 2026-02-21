@@ -19,7 +19,8 @@ class LastUsedQuizzesViewTest(TestCase):
         self.quiz = Quiz.objects.create(
             title="Test Quiz",
             description="Test Description",
-            maintainer=self.user,
+            creator=self.user,
+            folder=self.user.root_folder,
             visibility=2,
         )
 
@@ -53,7 +54,7 @@ class LastUsedQuizzesViewTest(TestCase):
         self.assertIn("id", result)
         self.assertIn("title", result)
         self.assertIn("description", result)
-        self.assertIn("maintainer", result)
+        self.assertIn("creator", result)
         self.assertIn("visibility", result)
         self.assertIn("can_edit", result)
 
@@ -69,7 +70,7 @@ class LastUsedQuizzesViewTest(TestCase):
 
         now = timezone.now()
         for i in range(5):
-            q = Quiz.objects.create(title=f"Quiz {i}", maintainer=self.user, visibility=2)
+            q = Quiz.objects.create(title=f"Quiz {i}", creator=self.user, folder=self.user.root_folder, visibility=2)
             session = QuizSession.objects.create(quiz=q, user=self.user, is_active=True)
             session.started_at = now - timedelta(minutes=5 - i)
             session.save()
