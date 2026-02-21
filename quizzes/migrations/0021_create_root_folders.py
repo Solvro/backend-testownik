@@ -26,9 +26,6 @@ def create_root_folders(apps, schema_editor):
         Quiz.objects.filter(creator=user, folder__isnull=True).update(folder=folder)
 
 
-def reverse_create_root_folders(apps, schema_editor):
-    # Make quizzes folder nullable again handled by schema migration
-    pass
 
 
 class Migration(migrations.Migration):
@@ -39,5 +36,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(create_root_folders, reverse_create_root_folders),
+        migrations.RunPython(create_root_folders),
     ]

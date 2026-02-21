@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
             field=models.OneToOneField(
                 blank=True,
                 null=True,
-                on_delete=django.db.models.deletion.PROTECT,
+                on_delete=django.db.models.deletion.CASCADE,
                 related_name="root_owner",
                 to="quizzes.folder",
             ),
