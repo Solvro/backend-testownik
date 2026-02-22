@@ -180,6 +180,9 @@ class QuizSession(models.Model):
     def get_or_create_active(cls, quiz, user):
         """Get active session or create new one."""
         session, created = cls.objects.get_or_create(quiz=quiz, user=user, is_active=True)
+        if created:
+            session.current_question = quiz.questions.order_by("?").first()
+            session.save(update_fields=["current_question"])
         return session, created
 
     @property

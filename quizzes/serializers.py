@@ -384,6 +384,12 @@ class QuizSerializer(serializers.ModelSerializer):
 
         removed_ids = existing_ids - incoming_ids
         if removed_ids:
+            for q_id in removed_ids:
+                q = existing_questions[q_id]
+                affected = QuizSession.objects.filter(current_question=q, is_active=True)
+                if affected.exists():
+                    new_q = quiz.questions.exclude(id__in=removed_ids).order_by("?").first()
+                    affected.update(current_question=new_q)
             Question.objects.filter(id__in=removed_ids).delete()
 
         if questions_to_update:
