@@ -420,7 +420,7 @@ class QuizViewSet(viewsets.ModelViewSet):
                 QuizSession.objects.filter(quiz=quiz, user=request.user, is_active=True).update(
                     is_active=False, ended_at=timezone.now()
                 )
-                session = QuizSession.objects.create(quiz=quiz, user=request.user)
+                session, _ = QuizSession.get_or_create_active(quiz, request.user)
             return Response(QuizSessionSerializer(session).data)
 
         raise MethodNotAllowed(request.method)
@@ -678,6 +678,45 @@ class ReportQuestionIssueView(APIView):
             return Response({"error": "Email sending failed"}, status=500)
 
         return Response({"status": "ok"}, status=201)
+
+
+class QuestionViewSet(viewsets.ModelViewSet):
+    serializer_class = QuestionSerializer
+    queryset = Question.objects.all()
+    permission_classes = [permissions.IsAuthenticated, IsQuizMaintainerOrCollaborator]
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                description="Question deleted successfully",
+                response={
+                    "type": "object",
+                    "properties": {
+                        "current_question": {
+                            "type": "integer",
+                            "format": "uuid",
+                            "nullable": True,
+                            "description": "ID of the new current question",
+                            "example": "123e4567-e89b-12d3-a456-426614174000",
+                        },
+                    },
+                },
+            )
+        }
+    )
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        affected_sessions = QuizSession.objects.filter(current_question=instance, is_active=True)
+        new_question = None
+
+        if affected_sessions.exists():
+            new_question = instance.quiz.questions.exclude(id=instance.id).order_by("?").first()
+            affected_sessions.update(current_question=new_question)
+
+        instance.delete()
+
+        return Response({"current_question": new_question.id if new_question else None}, status=status.HTTP_200_OK)
 
 
 class FolderViewSet(viewsets.ModelViewSet):
