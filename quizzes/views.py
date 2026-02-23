@@ -1,3 +1,4 @@
+import logging
 import random
 import urllib.parse
 import uuid
@@ -18,7 +19,7 @@ from drf_spectacular.utils import (
 )
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed, PermissionDenied
+from rest_framework.exceptions import MethodNotAllowed, NotFound, PermissionDenied
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -35,6 +36,7 @@ from quizzes.models import (
 )
 from quizzes.permissions import (
     IsFolderOwner,
+    IsInternalApiRequest,
     IsQuizMaintainer,
     IsQuizMaintainerOrCollaborator,
     IsQuizReadable,
@@ -46,18 +48,23 @@ from quizzes.serializers import (
     FolderSerializer,
     MoveFolderSerializer,
     MoveQuizSerializer,
+    QuestionSerializer,
     QuizMetaDataSerializer,
+    QuizMetaDataWithQuestionSerializer,
     QuizSearchResultSerializer,
     QuizSerializer,
     QuizSessionSerializer,
     SharedQuizSerializer,
 )
+from quizzes.services.metadata import get_preview_question
 from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
 )
 from quizzes.throttling import CopyQuizThrottle
 from testownik_core.emails import send_email
+
+logger = logging.getLogger(__name__)
 
 
 class RandomQuestionView(APIView):
@@ -263,12 +270,89 @@ class QuizViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         summary="Get quiz metadata",
-        responses={200: QuizMetaDataSerializer},
+        description=(
+            "Returns quiz metadata with optional preview question. Requires Api-Key header for authentication. "
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="Api-Key",
+                required=True,
+                type=str,
+                location=OpenApiParameter.HEADER,
+                description="Api-Key header for authentication",
+            ),
+            OpenApiParameter(
+                name="include",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Comma-separated list of extra data to include. Available options: 'preview_question'.",
+                many=True,
+                style="simple",
+                enum=["preview_question"],
+            ),
+        ],
+        responses={
+            200: QuizMetaDataWithQuestionSerializer,
+            403: OpenApiResponse(description="Forbidden - no access to quiz metadata"),
+        },
     )
-    @action(detail=True, methods=["get"], serializer_class=QuizMetaDataSerializer)
+    @action(
+        detail=True,
+        methods=["get"],
+        permission_classes=[IsInternalApiRequest],
+        serializer_class=QuizMetaDataWithQuestionSerializer,
+    )
     def metadata(self, request, pk=None):
-        quiz = self.get_object()
-        return Response(self.get_serializer(quiz).data)
+        """
+        Get quiz metadata for Next.js server-side rendering.
+
+        Access Rules:
+        - Private (0): Only maintainer
+        - Shared (1): Everyone but without preview question and always anonymous
+        - Unlisted/Public (≥2): Everyone
+
+        Preview Question Rules:
+        - Included only if ?include=preview_question AND visibility ≥ 2
+        - Selected based on: no images (q/a), ≥3 answers
+        """
+
+        try:
+            quiz = Quiz.objects.prefetch_related("questions__answers").get(pk=pk)
+        except Quiz.DoesNotExist:
+            raise NotFound("Quiz not found")
+
+        user = request.user
+
+        if not (quiz.visibility >= 1 or user == quiz.maintainer):
+            raise PermissionDenied("You do not have permission to access this quiz metadata.")
+
+        data = QuizMetaDataSerializer(quiz, context={"request": request}).data
+
+        raw_includes = request.query_params.getlist("include")
+        include_values = set()
+        for value in raw_includes:
+            if value:
+                include_values.update(part.strip() for part in value.split(",") if part.strip())
+        include_preview = "preview_question" in include_values
+
+        preview_question = None
+        question_count = len(quiz.questions.all())
+
+        if include_preview and quiz.visibility >= 2:
+            preview_question = get_preview_question(quiz)
+
+        if preview_question:
+            data["preview_question"] = QuestionSerializer(preview_question).data
+        else:
+            data["preview_question"] = None
+
+        if quiz.visibility == 1:
+            data["is_anonymous"] = True
+            data["maintainer"] = None
+
+        data["question_count"] = question_count
+
+        return Response(data)
 
     def perform_create(self, serializer):
         serializer.save(maintainer=self.request.user)
@@ -284,7 +368,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         action_serializers = {
             "list": QuizMetaDataSerializer,
-            "metadata": QuizMetaDataSerializer,
+            "metadata": QuizMetaDataWithQuestionSerializer,
             "move": MoveQuizSerializer,
         }
         return action_serializers.get(self.action, QuizSerializer)
@@ -336,7 +420,7 @@ class QuizViewSet(viewsets.ModelViewSet):
                 QuizSession.objects.filter(quiz=quiz, user=request.user, is_active=True).update(
                     is_active=False, ended_at=timezone.now()
                 )
-                session = QuizSession.objects.create(quiz=quiz, user=request.user)
+                session, _ = QuizSession.get_or_create_active(quiz, request.user)
             return Response(QuizSessionSerializer(session).data)
 
         raise MethodNotAllowed(request.method)
@@ -483,20 +567,6 @@ class QuizViewSet(viewsets.ModelViewSet):
         )
 
 
-class QuizMetadataView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    @extend_schema(
-        summary="Get quiz metadata",
-        responses={
-            200: QuizMetaDataSerializer,
-        },
-    )
-    def get(self, request, quiz_id):
-        quiz = Quiz.objects.get(id=quiz_id)
-        return Response(QuizMetaDataSerializer(quiz, context={"request": request}).data)
-
-
 class SharedQuizViewSet(viewsets.ModelViewSet):
     queryset = SharedQuiz.objects.all()
     serializer_class = SharedQuizSerializer
@@ -604,9 +674,49 @@ class ReportQuestionIssueView(APIView):
                 fail_silently=False,
             )
         except Exception as e:
-            return Response({"error": str(e)}, status=500)
+            logger.exception("Email sending failed: %s", str(e))
+            return Response({"error": "Email sending failed"}, status=500)
 
         return Response({"status": "ok"}, status=201)
+
+
+class QuestionViewSet(viewsets.ModelViewSet):
+    serializer_class = QuestionSerializer
+    queryset = Question.objects.all()
+    permission_classes = [permissions.IsAuthenticated, IsQuizMaintainerOrCollaborator]
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                description="Question deleted successfully",
+                response={
+                    "type": "object",
+                    "properties": {
+                        "current_question": {
+                            "type": "integer",
+                            "format": "uuid",
+                            "nullable": True,
+                            "description": "ID of the new current question",
+                            "example": "123e4567-e89b-12d3-a456-426614174000",
+                        },
+                    },
+                },
+            )
+        }
+    )
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        affected_sessions = QuizSession.objects.filter(current_question=instance, is_active=True)
+        new_question = None
+
+        if affected_sessions.exists():
+            new_question = instance.quiz.questions.exclude(id=instance.id).order_by("?").first()
+            affected_sessions.update(current_question=new_question)
+
+        instance.delete()
+
+        return Response({"current_question": new_question.id if new_question else None}, status=status.HTTP_200_OK)
 
 
 class FolderViewSet(viewsets.ModelViewSet):

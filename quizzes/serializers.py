@@ -1,6 +1,8 @@
 from datetime import timedelta
 
 from django.db import transaction
+from django.db.models import Q
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from quizzes.models import (
@@ -46,6 +48,7 @@ class AnswerSerializer(serializers.ModelSerializer):
             "is_correct",
         ]
 
+    @extend_schema_field(serializers.URLField(allow_null=True))
     def get_image(self, obj):
         if obj.image_upload and obj.image_upload.image:
             request = self.context.get("request")
@@ -59,6 +62,7 @@ class AnswerSerializer(serializers.ModelSerializer):
 class QuestionSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(required=False)
     answers = AnswerSerializer(many=True)
+    quiz = serializers.PrimaryKeyRelatedField(queryset=Quiz.objects.all(), required=False)
 
     image_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
     image = serializers.SerializerMethodField()
@@ -70,6 +74,7 @@ class QuestionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Question
+
         fields = [
             "id",
             "order",
@@ -82,8 +87,75 @@ class QuestionSerializer(serializers.ModelSerializer):
             "explanation",
             "multiple",
             "answers",
+            "quiz",
         ]
 
+    def validate(self, data):
+        user = self.context["request"].user
+        new_quiz = data.get("quiz")
+
+        if not self.instance and not new_quiz and self.root == self:
+            raise serializers.ValidationError({"quiz": "This field is required."})
+
+        if new_quiz and not new_quiz.can_edit(user):
+            raise serializers.ValidationError({"quiz": "You do not have permission to add a question to this quiz."})
+
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        answers_data = validated_data.pop("answers")
+        question = Question.objects.create(**validated_data)
+
+        for answer_data in answers_data:
+            Answer.objects.create(question=question, **answer_data)
+
+        return question
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        answers_data = validated_data.pop("answers", None)
+
+        instance.order = validated_data.get("order", instance.order)
+        instance.text = validated_data.get("text", instance.text)
+
+        instance.image_url = validated_data.get("image_url", instance.image_url)
+        instance.image_upload = validated_data.get("image_upload", instance.image_upload)
+
+        instance.explanation = validated_data.get("explanation", instance.explanation)
+        instance.multiple = validated_data.get("multiple", instance.multiple)
+        instance.save()
+
+        if answers_data is not None:
+            existing_ids = set(instance.answers.values_list("id", flat=True))
+            incoming_ids = set(item["id"] for item in answers_data if "id" in item)
+
+            ids_to_delete = existing_ids - incoming_ids
+            Answer.objects.filter(id__in=ids_to_delete).delete()
+
+            for answer_data in answers_data:
+                answer_id = answer_data.get("id", None)
+
+                if answer_id and answer_id in existing_ids:
+                    answer = Answer.objects.get(id=answer_id, question=instance)
+                    answer.order = answer_data.get("order", answer.order)
+                    answer.text = answer_data.get("text", answer.text)
+
+                    if "image_url" in answer_data:
+                        answer.image_url = answer_data["image_url"]
+                    if "image_upload" in answer_data:
+                        answer.image_upload = answer_data["image_upload"]
+
+                    answer.is_correct = answer_data.get("is_correct", answer.is_correct)
+                    answer.save()
+                else:
+                    if "id" in answer_data:
+                        del answer_data["id"]
+                    Answer.objects.create(question=instance, **answer_data)
+
+        return instance
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
     def get_image(self, obj):
         if obj.image_upload and obj.image_upload.image:
             request = self.context.get("request")
@@ -94,10 +166,63 @@ class QuestionSerializer(serializers.ModelSerializer):
         return obj.image_url
 
 
+@extend_schema_field(serializers.FloatField())
+class DurationInSecondsField(serializers.Field):
+    """Field for handling DurationField as total seconds."""
+
+    def to_representation(self, value):
+        if isinstance(value, timedelta):
+            return value.total_seconds()
+        return value
+
+    def to_internal_value(self, data):
+        try:
+            return timedelta(seconds=float(data))
+        except (ValueError, TypeError):
+            self.fail("invalid")
+
+
+class AnswerRecordSerializer(serializers.ModelSerializer):
+    """Serializer for AnswerRecord."""
+
+    class Meta:
+        model = AnswerRecord
+        fields = ["id", "question", "selected_answers", "was_correct", "answered_at"]
+        read_only_fields = ["id", "answered_at", "was_correct"]
+
+
+class QuizSessionSerializer(serializers.ModelSerializer):
+    """Serializer for QuizSession (new progress tracking)."""
+
+    study_time = DurationInSecondsField(required=False)
+    answers = AnswerRecordSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = QuizSession
+        fields = [
+            "id",
+            "quiz",
+            "user",
+            "current_question",
+            "study_time",
+            "is_active",
+            "started_at",
+            "updated_at",
+            "ended_at",
+            "answers",
+        ]
+        read_only_fields = ["id", "quiz", "user", "started_at", "updated_at", "ended_at"]
+
+
 class QuizSerializer(serializers.ModelSerializer):
     maintainer = PublicUserSerializer(read_only=True)
     can_edit = serializers.SerializerMethodField()
     questions = QuestionSerializer(many=True)
+
+    user_settings = UserSettingsSerializer(read_only=True, required=False, allow_null=True)
+    current_session = QuizSessionSerializer(read_only=True, required=False, allow_null=True)
+
+    has_external_images = serializers.SerializerMethodField()
 
     class Meta:
         model = Quiz
@@ -113,6 +238,9 @@ class QuizSerializer(serializers.ModelSerializer):
             "questions",
             "can_edit",
             "folder",
+            "user_settings",
+            "current_session",
+            "has_external_images",
         ]
         read_only_fields = ["maintainer", "version", "can_edit", "folder"]
 
@@ -121,6 +249,16 @@ class QuizSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             return obj.can_edit(request.user)
         return False
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_external_images(self, obj) -> bool:
+        """Check if any question or answer uses an external image URL (not uploaded)."""
+        external_image_filter = Q(image_url__isnull=False) & ~Q(image_url="") & Q(image_upload__isnull=True)
+
+        return (
+            obj.questions.filter(external_image_filter).exists()
+            or Answer.objects.filter(question__quiz=obj).filter(external_image_filter).exists()
+        )
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -134,12 +272,19 @@ class QuizSerializer(serializers.ModelSerializer):
             includes = [item.strip() for item in request.query_params.get("include", "").split(",")] if request else []
 
             if "user_settings" in includes and hasattr(user, "settings"):
-                user_settings, _ = UserSettings.objects.get_or_create(user=request.user)
+                user_settings, _ = UserSettings.objects.get_or_create(user=user)
                 data["user_settings"] = UserSettingsSerializer(user_settings).data
+            else:
+                data.pop("user_settings", None)
 
             if "current_session" in includes:
-                session, _ = QuizSession.get_or_create_active(instance, request.user)
+                session, _ = QuizSession.get_or_create_active(instance, user)
                 data["current_session"] = QuizSessionSerializer(session).data
+            else:
+                data.pop("current_session", None)
+        else:
+            data.pop("user_settings", None)
+            data.pop("current_session", None)
 
         return data
 
@@ -239,6 +384,12 @@ class QuizSerializer(serializers.ModelSerializer):
 
         removed_ids = existing_ids - incoming_ids
         if removed_ids:
+            for q_id in removed_ids:
+                q = existing_questions[q_id]
+                affected = QuizSession.objects.filter(current_question=q, is_active=True)
+                if affected.exists():
+                    new_q = quiz.questions.exclude(id__in=removed_ids).order_by("?").first()
+                    affected.update(current_question=new_q)
             Question.objects.filter(id__in=removed_ids).delete()
 
         if questions_to_update:
@@ -333,6 +484,16 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             return obj.can_edit(request.user)
         return False
+
+
+class QuizMetaDataWithQuestionSerializer(QuizMetaDataSerializer):
+    """Extended metadata serializer that optionally includes a preview question."""
+
+    preview_question = QuestionSerializer(read_only=True, allow_null=True)
+    question_count = serializers.IntegerField(read_only=True)
+
+    class Meta(QuizMetaDataSerializer.Meta):
+        fields = QuizMetaDataSerializer.Meta.fields + ["preview_question", "question_count"]
 
 
 class SharedQuizSerializer(serializers.ModelSerializer):
@@ -451,53 +612,6 @@ class QuizSearchResultSerializer(serializers.ModelSerializer):
         if instance.is_anonymous and user and user != instance.maintainer:
             data["maintainer"] = None
         return data
-
-
-class DurationInSecondsField(serializers.Field):
-    """Field for handling DurationField as total seconds."""
-
-    def to_representation(self, value):
-        if isinstance(value, timedelta):
-            return value.total_seconds()
-        return value
-
-    def to_internal_value(self, data):
-        try:
-            return timedelta(seconds=float(data))
-        except (ValueError, TypeError):
-            self.fail("invalid")
-
-
-class AnswerRecordSerializer(serializers.ModelSerializer):
-    """Serializer for AnswerRecord."""
-
-    class Meta:
-        model = AnswerRecord
-        fields = ["id", "question", "selected_answers", "was_correct", "answered_at"]
-        read_only_fields = ["id", "answered_at", "was_correct"]
-
-
-class QuizSessionSerializer(serializers.ModelSerializer):
-    """Serializer for QuizSession (new progress tracking)."""
-
-    study_time = DurationInSecondsField(required=False)
-    answers = AnswerRecordSerializer(many=True, read_only=True)
-
-    class Meta:
-        model = QuizSession
-        fields = [
-            "id",
-            "quiz",
-            "user",
-            "current_question",
-            "study_time",
-            "is_active",
-            "started_at",
-            "updated_at",
-            "ended_at",
-            "answers",
-        ]
-        read_only_fields = ["id", "quiz", "user", "started_at", "updated_at", "ended_at"]
 
 
 class MoveQuizSerializer(serializers.Serializer):

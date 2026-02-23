@@ -1,6 +1,20 @@
+from django.conf import settings
 from rest_framework import permissions
 
-from .models import Quiz
+from .models import Question, Quiz
+
+
+class IsInternalApiRequest(permissions.BasePermission):
+    """
+    Permission class that validates Api-Key header against INTERNAL_API_KEY.
+    Used for server-to-server authentication (e.g., Next.js server-side).
+    """
+
+    def has_permission(self, request, view):
+        api_key = request.headers.get("Api-Key")
+        if not api_key or not settings.INTERNAL_API_KEY:
+            return False
+        return api_key == settings.INTERNAL_API_KEY
 
 
 class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):
@@ -63,13 +77,22 @@ class IsQuizMaintainerOrCollaborator(permissions.BasePermission):
     maintaining read access to IsQuizReadable logic.
     """
 
-    def has_object_permission(self, request, view, obj):
+    def has_object_permission(self, request, view, obj: Quiz | Question):
         # Read permissions are delegated to IsQuizReadable logic
         if request.method in permissions.SAFE_METHODS:
-            return IsQuizReadable().has_object_permission(request, view, obj)
+            if isinstance(obj, Quiz):
+                return IsQuizReadable().has_object_permission(request, view, obj)
+            elif isinstance(obj, Question):
+                return IsQuizReadable().has_object_permission(request, view, obj.quiz)
 
         # Write permissions are only allowed to the maintainer or accepted collaborators
-        return obj.can_edit(request.user)
+        if isinstance(obj, Quiz):
+            return obj.can_edit(request.user)
+
+        if isinstance(obj, Question):
+            return obj.quiz.can_edit(request.user)
+
+        return False
 
 
 class IsFolderOwner(permissions.BasePermission):
