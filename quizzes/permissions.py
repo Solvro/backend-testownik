@@ -55,21 +55,19 @@ class IsQuizReadable(permissions.BasePermission):
     - Anonymous access is allowed for the quiz and visibility >= 2
     """
 
-    def has_object_permission(self, request, view, obj):
-        quiz = getattr(obj, "quiz", obj)
-
-        if quiz.maintainer == request.user:
+    def has_object_permission(self, request, view, obj: Quiz):
+        if obj.maintainer == request.user:
             return True
 
-        if quiz.visibility >= 2 and (request.user.is_authenticated or quiz.allow_anonymous):
+        if obj.visibility >= 2 and (request.user.is_authenticated or obj.allow_anonymous):
             return True
 
-        if request.user.is_authenticated and quiz.sharedquiz_set.filter(user=request.user).exists():
+        if request.user.is_authenticated and obj.sharedquiz_set.filter(user=request.user).exists():
             return True
 
         return (
             request.user.is_authenticated
-            and quiz.sharedquiz_set.filter(study_group__in=request.user.study_groups.all()).exists()
+            and obj.sharedquiz_set.filter(study_group__in=request.user.study_groups.all()).exists()
         )
 
 
@@ -79,10 +77,13 @@ class IsQuizMaintainerOrCollaborator(permissions.BasePermission):
     maintaining read access to IsQuizReadable logic.
     """
 
-    def has_object_permission(self, request, view, obj):
+    def has_object_permission(self, request, view, obj: Quiz | Question):
         # Read permissions are delegated to IsQuizReadable logic
         if request.method in permissions.SAFE_METHODS:
-            return IsQuizReadable().has_object_permission(request, view, obj)
+            if isinstance(obj, Quiz):
+                return IsQuizReadable().has_object_permission(request, view, obj)
+            elif isinstance(obj, Question):
+                return IsQuizReadable().has_object_permission(request, view, obj.quiz)
 
         # Write permissions are only allowed to the maintainer or accepted collaborators
         if isinstance(obj, Quiz):
@@ -90,6 +91,8 @@ class IsQuizMaintainerOrCollaborator(permissions.BasePermission):
 
         if isinstance(obj, Question):
             return obj.quiz.can_edit(request.user)
+
+        return False
 
 
 class IsFolderOwner(permissions.BasePermission):

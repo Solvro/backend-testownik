@@ -685,17 +685,6 @@ class QuestionViewSet(viewsets.ModelViewSet):
     queryset = Question.objects.all()
     permission_classes = [permissions.IsAuthenticated, IsQuizMaintainerOrCollaborator]
 
-    def get_queryset(self):
-        user = self.request.user
-
-        accessible_quizzes = Quiz.objects.filter(
-            Q(maintainer=user)
-            | Q(sharedquiz__user=user, sharedquiz__allow_edit=True)
-            | Q(sharedquiz__study_group__in=user.study_groups.all(), sharedquiz__allow_edit=True)
-        ).values("id")
-
-        return Question.objects.filter(quiz__in=accessible_quizzes).order_by("quiz", "order")
-
     @extend_schema(
         responses={
             200: OpenApiResponse(

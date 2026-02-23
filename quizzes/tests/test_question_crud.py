@@ -141,12 +141,16 @@ class QuestionCRUDTestCase(APITestCase):
     def test_stranger_cannot_see_question(self):
         self.client.force_authenticate(user=self.other_user)
         response = self.client.get(self.detail_url)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_read_only_shared_user_cannot_edit(self):
         SharedQuiz.objects.create(quiz=self.quiz, user=self.other_user, allow_edit=False)
 
         self.client.force_authenticate(user=self.other_user)
 
-        response = self.client.get(self.detail_url)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        update_data = {"text": "Unauthorized Update"}
+        response = self.client.patch(self.detail_url, update_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        response = self.client.delete(self.detail_url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
