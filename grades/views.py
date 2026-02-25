@@ -41,11 +41,11 @@ async def get_user_courses_ects_safe(client):
                         filtered_courses[course_id] = float(ects_value)
                     except (ValueError, TypeError) as e:
                         logger.warning(f"Cannot convert ECTS '{ects_value}' for {course_id}: {e}")
-                        filtered_courses[course_id] = 0.0  # ⬅️ Zamiast pomijać, ustaw 0
+                        filtered_courses[course_id] = 0.0  # Fallback: set ECTS to 0.0 when conversion fails
                         none_count += 1
                 else:
-                    # ⬅️ ZMIANA: Zamiast pomijać, ustaw 0 lub None
-                    filtered_courses[course_id] = 0.0  # lub None jeśli frontend to obsługuje
+                    # For missing ECTS values, set ECTS to 0.0 instead of skipping the course
+                    filtered_courses[course_id] = 0.0
                     none_count += 1
                     logger.debug(f"Course {course_id} in {term_id} has no ECTS, setting to 0")
 
