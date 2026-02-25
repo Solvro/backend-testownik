@@ -1,11 +1,11 @@
 from unittest.mock import AsyncMock
 
-from django.test import TestCase
+from django.test import SimpleTestCase
 
 from grades.views import get_user_courses_ects_safe
 
 
-class GetUserCoursesEctsSafeTestCase(TestCase):
+class GetUserCoursesEctsSafeTestCase(SimpleTestCase):
     """Test the safe ECTS wrapper function that fixes the None ECTS bug"""
 
     async def test_filters_none_values(self):

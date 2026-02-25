@@ -27,7 +27,7 @@ async def get_user_courses_ects_safe(client):
     logger.debug(f"USOS API user_ects_points response: {len(response)} terms found")
 
     result = {}
-    none_count = 0
+    missing_or_invalid_ects_count = 0
     total_courses = 0
 
     for term_id, courses in response.items():
@@ -41,19 +41,18 @@ async def get_user_courses_ects_safe(client):
                         filtered_courses[course_id] = float(ects_value)
                     except (ValueError, TypeError) as e:
                         logger.warning(f"Cannot convert ECTS '{ects_value}' for {course_id}: {e}")
-                        filtered_courses[course_id] = 0.0  # Fallback: set ECTS to 0.0 when conversion fails
-                        none_count += 1
+                        filtered_courses[course_id] = 0.0
+                        missing_or_invalid_ects_count += 1
                 else:
-                    # For missing ECTS values, set ECTS to 0.0 instead of skipping the course
                     filtered_courses[course_id] = 0.0
-                    none_count += 1
+                    missing_or_invalid_ects_count += 1
                     logger.debug(f"Course {course_id} in {term_id} has no ECTS, setting to 0")
 
             if filtered_courses:
                 result[term_id] = filtered_courses
 
-    if none_count > 0:
-        logger.info(f"Found {none_count}/{total_courses} courses with None ECTS, set to 0.0")
+    if missing_or_invalid_ects_count > 0:
+        logger.info(f"Found {missing_or_invalid_ects_count}/{total_courses} courses with None ECTS, set to 0.0")
 
     return result
 
