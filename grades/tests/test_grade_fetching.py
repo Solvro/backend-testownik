@@ -133,3 +133,32 @@ class GetUserCoursesEctsSafeTestCase(SimpleTestCase):
         # Courses with None should be 0.0
         self.assertEqual(result["2023Z"]["FIZ201"], 0.0)
         self.assertEqual(result["2023Z"]["CHE102"], 0.0)
+
+    async def test_handles_invalid_ects_conversion(self):
+        """Test that invalid ECTS values (non-numeric strings, objects) are handled gracefully"""
+        mock_client = AsyncMock()
+        mock_client.connection.get.return_value = {
+            "2023Z": {
+                "COURSE123": "5.0",
+                "COURSE456": "invalid_string",  # Invalid - can't convert to float
+                "COURSE789": "3.5",
+                "COURSE999": {"nested": "object"},  # Invalid - object instead of string
+                "COURSE000": [1, 2, 3],  # Invalid - list instead of string
+            },
+        }
+
+        # Should not crash, should convert invalid values to 0.0
+        result = await get_user_courses_ects_safe(mock_client)
+
+        # Valid ECTS should be present
+        self.assertIn("2023Z", result)
+        self.assertEqual(result["2023Z"]["COURSE123"], 5.0)
+        self.assertEqual(result["2023Z"]["COURSE789"], 3.5)
+
+        # Invalid ECTS should be converted to 0.0
+        self.assertEqual(result["2023Z"]["COURSE456"], 0.0)
+        self.assertEqual(result["2023Z"]["COURSE999"], 0.0)
+        self.assertEqual(result["2023Z"]["COURSE000"], 0.0)
+
+        # All courses should still be in result
+        self.assertEqual(len(result["2023Z"]), 5)
