@@ -20,7 +20,7 @@ CONSUMER_SECRET = os.getenv("USOS_CONSUMER_SECRET")
 
 async def get_user_courses_ects_safe(client):
     """
-    Safe wrapper that handles None ECTS values by setting them to 0 or null.
+    Safe wrapper that handles None or invalid ECTS values by setting them to 0.0.
     """
     response = await client.connection.get("services/courses/user_ects_points", params={})
 
