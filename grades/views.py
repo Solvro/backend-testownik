@@ -18,13 +18,20 @@ CONSUMER_KEY = os.getenv("USOS_CONSUMER_KEY")
 CONSUMER_SECRET = os.getenv("USOS_CONSUMER_SECRET")
 
 
-async def get_user_courses_ects_safe(client):
+async def get_user_courses_ects_safe(client) -> dict[str, dict[str, float]]:
     """
     Safe wrapper that handles None or invalid ECTS values by setting them to 0.0.
     """
     response = await client.connection.get("services/courses/user_ects_points", params={})
 
-    logger.debug(f"USOS API user_ects_points response: {len(response)} terms found")
+    if not isinstance(response, dict):
+        logger.error(
+            "USOS API user_ects_points response has invalid type: %s",
+            type(response).__name__,
+        )
+        raise APIException("Invalid response from USOS API (user_ects_points). Expected dict.")
+
+    logger.debug("USOS API user_ects_points response: %s terms found", len(response))
 
     result = {}
     missing_or_invalid_ects_count = 0
