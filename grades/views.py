@@ -18,6 +18,52 @@ CONSUMER_KEY = os.getenv("USOS_CONSUMER_KEY")
 CONSUMER_SECRET = os.getenv("USOS_CONSUMER_SECRET")
 
 
+async def get_user_courses_ects_safe(client) -> dict[str, dict[str, float]]:
+    """
+    Safe wrapper that handles None or invalid ECTS values by setting them to 0.0.
+    """
+    response = await client.connection.get("services/courses/user_ects_points", params={})
+
+    if not isinstance(response, dict):
+        logger.error(
+            "USOS API user_ects_points response has invalid type: %s",
+            type(response).__name__,
+        )
+        raise APIException("Invalid response from USOS API (user_ects_points). Expected dict.")
+
+    logger.debug("USOS API user_ects_points response: %s terms found", len(response))
+
+    result = {}
+    missing_or_invalid_ects_count = 0
+    total_courses = 0
+
+    for term_id, courses in response.items():
+        if courses and isinstance(courses, dict):
+            filtered_courses = {}
+            for course_id, ects_value in courses.items():
+                total_courses += 1
+
+                if ects_value is not None:
+                    try:
+                        filtered_courses[course_id] = float(ects_value)
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Cannot convert ECTS '{ects_value}' for {course_id}: {e}")
+                        filtered_courses[course_id] = 0.0
+                        missing_or_invalid_ects_count += 1
+                else:
+                    filtered_courses[course_id] = 0.0
+                    missing_or_invalid_ects_count += 1
+                    logger.debug(f"Course {course_id} in {term_id} has no ECTS, setting to 0")
+
+            if filtered_courses:
+                result[term_id] = filtered_courses
+
+    if missing_or_invalid_ects_count > 0:
+        logger.info(f"Found {missing_or_invalid_ects_count}/{total_courses} courses with None ECTS, set to 0.0")
+
+    return result
+
+
 @async_api_view(["GET"])
 async def get_grades(request):
     term_id = request.GET.get("term_id")
@@ -28,7 +74,9 @@ async def get_grades(request):
     try:
         async with USOSClient(USOS_BASE_URL, CONSUMER_KEY, CONSUMER_SECRET, trust_env=True) as client:
             client.load_access_token(request_user.access_token, request_user.access_token_secret)
-            ects = await client.course_service.get_user_courses_ects()
+
+            # Use safe wrapper instead of direct call
+            ects = await get_user_courses_ects_safe(client)
 
             if not ects:
                 return Response({"detail": "No ECTS data found for this user."}, status=404)
