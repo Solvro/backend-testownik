@@ -362,8 +362,8 @@ class QuizViewSet(viewsets.ModelViewSet):
         serializer.save(version=serializer.instance.version + 1)
 
     def perform_destroy(self, instance):
-        if instance.creator != self.request.user:
-            raise PermissionDenied("Only the creator can delete this quiz")
+        if instance.folder.owner != self.request.user:
+            raise PermissionDenied("Only the folder owner can delete this quiz")
         instance.delete()
 
     def get_serializer_class(self):

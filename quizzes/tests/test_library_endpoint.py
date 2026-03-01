@@ -212,6 +212,62 @@ class RootFolderTests(APITestCase):
         self.assertEqual(Folder.objects.filter(root_owner=user).count(), 1)
 
 
+class FolderPermissionTests(APITestCase):
+    """Tests for folder-based quiz permissions."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            email="owner@example.com", password="password123", first_name="Owner", last_name="User"
+        )
+        self.owner.refresh_from_db()
+        self.other = User.objects.create_user(
+            email="other@example.com", password="password123", first_name="Other", last_name="User"
+        )
+        self.other.refresh_from_db()
+
+    def test_folder_owner_can_edit_quiz_they_didnt_create(self):
+        """Folder owner can edit a quiz even if they didn't create it."""
+        quiz = Quiz.objects.create(title="By Other", creator=self.other, folder=self.owner.root_folder)
+
+        self.client.force_authenticate(user=self.owner)
+        url = reverse("quiz-detail", kwargs={"pk": quiz.id})
+        response = self.client.put(url, {"title": "Edited by Owner", "questions": []}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        quiz.refresh_from_db()
+        self.assertEqual(quiz.title, "Edited by Owner")
+
+    def test_creator_cannot_edit_quiz_in_other_users_folder(self):
+        """Quiz creator cannot edit quiz if it's in someone else's folder."""
+        quiz = Quiz.objects.create(title="My Quiz", creator=self.other, folder=self.owner.root_folder)
+
+        self.client.force_authenticate(user=self.other)
+        url = reverse("quiz-detail", kwargs={"pk": quiz.id})
+        response = self.client.put(url, {"title": "Hacked", "questions": []}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        quiz.refresh_from_db()
+        self.assertEqual(quiz.title, "My Quiz")
+
+    def test_folder_owner_can_delete_quiz(self):
+        """Folder owner can delete quiz even if created by someone else."""
+        quiz = Quiz.objects.create(title="Delete Me", creator=self.other, folder=self.owner.root_folder)
+
+        self.client.force_authenticate(user=self.owner)
+        url = reverse("quiz-detail", kwargs={"pk": quiz.id})
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Quiz.objects.filter(id=quiz.id).exists())
+
+    def test_creator_cannot_delete_quiz_in_other_users_folder(self):
+        """Quiz creator cannot delete quiz if it's in someone else's folder."""
+        quiz = Quiz.objects.create(title="Not Yours", creator=self.other, folder=self.owner.root_folder)
+
+        self.client.force_authenticate(user=self.other)
+        url = reverse("quiz-detail", kwargs={"pk": quiz.id})
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Quiz.objects.filter(id=quiz.id).exists())
+
+
 class FolderCRUDTests(APITestCase):
     def setUp(self):
         self.user = User.objects.create_user(

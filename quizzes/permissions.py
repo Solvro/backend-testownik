@@ -29,17 +29,17 @@ class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):
             return True
 
         # Write permissions are only allowed to the creator of the shared quiz.
-        return obj.quiz.creator == request.user
+        return obj.quiz.get_maintainer() == request.user
 
 
 class IsQuizCreator(permissions.BasePermission):
     """
     Custom permission for critical actions like Move or Delete.
-    Blocks collaborators - only the quiz creator can perform these actions.
+    Only the folder owner can perform these actions.
     """
 
     def has_object_permission(self, request, view, obj):
-        return obj.creator == request.user
+        return obj.get_maintainer() == request.user
 
 
 class IsQuizReadable(permissions.BasePermission):
@@ -56,7 +56,7 @@ class IsQuizReadable(permissions.BasePermission):
     """
 
     def has_object_permission(self, request, view, obj: Quiz):
-        if obj.creator == request.user:
+        if obj.folder.owner == request.user:
             return True
 
         if obj.visibility >= 2 and (request.user.is_authenticated or obj.allow_anonymous):

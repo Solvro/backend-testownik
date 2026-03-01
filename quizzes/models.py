@@ -2,7 +2,7 @@ import uuid
 from datetime import timedelta
 
 from django.db import models
-from django.db.models import ProtectedError
+from django.db.models import ProtectedError, Q
 
 from users.models import StudyGroup, User
 
@@ -41,6 +41,15 @@ class Folder(models.Model):
                 set([self]),
             )
         super().delete(*args, **kwargs)
+
+    def has_edit_permission(self, user):
+        """Check if user can edit content in this folder."""
+        if user == self.owner:
+            return True
+        return self.shares.filter(
+            Q(user=user) | Q(study_group__in=user.study_groups.all()),
+            allow_edit=True,
+        ).exists()
 
 
 class SharedFolder(models.Model):
@@ -85,10 +94,13 @@ class Quiz(models.Model):
 
     def can_edit(self, user):
         return (
-            user == self.creator
+            self.folder.has_edit_permission(user)
             or self.sharedquiz_set.filter(user=user, allow_edit=True).exists()
             or self.sharedquiz_set.filter(study_group__in=user.study_groups.all(), allow_edit=True).exists()
         )
+
+    def get_maintainer(self):
+        return self.folder.owner
 
 
 class Question(models.Model):
