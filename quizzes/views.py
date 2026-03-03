@@ -685,7 +685,7 @@ class ReportQuestionIssueView(APIView):
 class QuestionViewSet(viewsets.ModelViewSet):
     serializer_class = QuestionSerializer
     queryset = Question.objects.all()
-    permission_classes = [permissions.IsAuthenticated, IsQuizMaintainerOrCollaborator]
+    permission_classes = [permissions.IsAuthenticated, IsQuizCreatorOrCollaborator]
 
     @extend_schema(
         responses={
