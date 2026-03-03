@@ -487,6 +487,9 @@ class MoveFolderSerializer(serializers.Serializer):
         user = self.context["request"].user
         folder_to_move = self.context["view"].get_object()
 
+        if folder_to_move.is_root:
+            raise serializers.ValidationError("The root folder cannot be moved.")
+
         if (
             Folder.objects.filter(owner=user, parent_id=value, name=folder_to_move.name)
             .exclude(id=folder_to_move.id)

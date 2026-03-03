@@ -708,7 +708,7 @@ class FolderViewSet(viewsets.ModelViewSet):
             folder.save()
             return Response({"status": "Folder moved successfully"})
 
-        return Response(serializer.errors)
+        return Response(serializer.errors, status=400)
 
 
 class LibraryView(APIView):

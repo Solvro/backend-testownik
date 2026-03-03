@@ -34,8 +34,15 @@ class Folder(models.Model):
     def __str__(self):
         return f"{self.name} ({self.owner})"
 
+    @property
+    def is_root(self):
+        try:
+            return self.root_owner is not None
+        except self.__class__.root_owner.RelatedObjectDoesNotExist:
+            return False
+
     def delete(self, *args, **kwargs):
-        if hasattr(self, "root_owner"):
+        if self.is_root:
             raise ProtectedError(
                 "Cannot delete root folder.",
                 set([self]),
