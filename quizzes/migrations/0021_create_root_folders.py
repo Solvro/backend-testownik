@@ -1,6 +1,7 @@
 import uuid
 
-from django.db import migrations
+import django.db.models.deletion
+from django.db import migrations, models
 
 
 def create_root_folders(apps, schema_editor):
@@ -26,8 +27,6 @@ def create_root_folders(apps, schema_editor):
         Quiz.objects.filter(creator=user, folder__isnull=True).update(folder=folder)
 
 
-
-
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -37,4 +36,13 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunPython(create_root_folders),
+        migrations.AlterField(
+            model_name="quiz",
+            name="folder",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="quizzes",
+                to="quizzes.folder",
+            ),
+        ),
     ]
