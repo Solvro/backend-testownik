@@ -8,7 +8,7 @@
 
 **Twoje narzędzie do nauki na Politechnice Wrocławskiej**
 
-[🌐 Odwiedź aplikację](https://testownik.solvro.pl) • [🧑‍💻 Repozytorium frontend](https://github.com/Solvro/web-testownik) • [🛠️ API Swagger](https://api.testownik.solvro.pl/swagger/)
+[🌐 Odwiedź aplikację](https://testownik.solvro.pl) • [🧑‍💻 Repozytorium frontend](https://github.com/Solvro/web-testownik) • [🛠️ API Swagger](https://testownik.solvro.pl/api/)
 
 </div>
 

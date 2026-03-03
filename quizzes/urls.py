@@ -5,6 +5,7 @@ from quizzes.views import (
     FolderViewSet,
     LastUsedQuizzesView,
     LibraryView,
+    QuestionViewSet,
     QuizViewSet,
     RandomQuestionView,
     ReportQuestionIssueView,
@@ -16,6 +17,7 @@ router = DefaultRouter()
 router.register("quizzes", QuizViewSet)
 router.register("shared-quizzes", SharedQuizViewSet)
 router.register("folders", FolderViewSet)
+router.register("questions", QuestionViewSet)
 
 urlpatterns = [
     path("", include(router.urls)),

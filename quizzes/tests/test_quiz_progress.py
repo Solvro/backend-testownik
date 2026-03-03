@@ -71,6 +71,69 @@ class QuizProgressTestCase(APITestCase):
         self.assertIsNotNone(new_session)
         self.assertNotEqual(new_session.id, old_session.id)
 
+    def test_new_session_has_current_question_set(self):
+        """Test that new session has current_question set to a question from the quiz."""
+        url = reverse("quiz-progress", kwargs={"pk": self.quiz.id})
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        session = QuizSession.objects.get(quiz=self.quiz, user=self.user)
+        self.assertIsNotNone(session.current_question)
+        self.assertEqual(session.current_question.quiz_id, self.quiz.id)
+
+    def test_reset_session_has_current_question_set(self):
+        """Test that reset session has current_question set to the first question."""
+        # Create initial session
+        QuizSession.objects.create(quiz=self.quiz, user=self.user)
+
+        url = reverse("quiz-progress", kwargs={"pk": self.quiz.id})
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        session = QuizSession.objects.get(quiz=self.quiz, user=self.user, is_active=True)
+        self.assertIsNotNone(session.current_question)
+        self.assertEqual(session.current_question.quiz_id, self.quiz.id)
+
+    def test_current_question_updated_on_deletion(self):
+        """Test that deleting the current_question via API re-assigns a new random question."""
+        session = QuizSession.objects.create(quiz=self.quiz, user=self.user, current_question=self.q1)
+
+        # Delete q1 via API
+        url = reverse("question-detail", kwargs={"pk": self.q1.id})
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("current_question", response.data)
+        self.assertEqual(response.data["current_question"], self.q2.id)
+
+        session.refresh_from_db()
+        self.assertEqual(session.current_question, self.q2)
+
+        # Delete q2 via API (no questions left)
+        url = reverse("question-detail", kwargs={"pk": self.q2.id})
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("current_question", response.data)
+        self.assertIsNone(response.data["current_question"])
+
+        session.refresh_from_db()
+        self.assertIsNone(session.current_question)
+
+    def test_current_question_updated_on_quiz_update(self):
+        """Test that removing a question during quiz update re-assigns a new random question."""
+        session = QuizSession.objects.create(quiz=self.quiz, user=self.user, current_question=self.q1)
+
+        url = reverse("quiz-detail", kwargs={"pk": self.quiz.id})
+        # Update quiz, omit q1 from questions data to trigger deletion
+        data = {
+            "title": "Updated Quiz",
+            "questions": [{"id": str(self.q2.id), "order": self.q2.order, "text": self.q2.text, "answers": []}],
+        }
+        response = self.client.patch(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        session.refresh_from_db()
+        self.assertEqual(session.current_question, self.q2)
+
 
 class RecordAnswerTestCase(APITestCase):
     """Test POST /quizzes/{id}/answer/ endpoint."""
