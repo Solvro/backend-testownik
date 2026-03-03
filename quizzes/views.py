@@ -155,7 +155,7 @@ class LastUsedQuizzesView(generics.ListAPIView):
     def get_queryset(self):
         return (
             Quiz.objects.filter(sessions__user=self.request.user, sessions__is_active=True)
-            .select_related("maintainer")
+            .select_related("creator")
             .order_by("-sessions__updated_at")
             .distinct()
         )
