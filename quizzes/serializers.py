@@ -45,7 +45,7 @@ class AnswerSerializer(serializers.ModelSerializer):
             "image_upload",
             "image_width",
             "image_height",
-            "is_correct",
+            "is_correct",  # frontend knows if the answer is correct!
         ]
 
     @extend_schema_field(serializers.URLField(allow_null=True))

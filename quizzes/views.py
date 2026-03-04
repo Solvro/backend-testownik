@@ -30,6 +30,7 @@ from quizzes.models import (
     AnswerRecord,
     Folder,
     Question,
+    QuestionType,
     Quiz,
     QuizSession,
     SharedQuiz,
@@ -57,6 +58,7 @@ from quizzes.serializers import (
     SharedQuizSerializer,
 )
 from quizzes.services.metadata import get_preview_question
+from quizzes.services.normalizer import normalize
 from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
@@ -446,15 +448,46 @@ class QuizViewSet(viewsets.ModelViewSet):
         except (Question.DoesNotExist, ValueError, TypeError, ValidationError):
             return Response({"error": "Question not found in this quiz"}, status=404)
 
-        selected_ids = set(str(a) for a in selected_answers)
+        if question.question_type == QuestionType.CLOSED:
+            answers = list(question.answers.all())
 
-        answers = list(question.answers.all())
-        valid_answer_ids = set(str(a.id) for a in answers)
-        if not selected_ids.issubset(valid_answer_ids):
-            return Response({"error": "One or more selected answers do not belong to this question"}, status=400)
+            selected_ids = set(str(a) for a in selected_answers)
+            valid_answer_ids = set(str(a.id) for a in answers)
 
-        correct_answer_ids = set(str(a.id) for a in answers if a.is_correct)
-        was_correct = correct_answer_ids == selected_ids
+            if not selected_ids.issubset(valid_answer_ids):
+                return Response({"error": "One or more selected answers do not belong to this question"}, status=400)
+
+            correct_answer_ids = set(str(a.id) for a in answers if a.is_correct)
+            was_correct = correct_answer_ids == selected_ids
+
+        elif question.question_type == QuestionType.TRUE_FALSE:
+            if not isinstance(selected_answers, list) or len(selected_answers) != 1:
+                return Response({"error": "Invalid data type"}, status=400)
+
+            if question.tf_answer is None:
+                return Response({"error": "Question does not have tf answer"}, status=500)
+
+            user_answer = selected_answers[0]  # True or False
+            was_correct = user_answer == question.tf_answer
+            selected_ids = selected_answers
+
+        elif question.question_type == QuestionType.OPEN:
+            if not isinstance(selected_answers, list) or len(selected_answers) != 1:
+                return Response({"error": "Invalid data type"}, status=400)
+
+            input_text = selected_answers[0]
+            correct_answer = question.answers.filter(is_correct=True).first()
+
+            if correct_answer is None:
+                return Response({"error": "Question has no correct answer"}, status=500)
+
+            selected_ids = selected_answers
+
+            # NOTE function normalize should be used when adding new answer to database
+            was_correct = normalize(input_text) == normalize(correct_answer.text)
+
+        else:
+            return Response({"error": "Unsupported question type"}, status=400)
 
         record = AnswerRecord.objects.create(
             session=session,
