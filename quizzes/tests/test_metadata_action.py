@@ -31,7 +31,8 @@ class MetadataActionTestCase(APITestCase):
         # Create a public quiz with questions (needs 3 answers for preview)
         self.public_quiz = Quiz.objects.create(
             title="Public Quiz",
-            maintainer=self.user,
+            creator=self.user,
+            folder=self.user.root_folder,
             visibility=3,  # Public
         )
         q1 = Question.objects.create(
@@ -80,7 +81,8 @@ class MetadataActionTestCase(APITestCase):
         """Test that private quiz returns 403 without user_id."""
         private_quiz = Quiz.objects.create(
             title="Private Quiz",
-            maintainer=self.user,
+            creator=self.user,
+            folder=self.user.root_folder,
             visibility=0,  # Private
         )
         url = self._get_metadata_url(private_quiz.id)
@@ -91,7 +93,8 @@ class MetadataActionTestCase(APITestCase):
         """Test that private quiz returns 200 for maintainer."""
         private_quiz = Quiz.objects.create(
             title="Private Quiz",
-            maintainer=self.user,
+            creator=self.user,
+            folder=self.user.root_folder,
             visibility=0,
         )
         url = self._get_metadata_url(private_quiz.id)
@@ -109,7 +112,8 @@ class MetadataActionTestCase(APITestCase):
         """Test that shared quiz allows access to shared user."""
         shared_quiz = Quiz.objects.create(
             title="Shared Quiz",
-            maintainer=self.user,
+            creator=self.user,
+            folder=self.user.root_folder,
             visibility=1,  # Shared
         )
         SharedQuiz.objects.create(quiz=shared_quiz, user=self.other_user)
@@ -137,7 +141,8 @@ class MetadataActionTestCase(APITestCase):
         """Test that shared quiz returns NO preview question even if requested."""
         shared_quiz = Quiz.objects.create(
             title="Shared Quiz",
-            maintainer=self.user,
+            creator=self.user,
+            folder=self.user.root_folder,
             visibility=1,
         )
         # Create valid question
@@ -163,7 +168,8 @@ class MetadataActionTestCase(APITestCase):
         """Test that preview question must have at least 3 answers."""
         quiz = Quiz.objects.create(
             title="Criteria Quiz",
-            maintainer=self.user,
+            creator=self.user,
+            folder=self.user.root_folder,
             visibility=3,
         )
 
@@ -189,7 +195,8 @@ class MetadataActionTestCase(APITestCase):
         """Test that preview question must not have images."""
         quiz = Quiz.objects.create(
             title="Image Quiz",
-            maintainer=self.user,
+            creator=self.user,
+            folder=self.user.root_folder,
             visibility=3,
         )
 
