@@ -69,6 +69,12 @@ class Quiz(models.Model):
         )
 
 
+class QuestionType(models.IntegerChoices):
+    CLOSED = 0, "Zamknięte"
+    OPEN = 1, "Otwarte"
+    TRUE_FALSE = 2, "Prawda/Fałsz"
+
+
 class Question(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="questions")
@@ -84,6 +90,11 @@ class Question(models.Model):
     )
     explanation = models.TextField(blank=True)
     multiple = models.BooleanField(default=False)
+    question_type = models.IntegerField(
+        choices=QuestionType.choices,
+        default=QuestionType.CLOSED,
+    )
+    tf_answer = models.BooleanField(null=True, blank=True)
 
     class Meta:
         ordering = ["order"]
@@ -201,7 +212,9 @@ class AnswerRecord(models.Model):
     session = models.ForeignKey(QuizSession, on_delete=models.CASCADE, related_name="answers")
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="answer_records")
     answered_at = models.DateTimeField(auto_now_add=True)
-    selected_answers = models.JSONField(default=list)  # List of Answer UUIDs
+    selected_answers = models.JSONField(
+        default=list
+    )  # List of Answer UUIDs (list containing one string if open question)
     was_correct = models.BooleanField()
 
     class Meta:
