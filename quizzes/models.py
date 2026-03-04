@@ -96,6 +96,8 @@ class Question(models.Model):
     )
     tf_answer = models.BooleanField(null=True, blank=True)
 
+    is_flashcard = models.BooleanField(default=False)
+
     class Meta:
         ordering = ["order"]
 
