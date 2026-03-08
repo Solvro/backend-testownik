@@ -1,7 +1,18 @@
 from django.conf import settings
 from rest_framework import permissions
 
+from users.models import AccountType
+
 from .models import Question, Quiz
+
+
+def _is_effectively_authenticated(user) -> bool:
+    """
+    Returns True if the user is authenticated AND not a guest.
+    Guest users are treated as unauthenticated for permission purposes
+    (they cannot access shared quizzes, shared groups, etc.).
+    """
+    return user.is_authenticated and getattr(user, "account_type", None) != AccountType.GUEST
 
 
 class IsInternalApiRequest(permissions.BasePermission):
@@ -20,11 +31,27 @@ class IsInternalApiRequest(permissions.BasePermission):
 class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):
     """
     Custom permission to only allow maintainer of a shared quiz to edit it.
+    Also enforces account-type restrictions:
+    - Guests cannot view or share quizzes
+    - Only Email, Student, and Lecturer accounts can view shared quizzes
+    - Only Email, Student, and Lecturer accounts can share quizzes
     """
 
+    CAN_VIEW_SHARED = {AccountType.EMAIL, AccountType.STUDENT, AccountType.LECTURER}
+    CAN_SHARE = {AccountType.EMAIL, AccountType.STUDENT, AccountType.LECTURER}
+
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated:
+            return False
+
+        account_type = getattr(request.user, "account_type", None)
+
+        if request.method in permissions.SAFE_METHODS:
+            return account_type in self.CAN_VIEW_SHARED
+
+        return account_type in self.CAN_SHARE
+
     def has_object_permission(self, request, view, obj):
-        # Read permissions are allowed to any request,
-        # so we'll always allow GET, HEAD or OPTIONS requests.
         if request.method in permissions.SAFE_METHODS:
             return True
 
@@ -47,12 +74,11 @@ class IsQuizReadable(permissions.BasePermission):
     Custom permission for read access to a quiz.
     Allowed if:
     - User is the maintainer
-    - Quiz is public or unlisted (visibility >= 2)
-    - Quiz is shared with the user explicitly
-    - Quiz is shared with a group the user belongs to
+    - Quiz is public or unlisted (visibility >= 2) and user is authenticated (or quiz allows anonymous)
+    - Quiz is shared with the user explicitly (requires non-guest account)
+    - Quiz is shared with a group the user belongs to (requires non-guest account)
 
-    If the user is not authenticated:
-    - Anonymous access is allowed for the quiz and visibility >= 2
+    Guest users are treated as unauthenticated for shared quiz access.
     """
 
     def has_object_permission(self, request, view, obj: Quiz):
@@ -62,28 +88,33 @@ class IsQuizReadable(permissions.BasePermission):
         if obj.visibility >= 2 and (request.user.is_authenticated or obj.allow_anonymous):
             return True
 
-        if request.user.is_authenticated and obj.sharedquiz_set.filter(user=request.user).exists():
+        if _is_effectively_authenticated(request.user) and obj.sharedquiz_set.filter(user=request.user).exists():
             return True
 
         return (
-            request.user.is_authenticated
+            _is_effectively_authenticated(request.user)
             and obj.sharedquiz_set.filter(study_group__in=request.user.study_groups.all()).exists()
         )
 
 
-class IsQuizMaintainerOrCollaborator(permissions.BasePermission):
+class IsQuestionReadable(permissions.BasePermission):
+    """
+    Forwards the request to IsQuizReadable for the quiz.
+    """
+
+    def has_object_permission(self, request, view, obj: Question):
+        return IsQuizReadable().has_object_permission(request, view, obj.quiz)
+
+
+class IsQuizMaintainerOrCollaboratorOrReadOnly(permissions.BasePermission):
     """
     Custom permission to allow quiz maintainers and accepted collaborators to edit the quiz while
     maintaining read access to IsQuizReadable logic.
     """
 
     def has_object_permission(self, request, view, obj: Quiz | Question):
-        # Read permissions are delegated to IsQuizReadable logic
         if request.method in permissions.SAFE_METHODS:
-            if isinstance(obj, Quiz):
-                return IsQuizReadable().has_object_permission(request, view, obj)
-            elif isinstance(obj, Question):
-                return IsQuizReadable().has_object_permission(request, view, obj.quiz)
+            return True
 
         # Write permissions are only allowed to the maintainer or accepted collaborators
         if isinstance(obj, Quiz):
