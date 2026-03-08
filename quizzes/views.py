@@ -756,18 +756,17 @@ class FolderViewSet(viewsets.ModelViewSet):
 class LibraryView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def _get_available_folder_ids(self, user):
-        return list(
-            Folder.objects.filter(
-                Q(owner=user) | Q(shares__user=user) | Q(shares__study_group__in=user.study_groups.all())
-            )
-            .distinct()
-            .values_list("id", flat=True)
-        )
+    def _access_predicate(self, user):
+        return Q(owner=user) | Q(shares__user=user) | Q(shares__study_group__in=user.study_groups.all())
 
-    def _get_subfolders(self, available_folder_ids, folder_id):
+    def _has_access(self, user, folder_id):
+        return Folder.objects.filter(self._access_predicate(user), id=folder_id).exists()
+
+    def _get_subfolders(self, user, folder_id):
         return (
-            Folder.objects.filter(id__in=available_folder_ids, parent_id=folder_id).distinct().order_by("-created_at")
+            Folder.objects.filter(self._access_predicate(user), parent_id=folder_id)
+            .distinct()
+            .order_by("-created_at")
         )
 
     def _get_quizzes(self, user, folder_id):
@@ -775,15 +774,14 @@ class LibraryView(APIView):
 
     def get(self, request, folder_id=None):
         user = request.user
-        available = self._get_available_folder_ids(user)
 
         if folder_id is None:
             folder_id = user.root_folder_id
 
-        if folder_id not in available:
+        if not self._has_access(user, folder_id):
             return Response(
                 {"error": "You do not have permission to access this folder"}, status=status.HTTP_403_FORBIDDEN
             )
 
-        items = list(self._get_subfolders(available, folder_id)) + list(self._get_quizzes(user, folder_id))
+        items = list(self._get_subfolders(user, folder_id)) + list(self._get_quizzes(user, folder_id))
         return Response(LibraryItemSerializer(items, many=True, context={"request": request}).data)

@@ -14,4 +14,4 @@ def create_root_folder(sender, instance, created, **kwargs):
 def register_signals():
     from users.models import User
 
-    post_save.connect(create_root_folder, sender=User)
+    post_save.connect(create_root_folder, sender=User, dispatch_uid="quizzes.create_root_folder")

@@ -28,7 +28,7 @@ class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
 
-        # Write permissions are only allowed to the creator of the shared quiz.
+        # Write permissions are only allowed to the maintainer (folder owner) of the shared quiz.
         return obj.quiz.get_maintainer() == request.user
 
 

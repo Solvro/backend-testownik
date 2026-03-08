@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("quizzes", "0004_folder_quiz_folder"),
+        ("quizzes", "0006_folder_parent"),
     ]
 
     operations = [

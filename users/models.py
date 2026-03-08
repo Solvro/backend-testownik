@@ -62,7 +62,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     root_folder = models.OneToOneField(
         "quizzes.Folder",
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="root_owner",

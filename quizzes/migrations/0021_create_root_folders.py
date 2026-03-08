@@ -13,6 +13,10 @@ def create_root_folders(apps, schema_editor):
     users = User.objects.all()
 
     for user in users:
+        # Skip users who already have a root folder
+        if user.root_folder_id:
+            continue
+
         # Create root folder for each user
         folder = Folder.objects.create(
             id=uuid.uuid4(),
