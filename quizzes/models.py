@@ -1,9 +1,8 @@
 import uuid
 from datetime import timedelta
-from warnings import deprecated
 
 from django.db import models
-from django.db.models import Q, UniqueConstraint
+from django.db.models import ProtectedError, Q, UniqueConstraint
 
 from users.models import StudyGroup, User
 
@@ -46,12 +45,49 @@ class Folder(models.Model):
     def __str__(self):
         return f"{self.name} ({self.owner})"
 
+    @property
+    def is_root(self):
+        try:
+            return self.root_owner is not None
+        except self.__class__.root_owner.RelatedObjectDoesNotExist:
+            return False
+
+    def delete(self, *args, **kwargs):
+        if self.is_root:
+            raise ProtectedError(
+                "Cannot delete root folder.",
+                set([self]),
+            )
+        super().delete(*args, **kwargs)
+
+    def has_edit_permission(self, user):
+        """Check if user can edit content in this folder."""
+        if user == self.owner:
+            return True
+        return self.shares.filter(
+            Q(user=user) | Q(study_group__in=user.study_groups.all()),
+            allow_edit=True,
+        ).exists()
+
+
+class SharedFolder(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    folder = models.ForeignKey(Folder, on_delete=models.CASCADE, related_name="shares")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name="shared_folders")
+    study_group = models.ForeignKey(
+        StudyGroup, on_delete=models.CASCADE, null=True, blank=True, related_name="shared_folders"
+    )
+    allow_edit = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Folder {self.folder.name} shared with {self.user or self.study_group}"
+
 
 class Quiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255)
     description = models.TextField(null=True, blank=True)
-    maintainer = models.ForeignKey(User, on_delete=models.CASCADE)
+    creator = models.ForeignKey(User, on_delete=models.CASCADE, related_name="created_quizzes")
     visibility = models.PositiveIntegerField(choices=QUIZ_VISIBILITY_CHOICES, default=2)
     allow_anonymous = models.BooleanField(
         default=False,
@@ -64,20 +100,25 @@ class Quiz(models.Model):
     version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    folder = models.ForeignKey(Folder, on_delete=models.SET_NULL, null=True, blank=True, related_name="quizzes")
+    folder = models.ForeignKey(Folder, on_delete=models.CASCADE, related_name="quizzes")
 
     class Meta:
         ordering = ["-created_at"]
+        verbose_name = "quiz"
+        verbose_name_plural = "quizzes"
 
     def __str__(self):
         return self.title or f"Quiz {self.id}"
 
     def can_edit(self, user):
         return (
-            user == self.maintainer
+            self.folder.has_edit_permission(user)
             or self.sharedquiz_set.filter(user=user, allow_edit=True).exists()
             or self.sharedquiz_set.filter(study_group__in=user.study_groups.all(), allow_edit=True).exists()
         )
+
+    def get_maintainer(self):
+        return self.folder.owner
 
 
 class Question(models.Model):
@@ -160,27 +201,6 @@ class SharedQuiz(models.Model):
         return f"{self.quiz.title} shared with {self.user or self.study_group}"
 
 
-@deprecated(
-    "QuizProgress is deprecated and will be removed in future versions. Use QuizSession and AnswerRecord instead."
-)
-class QuizProgress(models.Model):
-    """
-    Legacy model for quiz progress tracking.
-    """
-
-    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE)
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    current_question = models.PositiveIntegerField(default=0)
-    reoccurrences = models.JSONField(default=list, blank=True)
-    correct_answers_count = models.PositiveIntegerField(default=0)
-    wrong_answers_count = models.PositiveIntegerField(default=0)
-    study_time = models.DurationField(default=timedelta)
-    last_activity = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return f"{self.quiz.title} - {self.user} - {self.current_question}"
-
-
 class QuizSession(models.Model):
     """Tracks a user's quiz attempt session. Archived on reset, new session created."""
 
@@ -212,6 +232,9 @@ class QuizSession(models.Model):
     def get_or_create_active(cls, quiz, user):
         """Get active session or create new one."""
         session, created = cls.objects.get_or_create(quiz=quiz, user=user, is_active=True)
+        if created:
+            session.current_question = quiz.questions.order_by("?").first()
+            session.save(update_fields=["current_question"])
         return session, created
 
     @property
@@ -239,3 +262,29 @@ class AnswerRecord(models.Model):
     def __str__(self):
         result = "✓" if self.was_correct else "✗"
         return f"{result} {self.question.text[:30]}"
+
+
+class QuestionIssue(models.Model):
+    """
+    Records issues or errors reported by users for specific quiz questions.
+
+    Allows users to flag problems with question content, answer options, or explanations.
+    Can be submitted anonymously or by a logged-in user.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    email = models.EmailField(null=True, blank=True)
+    question = models.ForeignKey(Question, on_delete=models.CASCADE)
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        if self.user and self.user.email:
+            reporter = self.user.email
+        elif self.email:
+            reporter = self.email
+        else:
+            reporter = "Anonymous"
+
+        return f"Issue on Question(id={self.question_id}) by {reporter}"

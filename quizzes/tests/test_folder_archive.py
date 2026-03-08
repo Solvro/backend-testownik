@@ -12,7 +12,7 @@ class QuizArchiveTests(APITestCase):
         self.user.set_password("password")
         self.user.save()
         self.client.force_authenticate(user=self.user)
-        self.quiz = Quiz.objects.create(title="Test Quiz", maintainer=self.user)
+        self.quiz = Quiz.objects.create(title="Test Quiz", creator=self.user, folder=self.user.root_folder)
 
     def test_archive_quiz_success(self):
         url = reverse("quiz-move-to-archive", kwargs={"pk": self.quiz.id})
@@ -58,7 +58,7 @@ class QuizArchiveTests(APITestCase):
         other_user = User(email="other@example.com", first_name="Other", last_name="User")
         other_user.set_password("password")
         other_user.save()
-        other_quiz = Quiz.objects.create(title="Other Quiz", maintainer=other_user)
+        other_quiz = Quiz.objects.create(title="Other Quiz", creator=other_user, folder=other_user.root_folder)
 
         url = reverse("quiz-move-to-archive", kwargs={"pk": other_quiz.id})
         response = self.client.post(url)

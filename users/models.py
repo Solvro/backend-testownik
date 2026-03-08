@@ -1,4 +1,4 @@
-import random
+import secrets
 import uuid
 from datetime import date, timedelta
 
@@ -59,6 +59,14 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     is_superuser = BooleanField(default=False)
     is_staff = BooleanField(default=False)
+
+    root_folder = models.OneToOneField(
+        "quizzes.Folder",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="root_owner",
+    )
 
     hide_profile = BooleanField(
         default=False,
@@ -194,7 +202,7 @@ class EmailLoginToken(models.Model):
 
     @staticmethod
     def generate_otp():
-        return f"{random.randint(100000, 999999)}"
+        return f"{secrets.randbelow(900000) + 100000}"
 
     @staticmethod
     def create_for_user(user):
