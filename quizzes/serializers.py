@@ -88,6 +88,8 @@ class QuestionSerializer(serializers.ModelSerializer):
             "multiple",
             "answers",
             "quiz",
+            "question_type",
+            "is_flashcard",
         ]
 
     def validate(self, data):
