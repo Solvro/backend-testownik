@@ -2,6 +2,7 @@ import uuid
 from datetime import timedelta
 
 from django.db import models
+from django.db.models import ProtectedError, Q, UniqueConstraint
 
 from users.models import StudyGroup, User
 
@@ -11,6 +12,11 @@ QUIZ_VISIBILITY_CHOICES = [
     (2, "Niepubliczny (z linkiem)"),
     (3, "Publiczny"),
 ]
+
+
+class Type(models.TextChoices):
+    ARCHIVE = "archive", "Archive"
+    REGULAR = "regular", "Regular"
 
 
 class Folder(models.Model):
@@ -26,19 +32,62 @@ class Folder(models.Model):
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="folders")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    folder_type = models.CharField(max_length=10, choices=Type.choices, default=Type.REGULAR)
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            UniqueConstraint(
+                fields=["owner", "folder_type"], condition=Q(folder_type=Type.ARCHIVE), name="unique_archive_per_user"
+            )
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.owner})"
+
+    @property
+    def is_root(self):
+        try:
+            return self.root_owner is not None
+        except self.__class__.root_owner.RelatedObjectDoesNotExist:
+            return False
+
+    def delete(self, *args, **kwargs):
+        if self.is_root:
+            raise ProtectedError(
+                "Cannot delete root folder.",
+                set([self]),
+            )
+        super().delete(*args, **kwargs)
+
+    def has_edit_permission(self, user):
+        """Check if user can edit content in this folder."""
+        if user == self.owner:
+            return True
+        return self.shares.filter(
+            Q(user=user) | Q(study_group__in=user.study_groups.all()),
+            allow_edit=True,
+        ).exists()
+
+
+class SharedFolder(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    folder = models.ForeignKey(Folder, on_delete=models.CASCADE, related_name="shares")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name="shared_folders")
+    study_group = models.ForeignKey(
+        StudyGroup, on_delete=models.CASCADE, null=True, blank=True, related_name="shared_folders"
+    )
+    allow_edit = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Folder {self.folder.name} shared with {self.user or self.study_group}"
 
 
 class Quiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255)
     description = models.TextField(null=True, blank=True)
-    maintainer = models.ForeignKey(User, on_delete=models.CASCADE)
+    creator = models.ForeignKey(User, on_delete=models.CASCADE, related_name="created_quizzes")
     visibility = models.PositiveIntegerField(choices=QUIZ_VISIBILITY_CHOICES, default=2)
     allow_anonymous = models.BooleanField(
         default=False,
@@ -51,7 +100,7 @@ class Quiz(models.Model):
     version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    folder = models.ForeignKey(Folder, on_delete=models.SET_NULL, null=True, blank=True, related_name="quizzes")
+    folder = models.ForeignKey(Folder, on_delete=models.CASCADE, related_name="quizzes")
 
     class Meta:
         ordering = ["-created_at"]
@@ -63,10 +112,13 @@ class Quiz(models.Model):
 
     def can_edit(self, user):
         return (
-            user == self.maintainer
+            self.folder.has_edit_permission(user)
             or self.sharedquiz_set.filter(user=user, allow_edit=True).exists()
             or self.sharedquiz_set.filter(study_group__in=user.study_groups.all(), allow_edit=True).exists()
         )
+
+    def get_maintainer(self):
+        return self.folder.owner
 
 
 class Question(models.Model):
