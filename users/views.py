@@ -285,8 +285,11 @@ def authorize(request):
 
     user, created = User.objects.update_or_create(
         email=profile["email"],
-        account_type=AccountType.EMAIL,
         defaults={
+            "photo_url": f"https://api.dicebear.com/9.x/adventurer/svg?seed={profile['email']}",
+        },
+        create_defaults={
+            "account_type": AccountType.EMAIL,
             "photo_url": f"https://api.dicebear.com/9.x/adventurer/svg?seed={profile['email']}",
         },
     )
@@ -938,7 +941,7 @@ class GuestCreateView(APIView):
                     "message": {"type": "string"},
                 },
             },
-            401: OpenApiResponse(description="Unauthorized - internal API access only"),
+            403: OpenApiResponse(description="Forbidden - internal API access only"),
         },
     )
     def post(self, request):

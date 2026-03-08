@@ -42,11 +42,10 @@ class QuestionCRUDTestCase(APITestCase):
 
         self.client.force_authenticate(user=self.user)
 
-    def test_list_questions(self):
+    def test_list_questions_is_disabled(self):
+        """Listing all questions is disabled — only CRUD on individual questions is supported."""
         response = self.client.get(self.list_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertIn("answers", response.data[0])
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def test_create_question_with_answers(self):
         data = {
@@ -125,7 +124,8 @@ class QuestionCRUDTestCase(APITestCase):
         response = self.client.get(self.detail_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_distinct_results_for_multi_access(self):
+    def test_list_disabled_regardless_of_access(self):
+        """Listing questions returns 405 even with multiple access paths."""
         group = StudyGroup.objects.create(name="Double Access")
         group.members.add(self.other_user)
 
@@ -135,8 +135,7 @@ class QuestionCRUDTestCase(APITestCase):
         self.client.force_authenticate(user=self.other_user)
 
         response = self.client.get(self.list_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def test_stranger_cannot_see_question(self):
         self.client.force_authenticate(user=self.other_user)

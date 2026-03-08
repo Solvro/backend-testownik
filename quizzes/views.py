@@ -17,7 +17,7 @@ from drf_spectacular.utils import (
     extend_schema,
     extend_schema_view,
 )
-from rest_framework import generics, permissions, status, viewsets
+from rest_framework import generics, mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed, NotFound, PermissionDenied
 from rest_framework.pagination import LimitOffsetPagination
@@ -687,7 +687,13 @@ class ReportQuestionIssueView(APIView):
         return Response({"status": "ok"}, status=201)
 
 
-class QuestionViewSet(viewsets.ModelViewSet):
+class QuestionViewSet(
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
     serializer_class = QuestionSerializer
     queryset = Question.objects.all()
     permission_classes = [permissions.IsAuthenticated, IsQuizMaintainerOrCollaboratorOrReadOnly, IsQuestionReadable]

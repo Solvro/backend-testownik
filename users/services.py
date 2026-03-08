@@ -1,5 +1,6 @@
 import logging
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
@@ -25,7 +26,7 @@ def migrate_guest_to_user(guest_id: str, target_user: User) -> bool:
 
     try:
         guest = User.objects.get(id=guest_id)
-    except User.DoesNotExist:
+    except (User.DoesNotExist, ValidationError, ValueError):
         logger.warning("Guest migration: guest user %s not found", guest_id)
         return False
 
