@@ -45,7 +45,7 @@ class AnswerSerializer(serializers.ModelSerializer):
             "image_upload",
             "image_width",
             "image_height",
-            "is_correct",
+            "is_correct",  # frontend knows if the answer is correct!
         ]
 
     @extend_schema_field(serializers.URLField(allow_null=True))
@@ -88,6 +88,8 @@ class QuestionSerializer(serializers.ModelSerializer):
             "multiple",
             "answers",
             "quiz",
+            "question_type",
+            "is_flashcard",
         ]
 
     def validate(self, data):
@@ -653,3 +655,6 @@ class LibraryItemSerializer(serializers.Serializer):
             }
 
         return super().to_representation(instance)
+class RecordAnswerSerializer(serializers.Serializer):
+    question_id = serializers.UUIDField()
+    selected_answers = serializers.ListField(allow_empty=False)
