@@ -91,6 +91,9 @@ class FolderArchiveProtectionTests(APITestCase):
         archive_exists = Folder.objects.filter(owner=self.user, folder_type=Type.ARCHIVE).exists()
         self.assertTrue(archive_exists)
 
+    def test_archive_folder_is_inside_root_folder(self):
+        self.assertEqual(self.archive_folder.parent, self.user.root_folder)
+
     def test_cannot_delete_archive_folder(self):
         url = reverse("folder-detail", kwargs={"pk": self.archive_folder.id})
         response = self.client.delete(url)
@@ -113,7 +116,7 @@ class FolderArchiveProtectionTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.archive_folder.refresh_from_db()
-        self.assertIsNone(self.archive_folder.parent)
+        self.assertEqual(self.archive_folder.parent, self.user.root_folder)
 
     def test_cannot_make_archive_subfolder_via_patch(self):
         target_folder = Folder.objects.create(name="Regular", owner=self.user)
@@ -122,7 +125,7 @@ class FolderArchiveProtectionTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.archive_folder.refresh_from_db()
-        self.assertIsNone(self.archive_folder.parent)
+        self.assertEqual(self.archive_folder.parent, self.user.root_folder)
 
     def test_cannot_create_subfolder_in_archive(self):
         url = reverse("folder-list")

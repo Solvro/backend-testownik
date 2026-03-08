@@ -1,12 +1,13 @@
 from django.db.models.signals import post_save
 def create_archive_folder(sender, instance, created, **kwargs):
     """
-    Creates archive folder for each new user
+    Creates archive folder for each new user inside their root folder
     """
     if created:
         from .models import Folder, Type
 
-        Folder.objects.create(name="Archiwum", owner=instance, folder_type=Type.ARCHIVE)
+        instance.refresh_from_db()
+        Folder.objects.create(name="Archiwum", owner=instance, folder_type=Type.ARCHIVE, parent=instance.root_folder)
 
 
 def create_root_folder(sender, instance, created, **kwargs):
