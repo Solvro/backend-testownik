@@ -655,6 +655,8 @@ class LibraryItemSerializer(serializers.Serializer):
             }
 
         return super().to_representation(instance)
+
+
 class RecordAnswerSerializer(serializers.Serializer):
     question_id = serializers.UUIDField()
     selected_answers = serializers.ListField(allow_empty=False)

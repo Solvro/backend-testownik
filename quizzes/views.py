@@ -810,9 +810,7 @@ class LibraryView(APIView):
 
     def _get_subfolders(self, user, folder_id):
         return (
-            Folder.objects.filter(self._access_predicate(user), parent_id=folder_id)
-            .distinct()
-            .order_by("-created_at")
+            Folder.objects.filter(self._access_predicate(user), parent_id=folder_id).distinct().order_by("-created_at")
         )
 
     def _get_quizzes(self, user, folder_id):
