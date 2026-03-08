@@ -747,7 +747,10 @@ class FolderViewSet(viewsets.ModelViewSet):
         return Folder.objects.filter(owner=self.request.user).order_by("-created_at")
 
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        if not serializer.validated_data.get("parent"):
+            serializer.save(owner=self.request.user, parent=self.request.user.root_folder)
+        else:
+            serializer.save(owner=self.request.user)
 
     def perform_destroy(self, instance):
         if instance.is_root:
