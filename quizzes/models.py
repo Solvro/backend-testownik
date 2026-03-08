@@ -216,7 +216,7 @@ class AnswerRecord(models.Model):
     answered_at = models.DateTimeField(auto_now_add=True)
     selected_answers = models.JSONField(
         default=list
-    )  # List of Answer UUIDs (list containing one string if open question)
+    )  # List of Answer UUIDs for Closed questions, free-form text for OPEN, booelan values for TRUE_FALSE
     was_correct = models.BooleanField()
 
     class Meta:

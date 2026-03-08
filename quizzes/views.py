@@ -55,6 +55,7 @@ from quizzes.serializers import (
     QuizSearchResultSerializer,
     QuizSerializer,
     QuizSessionSerializer,
+    RecordAnswerSerializer,
     SharedQuizSerializer,
 )
 from quizzes.services.metadata import get_preview_question
@@ -438,10 +439,14 @@ class QuizViewSet(viewsets.ModelViewSet):
         quiz = self.get_object()
         session, _ = QuizSession.get_or_create_active(quiz, request.user)
 
-        question_id = request.data.get("question_id")
+        serializer = RecordAnswerSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        question_id = serializer.validated_data["question_id"]
         if not question_id:
             return Response({"error": "question_id is required"}, status=400)
-        selected_answers = request.data.get("selected_answers", [])
+
+        selected_answers = serializer.validated_data["selected_answers"]
 
         try:
             question = Question.objects.prefetch_related("answers").get(id=question_id, quiz=quiz)
@@ -461,21 +466,29 @@ class QuizViewSet(viewsets.ModelViewSet):
             was_correct = correct_answer_ids == selected_ids
 
         elif question.question_type == QuestionType.TRUE_FALSE:
-            if not isinstance(selected_answers, list) or len(selected_answers) != 1:
-                return Response({"error": "Invalid data type"}, status=400)
+            if len(selected_answers) > 1:
+                return Response({"error": "Invalid list size for this question type"}, status=400)
 
             if question.tf_answer is None:
                 return Response({"error": "Question does not have tf answer"}, status=500)
 
-            user_answer = selected_answers[0]  # True or False
+            user_answer = selected_answers[0]  # should be True or False
+
+            if not isinstance(user_answer, bool):
+                return Response({"error": "Invalid data type"}, status=400)
+
             was_correct = user_answer == question.tf_answer
             selected_ids = selected_answers
 
         elif question.question_type == QuestionType.OPEN:
-            if not isinstance(selected_answers, list) or len(selected_answers) != 1:
-                return Response({"error": "Invalid data type"}, status=400)
+            if len(selected_answers) > 1:
+                return Response({"error": "Invalid list size for this question type"}, status=400)
 
             input_text = selected_answers[0]
+
+            if not isinstance(input_text, str):
+                return Response({"error": "Invalid data type"}, status=400)
+
             correct_answer = question.answers.filter(is_correct=True).first()
 
             if correct_answer is None:

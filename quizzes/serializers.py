@@ -625,3 +625,8 @@ class MoveQuizSerializer(serializers.Serializer):
                 raise serializers.ValidationError("The folder does not exist or you do not have access to it.")
 
         return value
+
+
+class RecordAnswerSerializer(serializers.Serializer):
+    question_id = serializers.UUIDField()
+    selected_answers = serializers.ListField(allow_empty=False)
