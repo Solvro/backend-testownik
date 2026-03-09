@@ -33,6 +33,7 @@ urlpatterns = [
     path("login/", views.login, name="login"),
     path("authorize/", views.authorize, name="authorize"),
     path("authorize/usos/", views.authorize_usos, name="authorize_usos"),
+    path("guest/create/", views.GuestCreateView.as_view(), name="guest_create"),
 ]
 
 urlpatterns += router.urls

@@ -17,7 +17,7 @@ from drf_spectacular.utils import (
     extend_schema,
     extend_schema_view,
 )
-from rest_framework import generics, permissions, status, viewsets
+from rest_framework import generics, mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed, NotFound, PermissionDenied
 from rest_framework.pagination import LimitOffsetPagination
@@ -38,8 +38,9 @@ from quizzes.models import (
 from quizzes.permissions import (
     IsFolderOwner,
     IsInternalApiRequest,
+    IsQuestionReadable,
     IsQuizMaintainer,
-    IsQuizMaintainerOrCollaborator,
+    IsQuizMaintainerOrCollaboratorOrReadOnly,
     IsQuizReadable,
     IsSharedQuizMaintainerOrReadOnly,
 )
@@ -66,6 +67,7 @@ from quizzes.services.notifications import (
 )
 from quizzes.throttling import CopyQuizThrottle
 from testownik_core.emails import send_email
+from users.models import AccountType
 
 logger = logging.getLogger(__name__)
 
@@ -205,22 +207,26 @@ class SearchQuizzesView(APIView):
             quiz__title__icontains=query,
             quiz__visibility__gte=1,
         ).select_related("quiz__maintainer")
-        public_quizzes = Quiz.objects.filter(title__icontains=query, visibility__gte=3).select_related("maintainer")
 
-        return Response(
-            {
-                "user_quizzes": QuizSearchResultSerializer(user_quizzes, many=True, context={"request": request}).data,
-                "shared_quizzes": QuizSearchResultSerializer(
-                    [q.quiz for q in shared_quizzes], many=True, context={"request": request}
-                ).data,
-                "group_quizzes": QuizSearchResultSerializer(
-                    [q.quiz for q in group_quizzes], many=True, context={"request": request}
-                ).data,
-                "public_quizzes": QuizSearchResultSerializer(
-                    public_quizzes, many=True, context={"request": request}
-                ).data,
-            }
-        )
+        result = {
+            "user_quizzes": QuizSearchResultSerializer(user_quizzes, many=True, context={"request": request}).data,
+            "shared_quizzes": QuizSearchResultSerializer(
+                [q.quiz for q in shared_quizzes], many=True, context={"request": request}
+            ).data,
+            "group_quizzes": QuizSearchResultSerializer(
+                [q.quiz for q in group_quizzes], many=True, context={"request": request}
+            ).data,
+        }
+
+        if request.user.account_type == AccountType.STUDENT:
+            public_quizzes = Quiz.objects.filter(title__icontains=query, visibility__gte=3).select_related("maintainer")
+            result["public_quizzes"] = QuizSearchResultSerializer(
+                public_quizzes, many=True, context={"request": request}
+            ).data
+        else:
+            result["public_quizzes"] = []
+
+        return Response(result)
 
 
 # This viewset will only return user's quizzes when listing,
@@ -249,7 +255,8 @@ class QuizViewSet(viewsets.ModelViewSet):
     serializer_class = QuizSerializer
     permission_classes = [
         permissions.IsAuthenticatedOrReadOnly,
-        IsQuizMaintainerOrCollaborator,
+        IsQuizMaintainerOrCollaboratorOrReadOnly,
+        IsQuizReadable,
     ]
 
     def get_queryset(self):
@@ -726,10 +733,16 @@ class ReportQuestionIssueView(APIView):
         return Response({"status": "ok"}, status=201)
 
 
-class QuestionViewSet(viewsets.ModelViewSet):
+class QuestionViewSet(
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
     serializer_class = QuestionSerializer
     queryset = Question.objects.all()
-    permission_classes = [permissions.IsAuthenticated, IsQuizMaintainerOrCollaborator]
+    permission_classes = [permissions.IsAuthenticated, IsQuizMaintainerOrCollaboratorOrReadOnly, IsQuestionReadable]
 
     @extend_schema(
         responses={

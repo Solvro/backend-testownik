@@ -25,6 +25,7 @@ class UserTokenObtainPairSerializer(TokenObtainPairSerializer):
         token["is_staff"] = user.is_staff
         token["is_superuser"] = user.is_superuser
         token["is_banned"] = user.is_banned
+        token["account_type"] = user.account_type
 
         return token
 
@@ -108,13 +109,14 @@ class UserSerializer(serializers.ModelSerializer):
             "overriden_photo_url",
             "photo",
             "hide_profile",
+            "account_type",
         ]
 
 
 class PublicUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "full_name", "student_number", "photo"]
+        fields = ["id", "full_name", "student_number", "photo", "account_type"]
 
 
 class UserSettingsSerializer(serializers.ModelSerializer):
