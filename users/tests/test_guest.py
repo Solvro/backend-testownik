@@ -196,8 +196,10 @@ class GuestMigrationOnOTPLoginTestCase(APITestCase):
         self.quiz = Quiz.objects.create(title="Guest Quiz", maintainer=self.guest)
 
     def test_otp_login_migrates_guest_data(self):
-        """OTP login with valid guest_id migrates quizzes to the logged-in user."""
+        """OTP login with valid guest_id migrates quizzes to the logged-in user when authenticated as guest."""
         token = EmailLoginToken.create_for_user(self.user)
+
+        self.client.force_authenticate(user=self.guest)
 
         response = self.client.post(
             reverse("login_otp"),
@@ -239,8 +241,10 @@ class GuestMigrationOnLinkLoginTestCase(APITestCase):
         self.quiz = Quiz.objects.create(title="Guest Quiz", maintainer=self.guest)
 
     def test_link_login_migrates_guest_data(self):
-        """Link login with valid guest_id migrates quizzes to the logged-in user."""
+        """Link login with valid guest_id migrates quizzes to the logged-in user when authenticated as guest."""
         token = EmailLoginToken.create_for_user(self.user)
+
+        self.client.force_authenticate(user=self.guest)
 
         response = self.client.post(
             reverse("login_link"),

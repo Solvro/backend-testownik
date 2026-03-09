@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import urllib.parse
 from asyncio import CancelledError, sleep
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -159,7 +160,7 @@ def login(request):
     callback_url = request.build_absolute_uri(
         f"/api/authorize/?jwt={str(jwt).lower()}"
         f"{f'&redirect={redirect_url}' if redirect_url else ''}"
-        f"{f'&guest_id={guest_id}' if guest_id else ''}"
+        f"{f'&guest_id={urllib.parse.quote(guest_id)}' if guest_id else ''}"
     )
     additional_params = {}
     if confirm_user:
@@ -183,7 +184,7 @@ async def login_usos(request):
     callback_url = request.build_absolute_uri(
         f"/api/authorize/usos/?jwt={str(jwt).lower()}"
         f"{f'&redirect={redirect_url}' if redirect_url else ''}"
-        f"{f'&guest_id={guest_id}' if guest_id else ''}"
+        f"{f'&guest_id={urllib.parse.quote(guest_id)}' if guest_id else ''}"
     )
 
     max_retries = 3  # max tries

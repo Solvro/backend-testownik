@@ -108,8 +108,7 @@ class IsQuestionReadable(permissions.BasePermission):
 
 class IsQuizMaintainerOrCollaboratorOrReadOnly(permissions.BasePermission):
     """
-    Custom permission to allow quiz maintainers and accepted collaborators to edit the quiz while
-    maintaining read access to IsQuizReadable logic.
+    Custom permission to allow quiz maintainers and accepted collaborators to edit the quiz.
     """
 
     def has_object_permission(self, request, view, obj: Quiz | Question):
