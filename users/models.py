@@ -13,6 +13,13 @@ from rest_framework import serializers
 from usos_api.models import Sex, StaffStatus, StudentStatus
 
 
+class AccountType(models.TextChoices):
+    GUEST = "guest", "Guest"
+    EMAIL = "email", "Email"
+    STUDENT = "student", "Confirmed Student"
+    LECTURER = "lecturer", "Lecturer"
+
+
 class CustomUserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         if not email:
@@ -20,6 +27,13 @@ class CustomUserManager(BaseUserManager):
         email = self.normalize_email(email)
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_guest_user(self):
+        """Create a guest user with no email, name, or password."""
+        user = self.model(account_type=AccountType.GUEST)
+        user.set_unusable_password()
         user.save(using=self._db)
         return user
 
@@ -39,7 +53,13 @@ class User(AbstractBaseUser, PermissionsMixin):
     objects = CustomUserManager()
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    email = models.EmailField(unique=True)
+    email = models.EmailField(unique=True, null=True, blank=True)
+    account_type = models.CharField(
+        max_length=10,
+        choices=AccountType.choices,
+        default=AccountType.EMAIL,
+        help_text="Determines the user's account type and associated permissions",
+    )
     student_number = models.CharField(max_length=6)
     usos_id = models.IntegerField(null=True, blank=True)
     first_name = models.CharField(max_length=30)
