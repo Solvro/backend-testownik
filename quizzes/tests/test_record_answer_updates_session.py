@@ -16,7 +16,7 @@ class RecordAnswerUpdatesSessionTest(APITestCase):
         )
         self.client.force_authenticate(user=self.user)
 
-        self.quiz = Quiz.objects.create(title="Test Quiz", maintainer=self.user)
+        self.quiz = Quiz.objects.create(title="Test Quiz", creator=self.user, folder=self.user.root_folder)
         self.question = Question.objects.create(quiz=self.quiz, order=1, text="Question 1")
         self.answer = Answer.objects.create(question=self.question, order=1, text="Answer 1", is_correct=True)
 

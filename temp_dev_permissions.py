@@ -30,7 +30,7 @@ class IsInternalApiRequest(permissions.BasePermission):
 
 class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):
     """
-    Custom permission to only allow creator of a shared quiz to edit it.
+    Custom permission to only allow maintainer of a shared quiz to edit it.
     Also enforces account-type restrictions:
     - Guests cannot view or share quizzes
     - Only Email, Student, and Lecturer accounts can view shared quizzes
@@ -55,25 +55,25 @@ class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
 
-        # Write permissions are only allowed to the maintainer (folder owner) of the shared quiz.
-        return obj.quiz.get_maintainer() == request.user
+        # Write permissions are only allowed to the maintainer of the shared quiz.
+        return obj.quiz.maintainer == request.user
 
 
-class IsQuizCreator(permissions.BasePermission):
+class IsQuizMaintainer(permissions.BasePermission):
     """
     Custom permission for critical actions like Move or Delete.
-    Only the folder owner can perform these actions.
+    Blocks collaborators - only the quiz maintainer can perform these actions.
     """
 
     def has_object_permission(self, request, view, obj):
-        return obj.get_maintainer() == request.user
+        return obj.maintainer == request.user
 
 
 class IsQuizReadable(permissions.BasePermission):
     """
     Custom permission for read access to a quiz.
     Allowed if:
-    - User is the creator
+    - User is the maintainer
     - Quiz is public or unlisted (visibility >= 2) and user is authenticated (or quiz allows anonymous)
     - Quiz is shared with the user explicitly (requires non-guest account)
     - Quiz is shared with a group the user belongs to (requires non-guest account)
@@ -82,7 +82,7 @@ class IsQuizReadable(permissions.BasePermission):
     """
 
     def has_object_permission(self, request, view, obj: Quiz):
-        if obj.folder.owner == request.user:
+        if obj.maintainer == request.user:
             return True
 
         if obj.visibility >= 2 and (request.user.is_authenticated or obj.allow_anonymous):
