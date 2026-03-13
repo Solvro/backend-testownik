@@ -958,7 +958,8 @@ class GenerateOtpView(APIView):
                     "message": {"type": "string"},
                 },
             },
-            403: OpenApiResponse(description="Rate limit exceeded"),
+            403: OpenApiResponse(description="Rate limit exceeded."),
+            404: OpenApiResponse(description="Not found."),
         },
         examples=[
             OpenApiExample(
@@ -996,6 +997,7 @@ class LoginOtpView(APIView):
                 "properties": {
                     "email": {"type": "string", "format": "email"},
                     "otp": {"type": "string"},
+                    "guest_id": {"type": "string"},
                 },
                 "required": ["email", "otp"],
             }
@@ -1007,8 +1009,15 @@ class LoginOtpView(APIView):
                     "message": {"type": "string"},
                 },
             },
-            400: OpenApiResponse(description="Invalid or expired OTP"),
+            400: OpenApiResponse(
+                description=(
+                    "`Email and OTP code must be provided` | "
+                    "`Invalid OTP code` | "
+                    "`OTP code expired or retries limit reached`"
+                )
+            ),
             403: OpenApiResponse(description="Rate limit exceeded"),
+            404: OpenApiResponse(description="Not found."),
         },
         examples=[
             OpenApiExample("Valid request", value={"email": "user@example.com", "otp": "123456"}),
@@ -1016,6 +1025,12 @@ class LoginOtpView(APIView):
                 "Success response",
                 response_only=True,
                 value={"message": "Login successful"},
+            ),
+            OpenApiExample(
+                "Error response (missing fields)",
+                response_only=True,
+                value={"error": "Email and OTP code must be provided"},
+                status_codes=["400"],
             ),
             OpenApiExample(
                 "Error response (invalid OTP)",
@@ -1084,6 +1099,7 @@ class LoginLinkView(APIView):
                 "type": "object",
                 "properties": {
                     "token": {"type": "string"},
+                    "guest_id": {"type": "string"},
                 },
                 "required": ["token"],
             }
@@ -1095,7 +1111,8 @@ class LoginLinkView(APIView):
                     "message": {"type": "string"},
                 },
             },
-            400: OpenApiResponse(description="Token not provided or invalid/expired"),
+            400: OpenApiResponse(description=("`Token not provided` | `Invalid or expired login link`")),
+            404: OpenApiResponse(description="Not found."),
         },
         examples=[
             OpenApiExample("Valid token request", value={"token": "sometokenvalue123"}),
@@ -1103,6 +1120,12 @@ class LoginLinkView(APIView):
                 "Success response",
                 response_only=True,
                 value={"message": "Login successful"},
+            ),
+            OpenApiExample(
+                "Error response (missing token)",
+                response_only=True,
+                value={"error": "Token not provided"},
+                status_codes=["400"],
             ),
             OpenApiExample(
                 "Error response (invalid token)",
