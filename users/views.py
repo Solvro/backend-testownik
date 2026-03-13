@@ -270,6 +270,7 @@ class UsosLoginView(AsyncAPIView):
             ),
             400: OpenApiResponse(description="Invalid redirect URL."),
             403: OpenApiResponse(description="`jwt=true` but no `redirect` URL provided."),
+            404: OpenApiResponse(description="Not found."),
         },
         tags=["Authentication"],
     )
@@ -536,6 +537,7 @@ class UsosAuthorizeView(AsyncAPIView):
                 )
             ),
             403: OpenApiResponse(description="Authorization failed and retry exhausted (non-JWT mode)."),
+            404: OpenApiResponse(description="Not found."),
         },
         tags=["Authentication"],
     )
