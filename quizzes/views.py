@@ -356,11 +356,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         data = QuizMetaDataSerializer(quiz, context={"request": request}).data
 
-        raw_includes = request.query_params.getlist("include")
-        include_values = set()
-        for value in raw_includes:
-            if value:
-                include_values.update(part.strip() for part in value.split(",") if part.strip())
+        include_values = parse_include_values(request)
         include_preview = "preview_question" in include_values
 
         preview_question = None
