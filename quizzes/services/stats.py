@@ -20,9 +20,13 @@ def get_quiz_stats(quiz, user, *, include_per_question: bool = False) -> dict:
     """
     sessions = QuizSession.objects.filter(quiz=quiz, user=user)
 
-    # Count sessions separately to avoid JOIN inflation when aggregating answers.
-    sessions_count = sessions.count()
-    last_activity_at = sessions.aggregate(last_activity_at=Max("updated_at"))["last_activity_at"]
+    # Aggregate basic session stats in a single query to avoid extra round-trips.
+    session_aggregates = sessions.aggregate(
+        sessions_count=Count("id"),
+        last_activity_at=Max("updated_at"),
+    )
+    sessions_count = session_aggregates["sessions_count"] or 0
+    last_activity_at = session_aggregates["last_activity_at"]
 
     # Aggregate answer data directly from AnswerRecord to avoid cross-join row duplication.
     answer_aggregates = AnswerRecord.objects.filter(session__in=sessions).aggregate(
@@ -36,8 +40,8 @@ def get_quiz_stats(quiz, user, *, include_per_question: bool = False) -> dict:
 
     accuracy = round(correct_answers / total_answers * 100, 2) if total_answers > 0 else 0.0
 
-    active_session = sessions.filter(is_active=True).first()
-    study_time_seconds = int(active_session.study_time.total_seconds()) if active_session else 0
+    active_study_time = sessions.filter(is_active=True).values_list("study_time", flat=True).first()
+    study_time_seconds = int(active_study_time.total_seconds()) if active_study_time else 0
 
     result = {
         "quiz_id": quiz.id,

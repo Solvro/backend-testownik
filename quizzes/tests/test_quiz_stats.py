@@ -265,10 +265,31 @@ class QuizStatsPerQuestionTestCase(APITestCase):
 
     def test_per_question_include_via_comma_separated_param(self):
         url = reverse("quiz-stats", kwargs={"pk": self.quiz.id})
-        response = self.client.get(url, {"include": "per_question"})
+        response = self.client.get(url, {"include": "foo,per_question"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("per_question", response.data)
+
+    def test_per_question_included_for_comma_separated_include_values(self):
+        url = reverse("quiz-stats", kwargs={"pk": self.quiz.id})
+        response = self.client.get(url, {"include": "foo,per_question"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("per_question", response.data)
+
+    def test_per_question_included_for_repeated_include_query_params(self):
+        url = reverse("quiz-stats", kwargs={"pk": self.quiz.id})
+        response = self.client.get(f"{url}?include=foo&include=per_question")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("per_question", response.data)
+
+    def test_per_question_not_included_for_unknown_include_values(self):
+        url = reverse("quiz-stats", kwargs={"pk": self.quiz.id})
+        response = self.client.get(url, {"include": "foo,bar"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("per_question", response.data)
 
 
 class QuizStatsIsolationTestCase(APITestCase):

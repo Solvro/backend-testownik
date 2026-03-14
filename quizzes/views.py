@@ -481,7 +481,8 @@ class QuizViewSet(viewsets.ModelViewSet):
         include_per_question = "per_question" in include_values
 
         data = get_quiz_stats(quiz, request.user, include_per_question=include_per_question)
-        return Response(QuizStatsSerializer(data).data)
+        serializer = QuizStatsSerializer(instance=data)
+        return Response(serializer.data)
 
     @action(
         detail=True,
