@@ -8,7 +8,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quizzes.models import Answer, AnswerRecord, Question, Quiz, QuizSession
+from quizzes.models import AnswerRecord, Question, Quiz, QuizSession
 from users.models import User
 
 
