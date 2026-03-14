@@ -55,10 +55,7 @@ class QuizStatsAggregationTestCase(APITestCase):
 
         self.quiz = Quiz.objects.create(title="Stats Quiz", maintainer=self.user)
         self.q1 = Question.objects.create(quiz=self.quiz, order=1, text="Q1")
-        self.a1_correct = Answer.objects.create(question=self.q1, order=1, text="Correct", is_correct=True)
-        self.a1_wrong = Answer.objects.create(question=self.q1, order=2, text="Wrong", is_correct=False)
         self.q2 = Question.objects.create(quiz=self.quiz, order=2, text="Q2")
-        self.a2_correct = Answer.objects.create(question=self.q2, order=1, text="Correct", is_correct=True)
 
     def _record(self, session, question, was_correct):
         return AnswerRecord.objects.create(
@@ -264,13 +261,6 @@ class QuizStatsPerQuestionTestCase(APITestCase):
         self.assertEqual(per_q[str(self.q1.id)]["correct_attempts"], 2)
 
     def test_per_question_include_via_comma_separated_param(self):
-        url = reverse("quiz-stats", kwargs={"pk": self.quiz.id})
-        response = self.client.get(url, {"include": "foo,per_question"})
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("per_question", response.data)
-
-    def test_per_question_included_for_comma_separated_include_values(self):
         url = reverse("quiz-stats", kwargs={"pk": self.quiz.id})
         response = self.client.get(url, {"include": "foo,per_question"})
 

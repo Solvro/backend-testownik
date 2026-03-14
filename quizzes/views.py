@@ -74,6 +74,22 @@ from users.models import AccountType
 logger = logging.getLogger(__name__)
 
 
+def parse_include_values(request, param_name: str = "include") -> set[str]:
+    """
+    Parse include-style query params supporting both:
+    - repeated params: ?include=a&include=b
+    - comma-separated values: ?include=a,b
+    """
+    raw_values = request.query_params.getlist(param_name)
+    include_values: set[str] = set()
+
+    for value in raw_values:
+        if value:
+            include_values.update(part.strip() for part in value.split(",") if part.strip())
+
+    return include_values
+
+
 class RandomQuestionView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -472,12 +488,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         """Return aggregated statistics for the current user and this quiz."""
         quiz = self.get_object()
 
-        raw_includes = request.query_params.getlist("include")
-        include_values = set()
-        for value in raw_includes:
-            if value:
-                include_values.update(part.strip() for part in value.split(",") if part.strip())
-
+        include_values = parse_include_values(request)
         include_per_question = "per_question" in include_values
 
         data = get_quiz_stats(quiz, request.user, include_per_question=include_per_question)
