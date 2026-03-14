@@ -56,6 +56,7 @@ from quizzes.serializers import (
     QuizSearchResultSerializer,
     QuizSerializer,
     QuizSessionSerializer,
+    QuizStatsSerializer,
     RecordAnswerSerializer,
     SharedQuizSerializer,
 )
@@ -65,11 +66,28 @@ from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
 )
+from quizzes.services.stats import get_quiz_stats
 from quizzes.throttling import CopyQuizThrottle
 from testownik_core.emails import send_email
 from users.models import AccountType
 
 logger = logging.getLogger(__name__)
+
+
+def parse_include_values(request, param_name: str = "include") -> set[str]:
+    """
+    Parse include-style query params supporting both:
+    - repeated params: ?include=a&include=b
+    - comma-separated values: ?include=a,b
+    """
+    raw_values = request.query_params.getlist(param_name)
+    include_values: set[str] = set()
+
+    for value in raw_values:
+        if value:
+            include_values.update(part.strip() for part in value.split(",") if part.strip())
+
+    return include_values
 
 
 class RandomQuestionView(APIView):
@@ -338,11 +356,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         data = QuizMetaDataSerializer(quiz, context={"request": request}).data
 
-        raw_includes = request.query_params.getlist("include")
-        include_values = set()
-        for value in raw_includes:
-            if value:
-                include_values.update(part.strip() for part in value.split(",") if part.strip())
+        include_values = parse_include_values(request)
         include_preview = "preview_question" in include_values
 
         preview_question = None
@@ -434,6 +448,48 @@ class QuizViewSet(viewsets.ModelViewSet):
             return Response(QuizSessionSerializer(session).data)
 
         raise MethodNotAllowed(request.method)
+
+    @extend_schema(
+        summary="Get quiz statistics for the current user",
+        description=(
+            "Returns aggregated quiz statistics for the authenticated user across all their sessions. "
+            "Study time reflects the active session only. "
+            "Pass `?include=per_question` to include a per-question breakdown."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="include",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Comma-separated list of extra data to include. Available options: 'per_question'.",
+                many=True,
+                style="simple",
+                enum=["per_question"],
+            ),
+        ],
+        responses={
+            200: QuizStatsSerializer,
+            401: OpenApiResponse(description="Unauthorized - authentication required"),
+            403: OpenApiResponse(description="Forbidden - no read access to this quiz"),
+            404: OpenApiResponse(description="Quiz not found"),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stats",
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
+    )
+    def stats(self, request, pk=None):
+        """Return aggregated statistics for the current user and this quiz."""
+        quiz = self.get_object()
+
+        include_values = parse_include_values(request)
+        include_per_question = "per_question" in include_values
+
+        data = get_quiz_stats(quiz, request.user, include_per_question=include_per_question)
+        serializer = QuizStatsSerializer(instance=data)
+        return Response(serializer.data)
 
     @action(
         detail=True,

@@ -632,3 +632,26 @@ class MoveQuizSerializer(serializers.Serializer):
 class RecordAnswerSerializer(serializers.Serializer):
     question_id = serializers.UUIDField()
     selected_answers = serializers.ListField(allow_empty=False)
+
+
+class QuestionStatsSerializer(serializers.Serializer):
+    """Serializer for per-question statistics within a quiz stats response."""
+
+    question_id = serializers.UUIDField()
+    attempts = serializers.IntegerField()
+    correct_attempts = serializers.IntegerField()
+    last_answered_at = serializers.DateTimeField(allow_null=True)
+
+
+class QuizStatsSerializer(serializers.Serializer):
+    """Serializer for aggregated quiz statistics for the current user."""
+
+    quiz_id = serializers.UUIDField()
+    total_answers = serializers.IntegerField()
+    correct_answers = serializers.IntegerField()
+    wrong_answers = serializers.IntegerField()
+    accuracy = serializers.FloatField()
+    study_time_seconds = serializers.IntegerField()
+    sessions_count = serializers.IntegerField()
+    last_activity_at = serializers.DateTimeField(allow_null=True)
+    per_question = QuestionStatsSerializer(many=True, required=False)
