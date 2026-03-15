@@ -7,6 +7,7 @@ from asyncio import CancelledError, sleep
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import dotenv
+from adrf.views import APIView as AsyncAPIView
 from asgiref.sync import sync_to_async
 from django.contrib import messages
 from django.contrib.auth import alogin as async_auth_login
@@ -15,9 +16,15 @@ from django.db.models import Q
 from django.http import HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.utils.decorators import method_decorator
+from django.utils.http import url_has_allowed_host_and_scheme
 from django_ratelimit.decorators import ratelimit
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+)
 from rest_framework import mixins, permissions, viewsets
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -65,6 +72,48 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
     serializer_class = UserTokenObtainPairSerializer
 
+    @extend_schema(
+        summary="Obtain JWT token pair",
+        description=(
+            "Authenticate with email and password. "
+            "On success, `access` and `refresh` tokens are set as HTTP-only cookies "
+            "and the JSON body returns a confirmation message. "
+            "The `access` token contains embedded user data "
+            "(first_name, last_name, email, student_number, photo, account_type, etc.)."
+        ),
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "email": {"type": "string", "format": "email"},
+                    "password": {"type": "string"},
+                },
+                "required": ["email", "password"],
+            }
+        },
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string"},
+                },
+            },
+            401: OpenApiResponse(description="No active account found with the given credentials."),
+            404: OpenApiResponse(description="Not found."),
+        },
+        examples=[
+            OpenApiExample(
+                "Valid request",
+                value={"email": "user@example.com", "password": "securepassword"},
+            ),
+            OpenApiExample(
+                "Success response",
+                response_only=True,
+                value={"message": "Login successful"},
+            ),
+        ],
+        tags=["Authentication"],
+    )
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
         if response.status_code == 200:
@@ -82,6 +131,46 @@ class CustomTokenRefreshView(TokenRefreshView):
 
     serializer_class = UserTokenRefreshSerializer
 
+    @extend_schema(
+        summary="Refresh JWT token",
+        description=(
+            "Exchange a valid `refresh` token for a new `access`/`refresh` pair. "
+            "On success, new tokens are set as HTTP-only cookies "
+            "and the JSON body returns a confirmation message. "
+            "The new `access` token contains re-populated user data."
+        ),
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "refresh": {"type": "string"},
+                },
+                "required": ["refresh"],
+            }
+        },
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string"},
+                },
+            },
+            401: OpenApiResponse(description="Invalid or expired refresh token."),
+            404: OpenApiResponse(description="Not found."),
+        },
+        examples=[
+            OpenApiExample(
+                "Valid request",
+                value={"refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."},
+            ),
+            OpenApiExample(
+                "Success response",
+                response_only=True,
+                value={"message": "Token refreshed"},
+            ),
+        ],
+        tags=["Authentication"],
+    )
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
         if response.status_code == 200:
@@ -111,18 +200,26 @@ def remove_query_params(url, params):
     return str(urlunparse(url_parts))
 
 
-def is_safe_redirect_url(url: str) -> bool:
+def is_safe_redirect_url(url: str, request=None) -> bool:
     if not url:
         return False
 
     if url == "admin:index":
         return True
 
-    if url.startswith("//"):
+    url = str(url).strip()
+
+    if url.startswith("//") or url.startswith("\\\\"):
         return False
 
     if url.startswith("/"):
         return True
+
+    allowed_hosts = {urlparse(origin).netloc for origin in ALLOWED_REDIRECT_ORIGINS}
+    if request:
+        allowed_hosts.add(request.get_host())
+
+    is_django_safe = url_has_allowed_host_and_scheme(url, allowed_hosts=allowed_hosts, require_https=False)
 
     try:
         parsed = urlparse(url)
@@ -134,8 +231,11 @@ def is_safe_redirect_url(url: str) -> bool:
 
         url_origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
 
-        if url_origin in ALLOWED_REDIRECT_ORIGINS:
-            return True
+        if is_django_safe:
+            if url_origin in ALLOWED_REDIRECT_ORIGINS:
+                return True
+            if request and parsed.netloc == request.get_host():
+                return True
 
         if ALLOW_PREVIEW_ENVIRONMENTS:
             for regex in PREVIEW_ORIGIN_REGEXES:
@@ -147,99 +247,199 @@ def is_safe_redirect_url(url: str) -> bool:
         return False
 
 
-def login(request):
-    confirm_user = request.GET.get("confirm_user", "false") == "true"
-    jwt = request.GET.get("jwt", "false") == "true"
-    redirect_url = request.GET.get("redirect", "")
-    guest_id = request.GET.get("guest_id", "")
+class SolvroLoginView(APIView):
+    """Initiate Solvro OAuth login flow. Redirects the browser to the Solvro auth provider."""
 
-    if redirect_url and not is_safe_redirect_url(redirect_url):
-        logger.warning("Blocked unsafe redirect URL in login: %s", redirect_url)
-        return HttpResponseBadRequest("Invalid redirect URL")
+    permission_classes = [AllowAny]
+    authentication_classes = []
 
-    callback_url = request.build_absolute_uri(
-        f"/api/authorize/?jwt={str(jwt).lower()}"
-        f"{f'&redirect={redirect_url}' if redirect_url else ''}"
-        f"{f'&guest_id={urllib.parse.quote(guest_id)}' if guest_id else ''}"
+    @extend_schema(
+        summary="Solvro OAuth — initiate login",
+        description=(
+            "Redirects the user to the Solvro OAuth provider. "
+            "After the user authenticates, the provider redirects back to `/api/authorize/`."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "jwt",
+                OpenApiTypes.BOOL,
+                OpenApiParameter.QUERY,
+                description=(
+                    "If true, the authorize callback returns JWT tokens via cookies instead of creating a session."
+                ),
+                default=False,
+            ),
+            OpenApiParameter(
+                "redirect",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                description="URL to redirect the user to after successful authorization.",
+            ),
+            OpenApiParameter(
+                "confirm_user",
+                OpenApiTypes.BOOL,
+                OpenApiParameter.QUERY,
+                description="If true, forces the OAuth provider to re-prompt the user for credentials.",
+                default=False,
+            ),
+            OpenApiParameter(
+                "guest_id",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                description="Guest account ID to migrate to the authenticated user.",
+            ),
+        ],
+        responses={302: OpenApiResponse(description="Redirect to Solvro OAuth provider.")},
+        tags=["Authentication"],
     )
-    additional_params = {}
-    if confirm_user:
-        additional_params["prompt"] = "login"
-    return oauth.create_client("solvro-auth").authorize_redirect(request, callback_url, **additional_params)
+    def get(self, request):
+        confirm_user = request.GET.get("confirm_user", "false") == "true"
+        jwt = request.GET.get("jwt", "false") == "true"
+        redirect_url = request.GET.get("redirect", "")
+        guest_id = request.GET.get("guest_id", "")
 
+        if redirect_url and not is_safe_redirect_url(redirect_url, request):
+            logger.warning("Blocked unsafe redirect URL in login: %s", redirect_url)
+            return HttpResponseBadRequest("Invalid redirect URL")
 
-async def login_usos(request):
-    confirm_user = request.GET.get("confirm_user", "false") == "true"
-    jwt = request.GET.get("jwt", "false") == "true"
-    redirect_url = request.GET.get("redirect", "")
-    guest_id = request.GET.get("guest_id", "")
-
-    if jwt and not redirect_url:
-        return HttpResponseForbidden("Redirect URL must be provided when using JWT")
-
-    if redirect_url and not is_safe_redirect_url(redirect_url):
-        logger.warning("Blocked unsafe redirect URL in login_usos: %s", redirect_url)
-        return HttpResponseBadRequest("Invalid redirect URL")
-
-    callback_url = request.build_absolute_uri(
-        f"/api/authorize/usos/?jwt={str(jwt).lower()}"
-        f"{f'&redirect={redirect_url}' if redirect_url else ''}"
-        f"{f'&guest_id={urllib.parse.quote(guest_id)}' if guest_id else ''}"
-    )
-
-    max_retries = 3  # max tries
-    retry_delay = 2  # time before next try (seconds)
-
-    usos_key = os.getenv("USOS_CONSUMER_KEY")
-    usos_secret = os.getenv("USOS_CONSUMER_SECRET")
-
-    if not usos_key or not usos_secret:
-        logger.error(
-            "USOS credentials not configured. USOS_CONSUMER_KEY=%s, USOS_CONSUMER_SECRET=%s",
-            "<set>" if usos_key else "<missing>",
-            "<set>" if usos_secret else "<missing>",
+        callback_url = request.build_absolute_uri(
+            f"/api/authorize/?jwt={str(jwt).lower()}"
+            f"{f'&redirect={redirect_url}' if redirect_url else ''}"
+            f"{f'&guest_id={urllib.parse.quote(guest_id)}' if guest_id else ''}"
         )
-        return redirect(add_query_params(redirect_url, {"error": "usos_unavailable"}))
+        additional_params = {}
+        if confirm_user:
+            additional_params["prompt"] = "login"
+        return oauth.create_client("solvro-auth").authorize_redirect(request, callback_url, **additional_params)
 
-    for attempt in range(max_retries):
-        try:
-            async with USOSClient(
-                "https://apps.usos.pwr.edu.pl/",
-                usos_key,
-                usos_secret,
-                trust_env=True,
-            ) as client:
-                client.set_scopes(["offline_access", "studies", "email", "photo", "grades"])
-                authorization_url = await client.get_authorization_url(callback_url, confirm_user)
-                request_token, request_token_secret = client.connection.auth_manager.get_request_token()
-                await request.session.aset(f"request_token_{request_token}", request_token_secret)
-                request.session.modified = True
 
-            return redirect(authorization_url)
+class UsosLoginView(AsyncAPIView):
+    """Initiate USOS OAuth login flow. Redirects the browser to USOS for authentication."""
 
-        except Exception as e:
-            if isinstance(e, CancelledError):
-                raise
+    permission_classes = [AllowAny]
+    authentication_classes = []
 
+    @extend_schema(
+        summary="USOS OAuth — initiate login",
+        description=(
+            "Redirects the user to the USOS OAuth provider. "
+            "After the user authenticates, the provider redirects back to `/api/authorize/usos/`. "
+            "Retries up to 3 times on USOS connection failure."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "jwt",
+                OpenApiTypes.BOOL,
+                OpenApiParameter.QUERY,
+                description=(
+                    "If true, the authorize callback returns JWT tokens"
+                    " via cookies instead of creating a session."
+                    " Requires `redirect` to be set."
+                ),
+                default=False,
+            ),
+            OpenApiParameter(
+                "redirect",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                description="URL to redirect the user to after successful authorization.",
+            ),
+            OpenApiParameter(
+                "confirm_user",
+                OpenApiTypes.BOOL,
+                OpenApiParameter.QUERY,
+                description="If true, forces USOS to re-prompt the user for credentials.",
+                default=False,
+            ),
+            OpenApiParameter(
+                "guest_id",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                description="Guest account ID to migrate to the authenticated user.",
+            ),
+        ],
+        responses={
+            302: OpenApiResponse(
+                description="Redirect to USOS OAuth provider, or redirect with `?error=usos_unavailable` on failure."
+            ),
+            400: OpenApiResponse(description="Invalid redirect URL."),
+            403: OpenApiResponse(description="`jwt=true` but no `redirect` URL provided."),
+            404: OpenApiResponse(description="Not found."),
+        },
+        tags=["Authentication"],
+    )
+    async def get(self, request):
+        confirm_user = request.GET.get("confirm_user", "false") == "true"
+        jwt = request.GET.get("jwt", "false") == "true"
+        redirect_url = request.GET.get("redirect", "")
+        guest_id = request.GET.get("guest_id", "")
+
+        if jwt and not redirect_url:
+            return HttpResponseForbidden("Redirect URL must be provided when using JWT")
+
+        if redirect_url and not is_safe_redirect_url(redirect_url, request):
+            logger.warning("Blocked unsafe redirect URL in login_usos: %s", redirect_url)
+            return HttpResponseBadRequest("Invalid redirect URL")
+
+        callback_url = request.build_absolute_uri(
+            f"/api/authorize/usos/?jwt={str(jwt).lower()}"
+            f"{f'&redirect={redirect_url}' if redirect_url else ''}"
+            f"{f'&guest_id={urllib.parse.quote(guest_id)}' if guest_id else ''}"
+        )
+
+        max_retries = 3  # max tries
+        retry_delay = 2  # time before next try (seconds)
+
+        usos_key = os.getenv("USOS_CONSUMER_KEY")
+        usos_secret = os.getenv("USOS_CONSUMER_SECRET")
+
+        if not usos_key or not usos_secret:
             logger.error(
-                "USOS login attempt %d/%d failed. Error: %s [%s]. Callback: %s, JWT: %s, Redirect: %s. ",
-                attempt + 1,
-                max_retries,
-                str(e),
-                type(e).__name__,
-                callback_url,
-                jwt,
-                redirect_url,
-                exc_info=True,
+                "USOS credentials not configured. USOS_CONSUMER_KEY=%s, USOS_CONSUMER_SECRET=%s",
+                "<set>" if usos_key else "<missing>",
+                "<set>" if usos_secret else "<missing>",
             )
-
-            if attempt < max_retries - 1:
-                await sleep(retry_delay)
-                continue
-
             return redirect(add_query_params(redirect_url, {"error": "usos_unavailable"}))
 
-    return redirect(add_query_params(redirect_url, {"error": "usos_unavailable"}))
+        for attempt in range(max_retries):
+            try:
+                async with USOSClient(
+                    "https://apps.usos.pwr.edu.pl/",
+                    usos_key,
+                    usos_secret,
+                    trust_env=True,
+                ) as client:
+                    client.set_scopes(["offline_access", "studies", "email", "photo", "grades"])
+                    authorization_url = await client.get_authorization_url(callback_url, confirm_user)
+                    request_token, request_token_secret = client.connection.auth_manager.get_request_token()
+                    await request.session.aset(f"request_token_{request_token}", request_token_secret)
+                    request.session.modified = True
+
+                return redirect(authorization_url)
+
+            except Exception as e:
+                if isinstance(e, CancelledError):
+                    raise
+
+                logger.error(
+                    "USOS login attempt %d/%d failed. Error: %s [%s]. Callback: %s, JWT: %s, Redirect: %s. ",
+                    attempt + 1,
+                    max_retries,
+                    str(e),
+                    type(e).__name__,
+                    callback_url,
+                    jwt,
+                    redirect_url,
+                    exc_info=True,
+                )
+
+                if attempt < max_retries - 1:
+                    await sleep(retry_delay)
+                    continue
+
+                return redirect(add_query_params(redirect_url, {"error": "usos_unavailable"}))
+
+        return redirect(add_query_params(redirect_url, {"error": "usos_unavailable"}))
 
 
 def admin_login(request):
@@ -253,134 +453,96 @@ def admin_login(request):
     return render(request, "users/admin_login.html", {"next": next_url, "username": request.user})
 
 
-def authorize(request):
-    try:
-        token = oauth.create_client("solvro-auth").authorize_access_token(request)
-    except Exception as e:
-        logger.error("Failed to obtain Solvro auth access token: %s", str(e), exc_info=True)
-        raise
+class SolvroAuthorizeView(APIView):
+    """Solvro OAuth callback. Exchanges the authorization code for user profile and logs in."""
 
-    try:
-        resp = oauth.create_client("solvro-auth").get(
-            "https://auth.solvro.pl/realms/solvro/protocol/openid-connect/userinfo",
-            token=token,
-        )
-        resp.raise_for_status()
-        profile = resp.json()
-    except Exception as e:
-        logger.error("Failed to retrieve Solvro user profile: %s", str(e), exc_info=True)
-        raise
+    permission_classes = [AllowAny]
+    authentication_classes = []
 
-    redirect_url = request.GET.get("redirect", "index")
-
-    if not is_safe_redirect_url(redirect_url):
-        logger.warning("Blocked unsafe redirect URL in authorize: %s", redirect_url)
-        redirect_url = "index"
-
-    if not profile.get("email"):
-        logger.error("Solvro user profile missing email. Profile keys: %s", list(profile.keys()))
-        if request.GET.get("jwt", "false") == "true":
-            return redirect(add_query_params(redirect_url, {"error": "no_email"}))
-        messages.error(request, "Brak adresu email w profilu użytkownika.")
-        return redirect(redirect_url)
-
-    user, created = User.objects.update_or_create(
-        email=profile["email"],
-        defaults={
-            "photo_url": f"https://api.dicebear.com/9.x/adventurer/svg?seed={profile['email']}",
+    @extend_schema(
+        summary="Solvro OAuth — authorization callback",
+        description=(
+            "OAuth callback hit by the Solvro auth provider after user authentication. "
+            "Exchanges the authorization code for an access token, fetches the user profile, "
+            "and either creates a session or sets JWT cookies (when `jwt=true`). "
+            "Redirects to `redirect` URL on completion."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "jwt",
+                OpenApiTypes.BOOL,
+                OpenApiParameter.QUERY,
+                description="If true, set JWT tokens as cookies instead of creating a session.",
+                default=False,
+            ),
+            OpenApiParameter(
+                "redirect",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                description="URL to redirect to after authorization. Defaults to index.",
+            ),
+            OpenApiParameter(
+                "guest_id",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                description="Guest account ID to migrate to the authenticated user.",
+            ),
+        ],
+        responses={
+            302: OpenApiResponse(
+                description=(
+                    "Redirect to the redirect URL with JWT cookies set (if `jwt=true`), "
+                    "or with `?error=no_email` if the user profile has no email, "
+                    "or with `?error=user_banned&ban_reason=...` if the user is banned."
+                )
+            ),
         },
-        create_defaults={
-            "account_type": AccountType.EMAIL,
-            "photo_url": f"https://api.dicebear.com/9.x/adventurer/svg?seed={profile['email']}",
-        },
+        tags=["Authentication"],
     )
-
-    if user.is_banned:
-        logger.warning("Banned user attempted login. Email: %s", user.email)
-        if request.GET.get("jwt", "false") == "true":
-            auth_params = {"error": "user_banned"}
-            if user.ban_reason:
-                auth_params["ban_reason"] = user.ban_reason
-            return redirect(add_query_params(redirect_url, auth_params))
-
-        messages.error(request, f"Twoje konto zostało zablokowane: {user.ban_reason or 'Brak powodu'}")
-        return redirect(redirect_url)
-
-    guest_id = request.GET.get("guest_id", "")
-    if guest_id:
-        migrate_guest_to_user(guest_id, user)
-
-    if request.GET.get("jwt", "false") == "true":
-        refresh = UserTokenObtainPairSerializer.get_token(user)
-        response = redirect(remove_query_params(redirect_url, ["error"]))
-        set_jwt_cookies(response, str(refresh.access_token), str(refresh))
-        return response
-
-    auth_login(request, user)
-    return redirect(redirect_url)
-
-
-async def authorize_usos(request):
-    redirect_url = request.GET.get("redirect", "index")
-
-    if not is_safe_redirect_url(redirect_url):
-        logger.warning("Blocked unsafe redirect URL in authorize_usos: %s", redirect_url)
-        redirect_url = "index"
-
-    async with USOSClient(
-        "https://apps.usos.pwr.edu.pl/",
-        os.getenv("USOS_CONSUMER_KEY"),
-        os.getenv("USOS_CONSUMER_SECRET"),
-        trust_env=True,
-    ) as client:
-        verifier = request.GET.get("oauth_verifier")
-        request_token = request.GET.get("oauth_token")
-
-        request_token_secret = await request.session.apop(f"request_token_{request_token}", None)
-        if not request_token_secret:
-            logger.error(
-                "USOS request token secret not found in session. Token present: %s, Has verifier: %s, Retry: %s. "
-                "This usually indicates session expiration or mismatched tokens.",
-                bool(request_token),
-                bool(verifier),
-                request.GET.get("retry"),
-            )
-            if request.GET.get("retry") != "1":
-                login_url = request.build_absolute_uri("/api/login/usos/")
-                params = request.GET.copy()
-                params["retry"] = "1"
-                return redirect(add_query_params(login_url, dict(params)))
-
-            if request.GET.get("jwt", "false") == "true":
-                return redirect(add_query_params(redirect_url, {"error": "invalid_token"}))
-            return HttpResponseForbidden()
+    def get(self, request):
+        try:
+            token = oauth.create_client("solvro-auth").authorize_access_token(request)
+        except Exception as e:
+            logger.error("Failed to obtain Solvro auth access token: %s", str(e), exc_info=True)
+            raise
 
         try:
-            access_token, access_token_secret = await client.authorize(verifier, request_token, request_token_secret)
-        except USOSAPIException as e:
-            logger.error(
-                "USOS API authorization failed. Error: %s, Status: %s, Response: %s, Has verifier: %s, Retry: %s",
-                str(e),
-                getattr(e, "status", "N/A"),
-                getattr(e, "response", "N/A"),
-                bool(verifier),
-                request.GET.get("retry"),
-                exc_info=True,
+            resp = oauth.create_client("solvro-auth").get(
+                "https://auth.solvro.pl/realms/solvro/protocol/openid-connect/userinfo",
+                token=token,
             )
-            if request.GET.get("retry") != "1":
-                login_url = request.build_absolute_uri("/api/login/usos/")
-                params = request.GET.copy()
-                params["retry"] = "1"
-                return redirect(add_query_params(login_url, dict(params)))
+            resp.raise_for_status()
+            profile = resp.json()
+        except Exception as e:
+            logger.error("Failed to retrieve Solvro user profile: %s", str(e), exc_info=True)
+            raise
 
+        redirect_url = request.GET.get("redirect", "index")
+
+        if not is_safe_redirect_url(redirect_url, request):
+            logger.warning("Blocked unsafe redirect URL in authorize: %s", redirect_url)
+            redirect_url = "index"
+
+        if not profile.get("email"):
+            logger.error("Solvro user profile missing email. Profile keys: %s", list(profile.keys()))
             if request.GET.get("jwt", "false") == "true":
-                return redirect(add_query_params(redirect_url, {"error": "authorization_failed"}))
-            return HttpResponseForbidden()
+                return redirect(add_query_params(redirect_url, {"error": "no_email"}))
+            messages.error(request, "Brak adresu email w profilu użytkownika.")
+            return redirect(redirect_url)
 
-        user, created = await update_user_data_from_usos(client, access_token, access_token_secret)
+        user, created = User.objects.update_or_create(
+            email=profile["email"],
+            defaults={
+                "photo_url": f"https://api.dicebear.com/9.x/adventurer/svg?seed={profile['email']}",
+            },
+            create_defaults={
+                "account_type": AccountType.EMAIL,
+                "photo_url": f"https://api.dicebear.com/9.x/adventurer/svg?seed={profile['email']}",
+            },
+        )
 
         if user.is_banned:
-            logger.warning("Banned user attempted USOS login. Email: %s", user.email)
+            logger.warning("Banned user attempted login. Email: %s", user.email)
             if request.GET.get("jwt", "false") == "true":
                 auth_params = {"error": "user_banned"}
                 if user.ban_reason:
@@ -390,34 +552,189 @@ async def authorize_usos(request):
             messages.error(request, f"Twoje konto zostało zablokowane: {user.ban_reason or 'Brak powodu'}")
             return redirect(redirect_url)
 
-        if not user.is_student_and_not_staff:
-            logger.warning(
-                "User rejected: not an active student. Email: %s, Created: %s",
-                user.email,
-                created,
-            )
-            messages.error(
-                request,
-                "Aby korzystać z Testownika, musisz być aktywnym studentem Politechniki Wrocławskiej.",
-            )
-            if created:
-                await user.adelete()
-            if request.GET.get("jwt", "false") == "true":
-                return redirect(add_query_params(redirect_url, {"error": "not_student"}))
-            return redirect("index")
+        guest_id = request.GET.get("guest_id", "")
+        if guest_id:
+            migrate_guest_to_user(guest_id, user)
 
-    guest_id = request.GET.get("guest_id", "")
-    if guest_id:
-        await sync_to_async(migrate_guest_to_user)(guest_id, user)
+        if request.GET.get("jwt", "false") == "true":
+            refresh = UserTokenObtainPairSerializer.get_token(user)
+            response = redirect(remove_query_params(redirect_url, ["error"]))
+            set_jwt_cookies(response, str(refresh.access_token), str(refresh))
+            return response
 
-    if request.GET.get("jwt", "false") == "true":
-        refresh = await sync_to_async(UserTokenObtainPairSerializer.get_token)(user)
-        response = redirect(remove_query_params(redirect_url, ["error"]))
-        set_jwt_cookies(response, str(refresh.access_token), str(refresh))
-        return response
+        auth_login(request, user)
+        return redirect(redirect_url)
 
-    await async_auth_login(request, user)
-    return redirect(redirect_url)
+
+class UsosAuthorizeView(AsyncAPIView):
+    """USOS OAuth callback. Exchanges the request token for user data and logs in."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    @extend_schema(
+        summary="USOS OAuth — authorization callback",
+        description=(
+            "OAuth callback hit by USOS after user authentication. "
+            "Exchanges the request token for an access token, fetches the user profile from USOS, "
+            "and either creates a session or sets JWT cookies (when `jwt=true`). "
+            "Redirects to `redirect` URL on completion. "
+            "On failure, retries once automatically before returning an error."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "jwt",
+                OpenApiTypes.BOOL,
+                OpenApiParameter.QUERY,
+                description="If true, set JWT tokens as cookies instead of creating a session.",
+                default=False,
+            ),
+            OpenApiParameter(
+                "redirect",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                description="URL to redirect to after authorization. Defaults to index.",
+            ),
+            OpenApiParameter(
+                "guest_id",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                description="Guest account ID to migrate to the authenticated user.",
+            ),
+            OpenApiParameter(
+                "oauth_verifier",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                description="OAuth verifier provided by USOS.",
+            ),
+            OpenApiParameter(
+                "oauth_token",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                description="OAuth request token provided by USOS.",
+            ),
+            OpenApiParameter(
+                "retry",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                description="Internal retry flag. Set to '1' on automatic retry.",
+            ),
+        ],
+        responses={
+            302: OpenApiResponse(
+                description=(
+                    "Redirect to `redirect` URL on success, or with error query params: "
+                    "`?error=invalid_token` (session expired), "
+                    "`?error=authorization_failed` (USOS API error), "
+                    "`?error=not_student` (user is not an active student), "
+                    "`?error=user_banned&ban_reason=...` (user is banned)."
+                )
+            ),
+            403: OpenApiResponse(description="Authorization failed and retry exhausted (non-JWT mode)."),
+            404: OpenApiResponse(description="Not found."),
+        },
+        tags=["Authentication"],
+    )
+    async def get(self, request):
+        redirect_url = request.GET.get("redirect", "index")
+
+        if not is_safe_redirect_url(redirect_url, request):
+            logger.warning("Blocked unsafe redirect URL in authorize_usos: %s", redirect_url)
+            redirect_url = "index"
+
+        async with USOSClient(
+            "https://apps.usos.pwr.edu.pl/",
+            os.getenv("USOS_CONSUMER_KEY"),
+            os.getenv("USOS_CONSUMER_SECRET"),
+            trust_env=True,
+        ) as client:
+            verifier = request.GET.get("oauth_verifier")
+            request_token = request.GET.get("oauth_token")
+
+            request_token_secret = await request.session.apop(f"request_token_{request_token}", None)
+            if not request_token_secret:
+                logger.error(
+                    "USOS request token secret not found in session. Token present: %s, Has verifier: %s, Retry: %s. "
+                    "This usually indicates session expiration or mismatched tokens.",
+                    bool(request_token),
+                    bool(verifier),
+                    request.GET.get("retry"),
+                )
+                if request.GET.get("retry") != "1":
+                    login_url = request.build_absolute_uri("/api/login/usos/")
+                    params = request.GET.copy()
+                    params["retry"] = "1"
+                    return redirect(add_query_params(login_url, dict(params)))
+
+                if request.GET.get("jwt", "false") == "true":
+                    return redirect(add_query_params(redirect_url, {"error": "invalid_token"}))
+                return HttpResponseForbidden()
+
+            try:
+                access_token, access_token_secret = await client.authorize(
+                    verifier, request_token, request_token_secret
+                )
+            except USOSAPIException as e:
+                logger.error(
+                    "USOS API authorization failed. Error: %s, Status: %s, Response: %s, Has verifier: %s, Retry: %s",
+                    str(e),
+                    getattr(e, "status", "N/A"),
+                    getattr(e, "response", "N/A"),
+                    bool(verifier),
+                    request.GET.get("retry"),
+                    exc_info=True,
+                )
+                if request.GET.get("retry") != "1":
+                    login_url = request.build_absolute_uri("/api/login/usos/")
+                    params = request.GET.copy()
+                    params["retry"] = "1"
+                    return redirect(add_query_params(login_url, dict(params)))
+
+                if request.GET.get("jwt", "false") == "true":
+                    return redirect(add_query_params(redirect_url, {"error": "authorization_failed"}))
+                return HttpResponseForbidden()
+
+            user, created = await update_user_data_from_usos(client, access_token, access_token_secret)
+
+            if user.is_banned:
+                logger.warning("Banned user attempted USOS login. Email: %s", user.email)
+                if request.GET.get("jwt", "false") == "true":
+                    auth_params = {"error": "user_banned"}
+                    if user.ban_reason:
+                        auth_params["ban_reason"] = user.ban_reason
+                    return redirect(add_query_params(redirect_url, auth_params))
+
+                messages.error(request, f"Twoje konto zostało zablokowane: {user.ban_reason or 'Brak powodu'}")
+                return redirect(redirect_url)
+
+            if not user.is_student_and_not_staff:
+                logger.warning(
+                    "User rejected: not an active student. Email: %s, Created: %s",
+                    user.email,
+                    created,
+                )
+                messages.error(
+                    request,
+                    "Aby korzystać z Testownika, musisz być aktywnym studentem Politechniki Wrocławskiej.",
+                )
+                if created:
+                    await user.adelete()
+                if request.GET.get("jwt", "false") == "true":
+                    return redirect(add_query_params(redirect_url, {"error": "not_student"}))
+                return redirect("index")
+
+        guest_id = request.GET.get("guest_id", "")
+        if guest_id:
+            await sync_to_async(migrate_guest_to_user)(guest_id, user)
+
+        if request.GET.get("jwt", "false") == "true":
+            refresh = await sync_to_async(UserTokenObtainPairSerializer.get_token)(user)
+            response = redirect(remove_query_params(redirect_url, ["error"]))
+            set_jwt_cookies(response, str(refresh.access_token), str(refresh))
+            return response
+
+        await async_auth_login(request, user)
+        return redirect(redirect_url)
 
 
 async def update_user_data_from_usos(client=None, access_token=None, access_token_secret=None):
@@ -714,6 +1031,7 @@ class StudyGroupViewSet(viewsets.ModelViewSet):
 
 class GenerateOtpView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     @method_decorator(ratelimit(key="ip", rate="3/m", method="POST", block=True))
     @extend_schema(
@@ -735,7 +1053,8 @@ class GenerateOtpView(APIView):
                     "message": {"type": "string"},
                 },
             },
-            403: OpenApiResponse(description="Rate limit exceeded"),
+            403: OpenApiResponse(description="Rate limit exceeded."),
+            404: OpenApiResponse(description="Not found."),
         },
         examples=[
             OpenApiExample(
@@ -748,6 +1067,7 @@ class GenerateOtpView(APIView):
                 value={"message": "Login email sent."},
             ),
         ],
+        tags=["Authentication"],
     )
     def post(self, request):
         email = request.data.get("email")
@@ -762,6 +1082,7 @@ class GenerateOtpView(APIView):
 
 class LoginOtpView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     @method_decorator(ratelimit(key="ip", rate="10/m", method="POST", block=True))
     @extend_schema(
@@ -773,6 +1094,7 @@ class LoginOtpView(APIView):
                 "properties": {
                     "email": {"type": "string", "format": "email"},
                     "otp": {"type": "string"},
+                    "guest_id": {"type": "string"},
                 },
                 "required": ["email", "otp"],
             }
@@ -784,8 +1106,17 @@ class LoginOtpView(APIView):
                     "message": {"type": "string"},
                 },
             },
-            400: OpenApiResponse(description="Invalid or expired OTP"),
-            403: OpenApiResponse(description="Rate limit exceeded"),
+            400: OpenApiResponse(
+                description=(
+                    "`Email and OTP code must be provided` | "
+                    "`Invalid OTP code` | "
+                    "`OTP code expired or retries limit reached`"
+                )
+            ),
+            403: OpenApiResponse(
+                description="You do not have permission to perform this action. (Rate limit exceeded)"
+            ),
+            404: OpenApiResponse(description="Not found."),
         },
         examples=[
             OpenApiExample("Valid request", value={"email": "user@example.com", "otp": "123456"}),
@@ -793,6 +1124,12 @@ class LoginOtpView(APIView):
                 "Success response",
                 response_only=True,
                 value={"message": "Login successful"},
+            ),
+            OpenApiExample(
+                "Error response (missing fields)",
+                response_only=True,
+                value={"error": "Email and OTP code must be provided"},
+                status_codes=["400"],
             ),
             OpenApiExample(
                 "Error response (invalid OTP)",
@@ -806,7 +1143,14 @@ class LoginOtpView(APIView):
                 value={"error": "OTP code expired or retries limit reached"},
                 status_codes=["400"],
             ),
+            OpenApiExample(
+                "Error response (rate limit exceeded)",
+                response_only=True,
+                value={"detail": "You do not have permission to perform this action."},
+                status_codes=["403"],
+            ),
         ],
+        tags=["Authentication"],
     )
     def post(self, request):
         email = request.data.get("email")
@@ -852,6 +1196,7 @@ class LoginOtpView(APIView):
 
 class LoginLinkView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     @extend_schema(
         summary="Verify login link token",
@@ -861,6 +1206,7 @@ class LoginLinkView(APIView):
                 "type": "object",
                 "properties": {
                     "token": {"type": "string"},
+                    "guest_id": {"type": "string"},
                 },
                 "required": ["token"],
             }
@@ -872,7 +1218,8 @@ class LoginLinkView(APIView):
                     "message": {"type": "string"},
                 },
             },
-            400: OpenApiResponse(description="Token not provided or invalid/expired"),
+            400: OpenApiResponse(description=("`Token not provided` | `Invalid or expired login link`")),
+            404: OpenApiResponse(description="Not found."),
         },
         examples=[
             OpenApiExample("Valid token request", value={"token": "sometokenvalue123"}),
@@ -882,12 +1229,19 @@ class LoginLinkView(APIView):
                 value={"message": "Login successful"},
             ),
             OpenApiExample(
+                "Error response (missing token)",
+                response_only=True,
+                value={"error": "Token not provided"},
+                status_codes=["400"],
+            ),
+            OpenApiExample(
                 "Error response (invalid token)",
                 response_only=True,
                 value={"error": "Invalid or expired login link"},
                 status_codes=["400"],
             ),
         ],
+        tags=["Authentication"],
     )
     def post(self, request):
         token = request.data.get("token")
