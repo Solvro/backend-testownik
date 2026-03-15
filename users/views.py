@@ -1019,6 +1019,7 @@ class StudyGroupViewSet(viewsets.ModelViewSet):
 
 class GenerateOtpView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     @method_decorator(ratelimit(key="ip", rate="3/m", method="POST", block=True))
     @extend_schema(
@@ -1068,6 +1069,7 @@ class GenerateOtpView(APIView):
 
 class LoginOtpView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     @method_decorator(ratelimit(key="ip", rate="10/m", method="POST", block=True))
     @extend_schema(
@@ -1172,6 +1174,7 @@ class LoginOtpView(APIView):
 
 class LoginLinkView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     @extend_schema(
         summary="Verify login link token",
