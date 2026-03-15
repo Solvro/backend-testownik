@@ -28,14 +28,17 @@ from rest_framework.views import APIView
 from quizzes.models import (
     Answer,
     AnswerRecord,
+    Comment,
     Folder,
     Question,
     QuestionType,
     Quiz,
+    QuizRating,
     QuizSession,
     SharedQuiz,
 )
 from quizzes.permissions import (
+    IsCommentAuthorOrReadOnly,
     IsFolderOwner,
     IsInternalApiRequest,
     IsQuestionReadable,
@@ -47,12 +50,14 @@ from quizzes.permissions import (
 from quizzes.serializers import (
     AnswerRecordSerializer,
     AnswerSerializer,
+    CommentSerializer,
     FolderSerializer,
     MoveFolderSerializer,
     MoveQuizSerializer,
     QuestionSerializer,
     QuizMetaDataSerializer,
     QuizMetaDataWithQuestionSerializer,
+    QuizRatingSerializer,
     QuizSearchResultSerializer,
     QuizSerializer,
     QuizSessionSerializer,
@@ -800,3 +805,39 @@ class FolderViewSet(viewsets.ModelViewSet):
             return Response({"status": "Folder moved successfully"})
 
         return Response(serializer.errors)
+
+
+class QuizRatingViewSet(viewsets.ModelViewSet):
+    """
+    Manages quiz ratings for the authenticated user.
+
+    All operations are scoped to the authenticated user.
+    A user can only have one rating per quiz (enforced by unique constraint).
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = QuizRatingSerializer
+    queryset = QuizRating.objects.all()
+
+    def get_queryset(self):
+        return QuizRating.objects.filter(user=self.request.user)
+
+
+class CommentViewSet(viewsets.ModelViewSet):
+    """
+    Manages comments for the authenticated user.
+
+
+    DELETE performs a soft delete — comment content is cleared but record is kept.
+    Only the author can modify or delete their own comments.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsCommentAuthorOrReadOnly]
+    serializer_class = CommentSerializer
+    queryset = Comment.objects.all()
+
+    def perform_destroy(self, instance: Comment):
+        if instance.is_deleted:
+            raise ValidationError("Comment is already deleted.")
+
+        instance.mark_as_deleted()
