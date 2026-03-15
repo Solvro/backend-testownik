@@ -5,15 +5,7 @@ from django.db.models import Q
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from quizzes.models import (
-    Answer,
-    AnswerRecord,
-    Folder,
-    Question,
-    Quiz,
-    QuizSession,
-    SharedQuiz,
-)
+from quizzes.models import Answer, AnswerRecord, Comment, Folder, Question, Quiz, QuizRating, QuizSession, SharedQuiz
 from uploads.models import UploadedImage
 from users.models import StudyGroup, User, UserSettings
 from users.serializers import (
@@ -632,3 +624,48 @@ class MoveQuizSerializer(serializers.Serializer):
 class RecordAnswerSerializer(serializers.Serializer):
     question_id = serializers.UUIDField()
     selected_answers = serializers.ListField(allow_empty=False)
+
+
+class QuizRatingSerializer(serializers.ModelSerializer):
+    user = serializers.HiddenField(default=serializers.CurrentUserDefault())
+
+    class Meta:
+        model = QuizRating
+        fields = ["id", "user", "quiz", "score", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class CommentSerializer(serializers.ModelSerializer):
+    author = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    is_reply = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Comment
+        fields = [
+            "id",
+            "author",
+            "content",
+            "parent",
+            "shared_quiz",
+            "question",
+            "created_at",
+            "updated_at",
+            "is_deleted",
+            "deleted_at",
+            "is_reply",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at", "is_deleted", "deleted_at", "is_reply"]
+
+    def validate_content(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Content cannot be empty")
+        return value
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+
+        if instance.is_deleted:
+            data["content"] = None
+            data["author"] = None
+
+        return data

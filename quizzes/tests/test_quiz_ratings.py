@@ -1,0 +1,93 @@
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+from rest_framework import status
+from rest_framework.test import APIClient
+
+from quizzes.models import Quiz, QuizRating
+
+User = get_user_model()
+
+
+class QuizRatingViewSetTestCase(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(email="example_1@mail.com", password="password")
+        self.other_user = User.objects.create_user(email="example_2@mail.com", password="password")
+        self.quiz = Quiz.objects.create(title="Test Quiz", maintainer=self.user)
+        self.rating = QuizRating.objects.create(user=self.user, quiz=self.quiz, score=4)
+        self.client.force_authenticate(user=self.user)
+
+    # LIST
+    def test_list_own_ratings(self):
+        response = self.client.get("/api/quiz-ratings/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+
+    def test_cannot_see_other_user_ratings(self):
+        QuizRating.objects.create(user=self.other_user, quiz=self.quiz, score=2)
+        response = self.client.get("/api/quiz-ratings/")
+        self.assertEqual(len(response.data), 1)  # tylko własna ocena
+
+    # CREATE
+    def test_create_rating(self):
+        quiz2 = Quiz.objects.create(title="Quiz 2", maintainer=self.user)
+        response = self.client.post(
+            "/api/quiz-ratings/",
+            {
+                "quiz": quiz2.id,
+                "score": 5,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_create_rating_invalid_score(self):
+        response = self.client.post(
+            "/api/quiz-ratings/",
+            {
+                "quiz": self.quiz.id,
+                "score": 6,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_rating_unauthenticated(self):
+        self.client.force_authenticate(user=None)
+        response = self.client.post(
+            "/api/quiz-ratings/",
+            {
+                "quiz": self.quiz.id,
+                "score": 3,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    # UPDATE
+    def test_update_own_rating(self):
+        response = self.client.patch(
+            f"/api/quiz-ratings/{self.rating.id}/",
+            {
+                "score": 2,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["score"], 2)
+
+    def test_cannot_update_other_user_rating(self):
+        other_rating = QuizRating.objects.create(user=self.other_user, quiz=self.quiz, score=3)
+        response = self.client.patch(
+            f"/api/quiz-ratings/{other_rating.id}/",
+            {
+                "score": 1,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    # DELETE
+    def test_delete_own_rating(self):
+        response = self.client.delete(f"/api/quiz-ratings/{self.rating.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_cannot_delete_other_user_rating(self):
+        other_rating = QuizRating.objects.create(user=self.other_user, quiz=self.quiz, score=3)
+        response = self.client.delete(f"/api/quiz-ratings/{other_rating.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
