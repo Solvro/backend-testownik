@@ -71,6 +71,48 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
     serializer_class = UserTokenObtainPairSerializer
 
+    @extend_schema(
+        summary="Obtain JWT token pair",
+        description=(
+            "Authenticate with email and password. "
+            "On success, `access` and `refresh` tokens are set as HTTP-only cookies "
+            "and the JSON body returns a confirmation message. "
+            "The `access` token contains embedded user data "
+            "(first_name, last_name, email, student_number, photo, account_type, etc.)."
+        ),
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "email": {"type": "string", "format": "email"},
+                    "password": {"type": "string"},
+                },
+                "required": ["email", "password"],
+            }
+        },
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string"},
+                },
+            },
+            401: OpenApiResponse(description="No active account found with the given credentials."),
+            404: OpenApiResponse(description="Not found."),
+        },
+        examples=[
+            OpenApiExample(
+                "Valid request",
+                value={"email": "user@example.com", "password": "securepassword"},
+            ),
+            OpenApiExample(
+                "Success response",
+                response_only=True,
+                value={"message": "Login successful"},
+            ),
+        ],
+        tags=["Authentication"],
+    )
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
         if response.status_code == 200:
@@ -88,6 +130,46 @@ class CustomTokenRefreshView(TokenRefreshView):
 
     serializer_class = UserTokenRefreshSerializer
 
+    @extend_schema(
+        summary="Refresh JWT token",
+        description=(
+            "Exchange a valid `refresh` token for a new `access`/`refresh` pair. "
+            "On success, new tokens are set as HTTP-only cookies "
+            "and the JSON body returns a confirmation message. "
+            "The new `access` token contains re-populated user data."
+        ),
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "refresh": {"type": "string"},
+                },
+                "required": ["refresh"],
+            }
+        },
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string"},
+                },
+            },
+            401: OpenApiResponse(description="Invalid or expired refresh token."),
+            404: OpenApiResponse(description="Not found."),
+        },
+        examples=[
+            OpenApiExample(
+                "Valid request",
+                value={"refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."},
+            ),
+            OpenApiExample(
+                "Success response",
+                response_only=True,
+                value={"message": "Token refreshed"},
+            ),
+        ],
+        tags=["Authentication"],
+    )
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
         if response.status_code == 200:
@@ -397,7 +479,7 @@ class SolvroAuthorizeView(APIView):
         responses={
             302: OpenApiResponse(
                 description=(
-                    "Redirect to the `redirect` URL with JWT cookies set (if `jwt=true`), "
+                    "Redirect to the redirect URL with JWT cookies set (if `jwt=true`), "
                     "or with `?error=no_email` if the user profile has no email, "
                     "or with `?error=user_banned&ban_reason=...` if the user is banned."
                 )
