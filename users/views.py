@@ -16,6 +16,7 @@ from django.db.models import Q
 from django.http import HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.utils.decorators import method_decorator
+from django.utils.http import url_has_allowed_host_and_scheme
 from django_ratelimit.decorators import ratelimit
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -199,17 +200,18 @@ def remove_query_params(url, params):
     return str(urlunparse(url_parts))
 
 
-def is_safe_redirect_url(url: str) -> bool:
+def is_safe_redirect_url(url: str, request=None) -> bool:
     if not url:
         return False
 
     if url == "admin:index":
         return True
 
-    if url.startswith("//"):
-        return False
+    allowed_hosts = {urlparse(origin).netloc for origin in ALLOWED_REDIRECT_ORIGINS}
+    if request:
+        allowed_hosts.add(request.get_host())
 
-    if url.startswith("/"):
+    if url_has_allowed_host_and_scheme(url, allowed_hosts=allowed_hosts, require_https=False):
         return True
 
     try:
@@ -221,9 +223,6 @@ def is_safe_redirect_url(url: str) -> bool:
             return False
 
         url_origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
-
-        if url_origin in ALLOWED_REDIRECT_ORIGINS:
-            return True
 
         if ALLOW_PREVIEW_ENVIRONMENTS:
             for regex in PREVIEW_ORIGIN_REGEXES:
@@ -286,7 +285,7 @@ class SolvroLoginView(APIView):
         redirect_url = request.GET.get("redirect", "")
         guest_id = request.GET.get("guest_id", "")
 
-        if redirect_url and not is_safe_redirect_url(redirect_url):
+        if redirect_url and not is_safe_redirect_url(redirect_url, request):
             logger.warning("Blocked unsafe redirect URL in login: %s", redirect_url)
             return HttpResponseBadRequest("Invalid redirect URL")
 
@@ -365,7 +364,7 @@ class UsosLoginView(AsyncAPIView):
         if jwt and not redirect_url:
             return HttpResponseForbidden("Redirect URL must be provided when using JWT")
 
-        if redirect_url and not is_safe_redirect_url(redirect_url):
+        if redirect_url and not is_safe_redirect_url(redirect_url, request):
             logger.warning("Blocked unsafe redirect URL in login_usos: %s", redirect_url)
             return HttpResponseBadRequest("Invalid redirect URL")
 
@@ -507,7 +506,7 @@ class SolvroAuthorizeView(APIView):
 
         redirect_url = request.GET.get("redirect", "index")
 
-        if not is_safe_redirect_url(redirect_url):
+        if not is_safe_redirect_url(redirect_url, request):
             logger.warning("Blocked unsafe redirect URL in authorize: %s", redirect_url)
             redirect_url = "index"
 
@@ -626,7 +625,7 @@ class UsosAuthorizeView(AsyncAPIView):
     async def get(self, request):
         redirect_url = request.GET.get("redirect", "index")
 
-        if not is_safe_redirect_url(redirect_url):
+        if not is_safe_redirect_url(redirect_url, request):
             logger.warning("Blocked unsafe redirect URL in authorize_usos: %s", redirect_url)
             redirect_url = "index"
 
