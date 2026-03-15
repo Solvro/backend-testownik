@@ -1055,6 +1055,7 @@ class GenerateOtpView(APIView):
                 value={"message": "Login email sent."},
             ),
         ],
+        tags=["Authentication"],
     )
     def post(self, request):
         email = request.data.get("email")
@@ -1100,7 +1101,9 @@ class LoginOtpView(APIView):
                     "`OTP code expired or retries limit reached`"
                 )
             ),
-            403: OpenApiResponse(description="Rate limit exceeded"),
+            403: OpenApiResponse(
+                description="You do not have permission to perform this action. (Rate limit exceeded)"
+            ),
             404: OpenApiResponse(description="Not found."),
         },
         examples=[
@@ -1128,7 +1131,14 @@ class LoginOtpView(APIView):
                 value={"error": "OTP code expired or retries limit reached"},
                 status_codes=["400"],
             ),
+            OpenApiExample(
+                "Error response (rate limit exceeded)",
+                response_only=True,
+                value={"detail": "You do not have permission to perform this action."},
+                status_codes=["403"],
+            ),
         ],
+        tags=["Authentication"],
     )
     def post(self, request):
         email = request.data.get("email")
@@ -1219,6 +1229,7 @@ class LoginLinkView(APIView):
                 status_codes=["400"],
             ),
         ],
+        tags=["Authentication"],
     )
     def post(self, request):
         token = request.data.get("token")
