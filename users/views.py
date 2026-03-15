@@ -207,12 +207,19 @@ def is_safe_redirect_url(url: str, request=None) -> bool:
     if url == "admin:index":
         return True
 
+    url = str(url).strip()
+
+    if url.startswith("//") or url.startswith("\\\\"):
+        return False
+
+    if url.startswith("/"):
+        return True
+
     allowed_hosts = {urlparse(origin).netloc for origin in ALLOWED_REDIRECT_ORIGINS}
     if request:
         allowed_hosts.add(request.get_host())
 
-    if url_has_allowed_host_and_scheme(url, allowed_hosts=allowed_hosts, require_https=False):
-        return True
+    is_django_safe = url_has_allowed_host_and_scheme(url, allowed_hosts=allowed_hosts, require_https=False)
 
     try:
         parsed = urlparse(url)
@@ -223,6 +230,12 @@ def is_safe_redirect_url(url: str, request=None) -> bool:
             return False
 
         url_origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+
+        if is_django_safe:
+            if url_origin in ALLOWED_REDIRECT_ORIGINS:
+                return True
+            if request and parsed.netloc == request.get_host():
+                return True
 
         if ALLOW_PREVIEW_ENVIRONMENTS:
             for regex in PREVIEW_ORIGIN_REGEXES:
