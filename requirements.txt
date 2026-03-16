@@ -1,6 +1,6 @@
 python-dotenv==1.2.2
 Django==6.0.3
-usos-api==0.3.3
+usos-api==0.3.4
 requests==2.32.5
 djangorestframework==3.16.1
 djangorestframework-simplejwt==5.5.1
