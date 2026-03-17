@@ -68,26 +68,11 @@ from quizzes.services.notifications import (
 )
 from quizzes.services.stats import get_quiz_stats
 from quizzes.throttling import CopyQuizThrottle
+from quizzes.utils import parse_include_values
 from testownik_core.emails import send_email
 from users.models import AccountType
 
 logger = logging.getLogger(__name__)
-
-
-def parse_include_values(request, param_name: str = "include") -> set[str]:
-    """
-    Parse include-style query params supporting both:
-    - repeated params: ?include=a&include=b
-    - comma-separated values: ?include=a,b
-    """
-    raw_values = request.query_params.getlist(param_name)
-    include_values: set[str] = set()
-
-    for value in raw_values:
-        if value:
-            include_values.update(part.strip() for part in value.split(",") if part.strip())
-
-    return include_values
 
 
 class RandomQuestionView(APIView):
