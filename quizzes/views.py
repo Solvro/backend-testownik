@@ -208,7 +208,6 @@ class SearchQuizzesView(APIView):
             quiz__title__icontains=query,
             quiz__visibility__gte=1,
         ).select_related("quiz__creator")
-        public_quizzes = Quiz.objects.filter(title__icontains=query, visibility__gte=3).select_related("creator")
 
         result = {
             "user_quizzes": QuizSearchResultSerializer(user_quizzes, many=True, context={"request": request}).data,
