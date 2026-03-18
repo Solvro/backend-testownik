@@ -820,12 +820,20 @@ class LibraryView(APIView):
         return Q(owner=user) | Q(shares__user=user) | Q(shares__study_group__in=user.study_groups.all())
 
     def _has_access(self, user, folder_id):
-        return Folder.objects.filter(self._access_predicate(user), id=folder_id).exists()
+        if Folder.objects.filter(self._access_predicate(user), id=folder_id).exists():
+            return True
+        folder = Folder.objects.filter(id=folder_id).select_related("parent").first()
+        if not folder:
+            return False
+        current = folder.parent
+        while current:
+            if Folder.objects.filter(self._access_predicate(user), id=current.id).exists():
+                return True
+            current = current.parent
+        return False
 
     def _get_subfolders(self, user, folder_id):
-        return (
-            Folder.objects.filter(self._access_predicate(user), parent_id=folder_id).distinct().order_by("-created_at")
-        )
+        return Folder.objects.filter(parent_id=folder_id).distinct().order_by("-created_at")
 
     def _get_quizzes(self, user, folder_id):
         return Quiz.objects.filter(folder_id=folder_id).distinct().order_by("-created_at")

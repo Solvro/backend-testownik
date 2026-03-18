@@ -148,3 +148,15 @@ class FolderCRUDTests(APITestCase):
         self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_403_FORBIDDEN])
         quiz.refresh_from_db()
         self.assertEqual(quiz.folder_id, self.user.root_folder_id)
+
+    def test_cannot_create_folder_in_other_users_folder(self):
+        """Creating a folder with another user's folder as parent is rejected."""
+        other = User.objects.create_user(
+            email="other2@example.com", password="password123", first_name="Other", last_name="User"
+        )
+        other.refresh_from_db()
+
+        url = reverse("folder-list")
+        response = self.client.post(url, {"name": "Sneaky Folder", "parent": str(other.root_folder_id)}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Folder.objects.filter(name="Sneaky Folder").exists())

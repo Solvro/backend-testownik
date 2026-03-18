@@ -88,3 +88,15 @@ class LibraryTests(APITestCase):
         url = reverse("library-folder", kwargs={"folder_id": self.folder_main.id})
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_cascading_access_to_subfolder(self):
+        """Sharing a parent folder gives access to its subfolders without separate shares."""
+        SharedFolder.objects.create(folder=self.folder_main, user=self.user_b)
+
+        self.client.force_authenticate(user=self.user_b)
+        url = reverse("library-folder", kwargs={"folder_id": self.folder_sub.id})
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_titles = {item.get("title") for item in response.data if item.get("type") == "quiz"}
+        self.assertIn("Hidden Quiz", returned_titles)

@@ -555,6 +555,15 @@ class FolderSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "created_at", "parent", "quizzes", "subfolders"]
         read_only_fields = ["id", "created_at", "quizzes", "subfolders"]
 
+    def validate_parent(self, value):
+        if value is None:
+            return value
+
+        user = self.context["request"].user
+        if value.owner != user:
+            raise serializers.ValidationError("You can only create folders inside your own folders.")
+        return value
+
 
 class MoveFolderSerializer(serializers.Serializer):
     parent_id = serializers.UUIDField(allow_null=True)
