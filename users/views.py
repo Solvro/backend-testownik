@@ -200,6 +200,22 @@ def remove_query_params(url, params):
     return str(urlunparse(url_parts))
 
 
+def _usos_safe_quote(s, safe="", encoding=None, errors=None):
+    return urllib.parse.quote(s, safe=":/@!$'()*+,;-._~")
+
+
+def build_oauth_callback_url(request, path, params):
+    """Build an OAuth callback URL with properly encoded query parameters.
+
+    Uses a permissive quote function that preserves URL-safe characters
+    like : and / while encoding only characters that break query-string
+    parsing (& = ? #). This is required for OAuth 1.0a signature
+    compatibility (USOS).
+    """
+    query_string = urlencode(params, quote_via=_usos_safe_quote)
+    return request.build_absolute_uri(f"{path}?{query_string}")
+
+
 def is_safe_redirect_url(url: str, request=None) -> bool:
     if not url:
         return False
@@ -302,11 +318,14 @@ class SolvroLoginView(APIView):
             logger.warning("Blocked unsafe redirect URL in login: %s", redirect_url)
             return HttpResponseBadRequest("Invalid redirect URL")
 
-        callback_url = request.build_absolute_uri(
-            f"/api/authorize/?jwt={str(jwt).lower()}"
-            f"{f'&redirect={redirect_url}' if redirect_url else ''}"
-            f"{f'&guest_id={urllib.parse.quote(guest_id)}' if guest_id else ''}"
-        )
+        callback_params = {"jwt": str(jwt).lower()}
+        if redirect_url:
+            callback_params["redirect"] = redirect_url
+        if guest_id:
+            callback_params["guest_id"] = guest_id
+
+        callback_url = add_query_params(request.build_absolute_uri("/api/authorize/"), callback_params)
+
         additional_params = {}
         if confirm_user:
             additional_params["prompt"] = "login"
@@ -381,11 +400,13 @@ class UsosLoginView(AsyncAPIView):
             logger.warning("Blocked unsafe redirect URL in login_usos: %s", redirect_url)
             return HttpResponseBadRequest("Invalid redirect URL")
 
-        callback_url = request.build_absolute_uri(
-            f"/api/authorize/usos/?jwt={str(jwt).lower()}"
-            f"{f'&redirect={redirect_url}' if redirect_url else ''}"
-            f"{f'&guest_id={urllib.parse.quote(guest_id)}' if guest_id else ''}"
-        )
+        callback_params = {"jwt": str(jwt).lower()}
+        if redirect_url:
+            callback_params["redirect"] = redirect_url
+        if guest_id:
+            callback_params["guest_id"] = guest_id
+
+        callback_url = build_oauth_callback_url(request, "/api/authorize/usos/", callback_params)
 
         max_retries = 3  # max tries
         retry_delay = 2  # time before next try (seconds)
