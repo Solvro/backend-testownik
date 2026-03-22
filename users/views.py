@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 import dotenv
 from adrf.views import APIView as AsyncAPIView
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import alogin as async_auth_login
 from django.contrib.auth import login as auth_login
@@ -235,7 +236,11 @@ def is_safe_redirect_url(url: str, request=None) -> bool:
     if request:
         allowed_hosts.add(request.get_host())
 
-    is_django_safe = url_has_allowed_host_and_scheme(url, allowed_hosts=allowed_hosts, require_https=False)
+    is_django_safe = url_has_allowed_host_and_scheme(
+        url,
+        allowed_hosts=allowed_hosts,
+        require_https=not getattr(settings, "DEBUG", False),
+    )
 
     try:
         parsed = urlparse(url)
