@@ -58,7 +58,7 @@ class LastUsedQuizzesViewTest(TestCase):
         self.assertIn("visibility", result)
         self.assertIn("can_edit", result)
 
-        # Verify that can_edit is True since user is the maintainer
+        # Verify that can_edit is True since user is the creator
         self.assertTrue(result["can_edit"])
 
     def test_pagination(self):

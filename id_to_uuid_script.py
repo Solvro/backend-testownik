@@ -35,7 +35,7 @@ def migrate_user_ids():
             entry["pk"] = id_mapping[entry["pk"]]
 
         # Update regular foreign keys
-        for field in ["user", "maintainer"]:
+        for field in ["user", "creator"]:
             if field in entry["fields"] and entry["fields"][field] in id_mapping:
                 entry["fields"][field] = id_mapping[entry["fields"][field]]
 

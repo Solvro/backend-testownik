@@ -17,8 +17,8 @@ class MetadataActionTestCase(APITestCase):
 
     def setUp(self):
         self.user = User.objects.create(
-            email="maintainer@example.com",
-            first_name="Maintainer",
+            email="creator@example.com",
+            first_name="Creator",
             last_name="User",
             student_number="123456",
         )
@@ -89,8 +89,8 @@ class MetadataActionTestCase(APITestCase):
         response = self.client.get(url, HTTP_API_KEY="test-api-key")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_metadata_private_quiz_maintainer(self):
-        """Test that private quiz returns 200 for maintainer."""
+    def test_metadata_private_quiz_creator(self):
+        """Test that private quiz returns 200 for creator."""
         private_quiz = Quiz.objects.create(
             title="Private Quiz",
             creator=self.user,
@@ -99,7 +99,7 @@ class MetadataActionTestCase(APITestCase):
         )
         url = self._get_metadata_url(private_quiz.id)
 
-        # Authenticate as maintainer
+        # Authenticate as creator
         self.client.force_authenticate(user=self.user)
         response = self.client.get(
             url,

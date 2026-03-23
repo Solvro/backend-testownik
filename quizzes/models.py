@@ -106,8 +106,8 @@ class Quiz(models.Model):
             or self.sharedquiz_set.filter(study_group__in=user.study_groups.all(), allow_edit=True).exists()
         )
 
-    def get_maintainer(self):
-        return self.folder.owner
+    def get_creator(self):
+        return self.creator
 
 
 class QuestionType(models.IntegerChoices):

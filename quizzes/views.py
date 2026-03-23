@@ -40,9 +40,9 @@ from quizzes.permissions import (
     IsInternalApiRequest,
     IsQuestionReadable,
     IsQuizCreator,
-    IsQuizMaintainerOrCollaboratorOrReadOnly,
+    IsQuizCreatorOrCollaboratorOrReadOnly,
     IsQuizReadable,
-    IsSharedQuizMaintainerOrReadOnly,
+    IsSharedQuizCreatorOrReadOnly,
 )
 from quizzes.serializers import (
     AnswerRecordSerializer,
@@ -220,7 +220,7 @@ class SearchQuizzesView(APIView):
         }
 
         if request.user.account_type == AccountType.STUDENT:
-            public_quizzes = Quiz.objects.filter(title__icontains=query, visibility__gte=3).select_related("maintainer")
+            public_quizzes = Quiz.objects.filter(title__icontains=query, visibility__gte=3).select_related("creator")
             result["public_quizzes"] = QuizSearchResultSerializer(
                 public_quizzes, many=True, context={"request": request}
             ).data
@@ -234,7 +234,7 @@ class SearchQuizzesView(APIView):
 #   but will allow to view all quizzes when retrieving a single quiz.
 # This is by design, if the user wants to view shared quizzes,
 #   they should use the SharedQuizViewSet and for public quizzes they should use the api_search_quizzes view.
-# It will also allow to create, update and delete quizzes only if the user is the maintainer of the quiz.
+# It will also allow to create, update and delete quizzes only if the user is the creator of the quiz.
 @extend_schema_view(
     retrieve=extend_schema(
         parameters=[
@@ -256,7 +256,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     serializer_class = QuizSerializer
     permission_classes = [
         permissions.IsAuthenticatedOrReadOnly,
-        IsQuizMaintainerOrCollaboratorOrReadOnly,
+        IsQuizCreatorOrCollaboratorOrReadOnly,
         IsQuizReadable,
     ]
 
@@ -625,7 +625,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 class SharedQuizViewSet(viewsets.ModelViewSet):
     queryset = SharedQuiz.objects.all()
     serializer_class = SharedQuizSerializer
-    permission_classes = [permissions.IsAuthenticated, IsSharedQuizMaintainerOrReadOnly]
+    permission_classes = [permissions.IsAuthenticated, IsSharedQuizCreatorOrReadOnly]
 
     def get_queryset(self):
         _filter = (
@@ -744,7 +744,7 @@ class QuestionViewSet(
 ):
     serializer_class = QuestionSerializer
     queryset = Question.objects.all()
-    permission_classes = [permissions.IsAuthenticated, IsQuizMaintainerOrCollaboratorOrReadOnly, IsQuestionReadable]
+    permission_classes = [permissions.IsAuthenticated, IsQuizCreatorOrCollaboratorOrReadOnly, IsQuestionReadable]
 
     @extend_schema(
         responses={

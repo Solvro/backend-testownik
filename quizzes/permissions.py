@@ -28,7 +28,7 @@ class IsInternalApiRequest(permissions.BasePermission):
         return api_key == settings.INTERNAL_API_KEY
 
 
-class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):
+class IsSharedQuizCreatorOrReadOnly(permissions.BasePermission):
     """
     Custom permission to only allow creator of a shared quiz to edit it.
     Also enforces account-type restrictions:
@@ -55,8 +55,8 @@ class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
 
-        # Write permissions are only allowed to the maintainer (folder owner) of the shared quiz.
-        return obj.quiz.get_maintainer() == request.user
+        # Write permissions are only allowed to the creator (folder owner) of the shared quiz.
+        return obj.quiz.get_creator() == request.user
 
 
 class IsQuizCreator(permissions.BasePermission):
@@ -66,7 +66,7 @@ class IsQuizCreator(permissions.BasePermission):
     """
 
     def has_object_permission(self, request, view, obj):
-        return obj.get_maintainer() == request.user
+        return obj.get_creator() == request.user
 
 
 class IsQuizReadable(permissions.BasePermission):
@@ -106,16 +106,16 @@ class IsQuestionReadable(permissions.BasePermission):
         return IsQuizReadable().has_object_permission(request, view, obj.quiz)
 
 
-class IsQuizMaintainerOrCollaboratorOrReadOnly(permissions.BasePermission):
+class IsQuizCreatorOrCollaboratorOrReadOnly(permissions.BasePermission):
     """
-    Custom permission to allow quiz maintainers and accepted collaborators to edit the quiz.
+    Custom permission to allow quiz creator and accepted collaborators to edit the quiz.
     """
 
     def has_object_permission(self, request, view, obj: Quiz | Question):
         if request.method in permissions.SAFE_METHODS:
             return True
 
-        # Write permissions are only allowed to the maintainer or accepted collaborators
+        # Write permissions are only allowed to the creator or accepted collaborators
         if isinstance(obj, Quiz):
             return obj.can_edit(request.user)
 
