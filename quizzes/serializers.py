@@ -646,7 +646,7 @@ class CommentSerializer(serializers.ModelSerializer):
             "author",
             "content",
             "parent",
-            "shared_quiz",
+            "quiz",
             "question",
             "created_at",
             "updated_at",
@@ -660,6 +660,17 @@ class CommentSerializer(serializers.ModelSerializer):
         if not value.strip():
             raise serializers.ValidationError("Content cannot be empty")
         return value
+
+    def validate(self, data):
+        quiz = data.get("quiz")
+        question = data.get("question")
+
+        # Prevent user from commenting question that belongs to another quiz
+        # Basically question_quiz_id must be equal to quiz_id
+        if question and quiz and question.quiz != quiz:
+            raise serializers.ValidationError("This question does not belong to the selected quiz")
+
+        return data
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

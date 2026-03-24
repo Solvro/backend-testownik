@@ -283,9 +283,9 @@ class Comment(models.Model):
 
     Deleting this comment will result in `SOFT DELETE`
 
-    Constraints:
-        - Comments can be attached to SharedQuiz or Question EXCLUSIVELY
-          (never both, never neither)
+    - Comment must be attached to Quiz
+    - Comment may by linked to Question inside Quiz (optional)
+
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -295,13 +295,21 @@ class Comment(models.Model):
     # comment can be reply to other comment
     parent = models.ForeignKey("self", on_delete=models.CASCADE, null=True, blank=True, related_name="replies")
 
-    # comment can be linked to quiz (shared)
-    shared_quiz = models.ForeignKey(
-        SharedQuiz, on_delete=models.CASCADE, null=True, blank=True, related_name="comments"
+    # comment is ALWAYS linked to quiz
+    quiz = models.ForeignKey(
+        Quiz,
+        on_delete=models.CASCADE,
+        related_name="comments",  # quiz.comments.all()
     )
 
-    # comment can be linked to quesiton
-    question = models.ForeignKey(Question, on_delete=models.CASCADE, null=True, blank=True, related_name="comments")
+    # additionally, comment can be linked to question inside SharedQuiz
+    question = models.ForeignKey(
+        Question,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="comments",  # question.comments.all()
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -311,15 +319,6 @@ class Comment(models.Model):
 
     class Meta:
         ordering = ["created_at"]
-        constraints = [
-            models.CheckConstraint(
-                condition=(
-                    models.Q(shared_quiz__isnull=False, question__isnull=True)
-                    | models.Q(shared_quiz__isnull=True, question__isnull=False)
-                ),
-                name="comment_linked_to_shared_quiz_or_question",
-            )
-        ]
 
     def __str__(self):
         return f"Comment(id={self.id}, author={self.author})"
