@@ -827,6 +827,11 @@ class CommentViewSet(viewsets.ModelViewSet):
     """
     Manages comments for the authenticated user.
 
+    Access Control (get_queryset):
+    Users can only access comments if:
+        1. They are the quiz maintainer (owner).
+        2. The quiz has been shared with them directly or via their study groups (SharedQuiz).
+        3. The quiz visibility is set to Public (visibility=3).
 
     DELETE performs a soft delete — comment content is cleared but record is kept.
     Only the author can modify or delete their own comments.
@@ -835,6 +840,23 @@ class CommentViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsCommentAuthorOrReadOnly]
     serializer_class = CommentSerializer
     queryset = Comment.objects.all()
+
+    def get_queryset(self):
+        user = self.request.user
+
+        shared_quiz_ids = SharedQuiz.objects.filter(
+            Q(user=user) | Q(study_group__in=user.study_groups.all()), quiz__visibility__gte=1
+        ).values_list("quiz_id", flat=True)
+
+        return (
+            Comment.objects.filter(
+                Q(quiz__maintainer=user)  # rule_1: user is owner
+                | Q(quiz_id__in=shared_quiz_ids)  # rule_2: user has access via shared quiz
+                | Q(quiz__visibility=3)  # rule_3: quiz is public
+            )
+            .distinct()
+            .select_related("author", "quiz")
+        )
 
     def perform_destroy(self, instance: Comment):
         if instance.is_deleted:
