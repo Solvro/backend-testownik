@@ -19,6 +19,7 @@ class UserAdmin(admin.ModelAdmin):
         "student_number",
         "email",
         "account_type",
+        "account_level",
         "is_banned",
         "is_staff",
         "is_superuser",
@@ -27,6 +28,7 @@ class UserAdmin(admin.ModelAdmin):
     ]
     list_filter = [
         "account_type",
+        "account_level",
         "is_banned",
         "is_staff",
         "is_superuser",
@@ -40,7 +42,7 @@ class UserAdmin(admin.ModelAdmin):
     search_fields = ["first_name", "last_name", "student_number", "email", "usos_id"]
 
     fieldsets = (
-        (None, {"fields": ("id", "email", "account_type", "student_number", "usos_id")}),
+        (None, {"fields": ("id", "email", "account_type", "account_level", "student_number", "usos_id")}),
         (
             "Personal info",
             {
