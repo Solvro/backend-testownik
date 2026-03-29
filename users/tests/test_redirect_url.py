@@ -4,7 +4,7 @@ Tests for is_safe_redirect_url function to prevent open redirect vulnerabilities
 
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from users.views import is_safe_redirect_url
 
@@ -26,11 +26,24 @@ class IsSafeRedirectUrlTestCase(TestCase):
         self.assertTrue(is_safe_redirect_url("/path?query=value"))
         self.assertTrue(is_safe_redirect_url("/path#anchor"))
 
+    @override_settings(DEBUG=True)
     @patch("users.views.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000", "https://example.com"])
-    def test_allowed_origin_is_safe(self):
-        """URLs with allowed origins should be accepted."""
+    def test_allowed_origin_is_safe_debug_true(self):
+        """URLs with allowed origins should be accepted. HTTP is permitted in DEBUG mode."""
         self.assertTrue(is_safe_redirect_url("http://localhost:3000/callback"))
         self.assertTrue(is_safe_redirect_url("http://localhost:3000"))
+        self.assertTrue(is_safe_redirect_url("https://example.com/path"))
+        self.assertTrue(is_safe_redirect_url("https://example.com"))
+
+    @override_settings(DEBUG=False)
+    @patch("users.views.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000", "https://example.com"])
+    def test_allowed_origin_is_safe_debug_false(self):
+        """In production (DEBUG=False), HTTP URLs must be rejected even if the origin matches,
+        and HTTPS must strictly be enforced."""
+        # HTTP should be REJECTED despite being in ALLOWED_REDIRECT_ORIGINS
+        self.assertFalse(is_safe_redirect_url("http://localhost:3000/callback"))
+        self.assertFalse(is_safe_redirect_url("http://localhost:3000"))
+        # HTTPS should be ACCEPTED
         self.assertTrue(is_safe_redirect_url("https://example.com/path"))
         self.assertTrue(is_safe_redirect_url("https://example.com"))
 
