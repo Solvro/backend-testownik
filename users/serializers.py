@@ -26,6 +26,7 @@ class UserTokenObtainPairSerializer(TokenObtainPairSerializer):
         token["is_superuser"] = user.is_superuser
         token["is_banned"] = user.is_banned
         token["account_type"] = user.account_type
+        token["account_level"] = user.account_level
 
         return token
 
@@ -110,13 +111,14 @@ class UserSerializer(serializers.ModelSerializer):
             "photo",
             "hide_profile",
             "account_type",
+            "account_level",
         ]
 
 
 class PublicUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "full_name", "student_number", "photo", "account_type"]
+        fields = ["id", "full_name", "student_number", "photo", "account_type", "account_level"]
 
 
 class UserSettingsSerializer(serializers.ModelSerializer):
