@@ -8,7 +8,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.exceptions import InvalidToken
 
-from users.models import EmailLoginToken, User
+from users.models import AccountLevel, EmailLoginToken, User
 from users.serializers import UserTokenObtainPairSerializer, UserTokenRefreshSerializer
 
 
@@ -47,6 +47,7 @@ class UserTokenObtainPairSerializerTestCase(TestCase):
         self.assertEqual(token["photo"], self.user.photo)
         self.assertFalse(token["is_staff"])
         self.assertFalse(token["is_superuser"])
+        self.assertEqual(token["account_level"], AccountLevel.BASIC)
 
     def test_staff_flags_in_token(self):
         """Test that is_staff and is_superuser flags are correctly embedded."""
