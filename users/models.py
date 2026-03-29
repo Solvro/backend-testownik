@@ -20,6 +20,11 @@ class AccountType(models.TextChoices):
     LECTURER = "lecturer", "Lecturer"
 
 
+class AccountLevel(models.TextChoices):
+    BASIC = "basic", "Basic"
+    GOLD = "gold", "Gold"
+
+
 class CustomUserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         if not email:
@@ -59,6 +64,12 @@ class User(AbstractBaseUser, PermissionsMixin):
         choices=AccountType.choices,
         default=AccountType.EMAIL,
         help_text="Determines the user's account type and associated permissions",
+    )
+    account_level = models.CharField(
+        max_length=10,
+        choices=AccountLevel.choices,
+        default=AccountLevel.BASIC,
+        help_text="Represents the user's account level tier",
     )
     student_number = models.CharField(max_length=6)
     usos_id = models.IntegerField(null=True, blank=True)
