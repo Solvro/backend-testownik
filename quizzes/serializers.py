@@ -285,9 +285,15 @@ class QuizSerializer(serializers.ModelSerializer):
                 data["current_session"] = QuizSessionSerializer(session).data
             else:
                 data.pop("current_session", None)
+
+            if user.is_creator(instance):
+                data["folder"] = FolderSerializer(instance.folder).data
+            else:
+                data.pop("folder", None)
         else:
             data.pop("user_settings", None)
             data.pop("current_session", None)
+            data.pop("folder", None)
 
         return data
 
@@ -482,6 +488,11 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
         user = getattr(request, "user", None) if request else self.context.get("user")
         if not user or (instance.is_anonymous and user != instance.creator):
             data["creator"] = None
+
+        if user and user.is_authenticated and user.is_creator(instance):
+            data["folder"] = FolderSerializer(instance.folder).data
+        else:
+            data.pop("folder", None)
         return data
 
     def get_last_used_at(self, obj: Quiz):
@@ -663,16 +674,19 @@ class LibraryItemSerializer(serializers.Serializer):
                 "id": instance.id,
                 "name": instance.name,
                 "type": "folder",
-                "is_shared": (instance.owner_id != user.id),
+                "owner": PublicUserSerializer(instance.owner).data,
+                "can_edit": instance.has_edit_permission(user),
                 "created_at": instance.created_at,
             }
 
         if isinstance(instance, Quiz):
             return {
                 "id": instance.id,
-                "title": instance.title,
+                "name": instance.title,
+                "description": instance.description,
                 "type": "quiz",
-                "is_shared": (instance.creator_id != user.id),
+                "owner": PublicUserSerializer(instance.folder.owner).data,
+                "can_edit": instance.can_edit(user),
                 "created_at": instance.created_at,
             }
 

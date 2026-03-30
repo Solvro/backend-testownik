@@ -1,12 +1,12 @@
-from django.db import migrations, models
 import django.db.models.deletion
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("users", "0005_add_user_ban_fields"),
-        ("quizzes", "0020_rename_maintainer_to_creator"),
+        ("users", "0008_user_account_level"),
+        ("quizzes", "0016_quizsession_updated_at"),
     ]
 
     operations = [
@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
             field=models.OneToOneField(
                 blank=True,
                 null=True,
-                on_delete=django.db.models.deletion.CASCADE,
+                on_delete=django.db.models.deletion.SET_NULL,
                 related_name="root_owner",
                 to="quizzes.folder",
             ),

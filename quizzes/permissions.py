@@ -55,8 +55,7 @@ class IsSharedQuizCreatorOrReadOnly(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
 
-        # Write permissions are only allowed to the creator (folder owner) of the shared quiz.
-        return obj.quiz.get_creator() == request.user
+        return obj.quiz.folder.owner == request.user
 
 
 class IsQuizCreator(permissions.BasePermission):
@@ -66,7 +65,7 @@ class IsQuizCreator(permissions.BasePermission):
     """
 
     def has_object_permission(self, request, view, obj):
-        return obj.get_creator() == request.user
+        return obj.folder.owner == request.user
 
 
 class IsQuizReadable(permissions.BasePermission):

@@ -151,6 +151,9 @@ class User(AbstractBaseUser, PermissionsMixin):
             and self.staff_status is StaffStatus.NOT_STAFF.value
         )
 
+    def is_creator(self, quiz) -> bool:
+        return quiz.folder.owner == self
+
     @property
     def photo(self) -> str | None:
         return self.overriden_photo_url or self.photo_url

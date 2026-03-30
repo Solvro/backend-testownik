@@ -89,7 +89,7 @@ class Quiz(models.Model):
     version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    folder = models.ForeignKey(Folder, on_delete=models.CASCADE, related_name="quizzes")
+    folder = models.ForeignKey(Folder, on_delete=models.PROTECT, related_name="quizzes")
 
     class Meta:
         ordering = ["-created_at"]
@@ -113,9 +113,6 @@ class Quiz(models.Model):
             or self.sharedquiz_set.filter(user=user, allow_edit=True).exists()
             or self.sharedquiz_set.filter(study_group__in=user.study_groups.all(), allow_edit=True).exists()
         )
-
-    def get_creator(self):
-        return self.creator
 
 
 class QuestionType(models.IntegerChoices):

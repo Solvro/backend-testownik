@@ -29,31 +29,29 @@ class RootFolderTests(APITestCase):
         with self.assertRaises(ProtectedError):
             user.root_folder.delete()
 
-    def test_folder_deletion_cascades_to_quizzes(self):
-        """Deleting a non-root folder cascades and deletes its quizzes."""
+    def test_folder_deletion_blocked_when_has_quizzes(self):
+        """Deleting a folder that contains quizzes raises ProtectedError."""
         user = User.objects.create_user(
             email="test@example.com", password="password123", first_name="Test", last_name="User"
         )
         user.refresh_from_db()
         folder = Folder.objects.create(name="Temp", owner=user, parent=user.root_folder)
-        quiz = Quiz.objects.create(title="Temp Quiz", creator=user, folder=folder)
+        Quiz.objects.create(title="Temp Quiz", creator=user, folder=folder)
 
-        folder.delete()
-        self.assertFalse(Quiz.objects.filter(id=quiz.id).exists())
+        with self.assertRaises(ProtectedError):
+            folder.delete()
 
-    def test_nested_folder_deletion_cascades(self):
-        """Deleting a parent folder cascades to subfolders and their quizzes."""
+    def test_empty_folder_can_be_deleted(self):
+        """Deleting a folder without quizzes succeeds."""
         user = User.objects.create_user(
             email="test@example.com", password="password123", first_name="Test", last_name="User"
         )
         user.refresh_from_db()
-        parent = Folder.objects.create(name="Parent", owner=user, parent=user.root_folder)
-        child = Folder.objects.create(name="Child", owner=user, parent=parent)
-        quiz_in_child = Quiz.objects.create(title="Child Quiz", creator=user, folder=child)
+        folder = Folder.objects.create(name="Empty", owner=user, parent=user.root_folder)
+        folder_id = folder.id
 
-        parent.delete()
-        self.assertFalse(Folder.objects.filter(id=child.id).exists())
-        self.assertFalse(Quiz.objects.filter(id=quiz_in_child.id).exists())
+        folder.delete()
+        self.assertFalse(Folder.objects.filter(id=folder_id).exists())
 
     def test_unique_root_folder_per_user(self):
         """Each user gets exactly one root folder, not duplicated on save."""

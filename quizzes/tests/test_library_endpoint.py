@@ -53,8 +53,8 @@ class LibraryTests(APITestCase):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        returned_titles = {item.get("title") for item in response.data if item.get("type") == "quiz"}
-        self.assertIn("Hidden Quiz", returned_titles)
+        returned_names = {item.get("name") for item in response.data if item.get("type") == "quiz"}
+        self.assertIn("Hidden Quiz", returned_names)
 
     def test_study_group_sharing(self):
         """Folder shared via study group is accessible."""
@@ -98,5 +98,5 @@ class LibraryTests(APITestCase):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        returned_titles = {item.get("title") for item in response.data if item.get("type") == "quiz"}
-        self.assertIn("Hidden Quiz", returned_titles)
+        returned_names = {item.get("name") for item in response.data if item.get("type") == "quiz"}
+        self.assertIn("Hidden Quiz", returned_names)

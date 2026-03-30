@@ -234,7 +234,7 @@ class QuizCRUDTestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("folder", response.data)
-        self.assertEqual(str(response.data["folder"]), str(self.user.root_folder_id))
+        self.assertEqual(str(response.data["folder"]["id"]), str(self.user.root_folder_id))
 
 
 class QuizQuestionAnswerTestCase(APITestCase):
