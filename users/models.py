@@ -25,6 +25,12 @@ class AccountLevel(models.TextChoices):
     GOLD = "gold", "Gold"
 
 
+SEX_TO_GENDER = {
+    Sex.MALE: "male",
+    Sex.FEMALE: "female",
+}
+
+
 class CustomUserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         if not email:
@@ -148,6 +154,15 @@ class User(AbstractBaseUser, PermissionsMixin):
     @property
     def photo(self) -> str | None:
         return self.overriden_photo_url or self.photo_url
+
+    @property
+    def gender(self) -> str | None:
+        if not self.sex:
+            return None
+        try:
+            return SEX_TO_GENDER.get(self.get_sex())
+        except ValueError:
+            return None
 
     def get_sex(self):
         return Sex(self.sex)

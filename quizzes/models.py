@@ -99,6 +99,14 @@ class Quiz(models.Model):
     def __str__(self):
         return self.title or f"Quiz {self.id}"
 
+    def get_last_used_at(self, user):
+        last_session = self.sessions.filter(user=user).order_by("-updated_at").first()
+
+        if last_session:
+            return last_session.updated_at
+
+        return None
+
     def can_edit(self, user):
         return (
             self.folder.has_edit_permission(user)
@@ -135,9 +143,12 @@ class Question(models.Model):
         choices=QuestionType.choices,
         default=QuestionType.CLOSED,
     )
-    tf_answer = models.BooleanField(null=True, blank=True)
+    tf_answer = models.BooleanField(null=True, blank=True)  # true/false answer
 
     is_flashcard = models.BooleanField(default=False)
+    is_markdown_enabled = models.BooleanField(
+        default=True, help_text="Określa, czy tekst pytania ma wspierać formatowanie Markdown"
+    )
 
     class Meta:
         ordering = ["order"]

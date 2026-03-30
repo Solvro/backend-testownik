@@ -90,6 +90,7 @@ class QuestionSerializer(serializers.ModelSerializer):
             "quiz",
             "question_type",
             "is_flashcard",
+            "is_markdown_enabled",
         ]
 
     def validate(self, data):
@@ -454,6 +455,7 @@ class QuizSerializer(serializers.ModelSerializer):
 class QuizMetaDataSerializer(serializers.ModelSerializer):
     creator = PublicUserSerializer(read_only=True)
     can_edit = serializers.SerializerMethodField()
+    last_used_at = serializers.SerializerMethodField()
 
     class Meta:
         model = Quiz
@@ -467,11 +469,12 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "allow_anonymous",
             "created_at",
             "updated_at",
+            "last_used_at",
             "version",
             "can_edit",
             "folder",
         ]
-        read_only_fields = ["creator", "created_at", "updated_at", "version", "can_edit", "folder"]
+        read_only_fields = ["creator", "created_at", "updated_at", "last_used_at", "version", "can_edit", "folder"]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -480,6 +483,16 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
         if not user or (instance.is_anonymous and user != instance.creator):
             data["creator"] = None
         return data
+
+    def get_last_used_at(self, obj: Quiz):
+        # context is always request
+        request = self.context.get("request")
+
+        # if user is authenticated
+        if request and request.user.is_authenticated:
+            return obj.get_last_used_at(request.user)
+
+        return None
 
     def get_can_edit(self, obj) -> bool:
         request = self.context.get("request")
