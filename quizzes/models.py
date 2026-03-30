@@ -61,6 +61,14 @@ class Quiz(models.Model):
     def __str__(self):
         return self.title or f"Quiz {self.id}"
 
+    def get_last_used_at(self, user):
+        last_session = self.sessions.filter(user=user).order_by("-updated_at").first()
+
+        if last_session:
+            return last_session.updated_at
+
+        return None
+
     def can_edit(self, user):
         return (
             user == self.maintainer
