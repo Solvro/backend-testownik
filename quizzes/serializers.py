@@ -90,6 +90,7 @@ class QuestionSerializer(serializers.ModelSerializer):
             "quiz",
             "question_type",
             "is_flashcard",
+            "is_markdown_enabled",
         ]
 
     def validate(self, data):
