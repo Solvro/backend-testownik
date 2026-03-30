@@ -351,6 +351,9 @@ class BannedUserTestCase(APITestCase):
 
     def test_non_banned_user_can_access_protected_endpoints(self):
         """Test that non-banned users can access protected endpoints normally."""
+        self.user.sex = "M"
+        self.user.save()
+
         refresh = UserTokenObtainPairSerializer.get_token(self.user)
         access_token = str(refresh.access_token)
 
@@ -359,6 +362,27 @@ class BannedUserTestCase(APITestCase):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("sex", response.data)
+        self.assertIn("gender", response.data)
+        self.assertEqual(response.data["sex"], "M")
+        self.assertEqual(response.data["gender"], "male")
+
+    def test_current_user_returns_null_gender_when_sex_is_null(self):
+        self.user.sex = None
+        self.user.save()
+
+        refresh = UserTokenObtainPairSerializer.get_token(self.user)
+        access_token = str(refresh.access_token)
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
+        url = reverse("api_current_user")
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("sex", response.data)
+        self.assertIn("gender", response.data)
+        self.assertIsNone(response.data["sex"])
+        self.assertIsNone(response.data["gender"])
 
     def test_is_banned_claim_in_token(self):
         """Test that is_banned is included in JWT token claims."""
