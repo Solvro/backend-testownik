@@ -22,6 +22,7 @@ class UserTokenObtainPairSerializer(TokenObtainPairSerializer):
         token["email"] = user.email
         token["student_number"] = user.student_number
         token["sex"] = user.sex
+        token["gender"] = user.gender
         token["photo"] = user.photo
         token["is_staff"] = user.is_staff
         token["is_superuser"] = user.is_superuser
@@ -108,6 +109,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_staff",
             "student_number",
             "sex",
+            "gender",
             "photo_url",
             "overriden_photo_url",
             "photo",

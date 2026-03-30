@@ -21,6 +21,7 @@ class UserTokenObtainPairSerializerTestCase(TestCase):
             first_name="Test",
             last_name="User",
             student_number="123456",
+            sex="M",
             password="testpassword123",
         )
 
@@ -29,6 +30,7 @@ class UserTokenObtainPairSerializerTestCase(TestCase):
             first_name="Staff",
             last_name="Member",
             student_number="654321",
+            sex="F",
             is_staff=True,
             is_superuser=True,
             password="testpassword123",
@@ -48,6 +50,8 @@ class UserTokenObtainPairSerializerTestCase(TestCase):
         self.assertFalse(token["is_staff"])
         self.assertFalse(token["is_superuser"])
         self.assertEqual(token["account_level"], AccountLevel.BASIC)
+        self.assertEqual(token["sex"], "M")
+        self.assertEqual(token["gender"], "male")
 
     def test_staff_flags_in_token(self):
         """Test that is_staff and is_superuser flags are correctly embedded."""
@@ -64,6 +68,21 @@ class UserTokenObtainPairSerializerTestCase(TestCase):
         # Access token should contain the same claims
         self.assertEqual(access_token["first_name"], "Test")
         self.assertEqual(access_token["email"], "test@example.com")
+        self.assertEqual(access_token["sex"], "M")
+        self.assertEqual(access_token["gender"], "male")
+
+    def test_null_sex_maps_to_null_gender(self):
+        """Test that null sex is supported and maps to null gender."""
+        self.user.sex = None
+        self.user.save()
+
+        token = UserTokenObtainPairSerializer.get_token(self.user)
+        access_token = token.access_token
+
+        self.assertIsNone(token["sex"])
+        self.assertIsNone(token["gender"])
+        self.assertIsNone(access_token["sex"])
+        self.assertIsNone(access_token["gender"])
 
 
 class UserTokenRefreshSerializerTestCase(TestCase):
@@ -75,6 +94,7 @@ class UserTokenRefreshSerializerTestCase(TestCase):
             first_name="Test",
             last_name="User",
             student_number="123456",
+            sex="M",
             password="testpassword123",
         )
 
@@ -97,6 +117,8 @@ class UserTokenRefreshSerializerTestCase(TestCase):
 
         new_access = AccessToken(data["access"])
         self.assertEqual(new_access["first_name"], "Updated")
+        self.assertEqual(new_access["sex"], "M")
+        self.assertEqual(new_access["gender"], "male")
 
     def test_refresh_raises_error_for_deleted_user(self):
         """Test that refreshing a token for a deleted user raises InvalidToken."""

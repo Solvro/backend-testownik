@@ -141,6 +141,14 @@ class User(AbstractBaseUser, PermissionsMixin):
     def photo(self) -> str | None:
         return self.overriden_photo_url or self.photo_url
 
+    @property
+    def gender(self) -> str | None:
+        if self.sex == "M":
+            return "male"
+        if self.sex == "F":
+            return "female"
+        return None
+
     def get_sex(self):
         return Sex(self.sex)
 
