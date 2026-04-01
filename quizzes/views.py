@@ -862,6 +862,8 @@ class LibraryView(APIView):
             if f.id in accessible_ids:
                 return [{"id": str(entry.id), "name": entry.name} for entry in chain[i:]]
 
+        return []
+
     @extend_schema(
         summary="List library contents",
         parameters=[
