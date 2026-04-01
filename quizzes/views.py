@@ -837,6 +837,70 @@ class LibraryView(APIView):
     def _get_quizzes(self, user, folder_id):
         return Quiz.objects.filter(folder_id=folder_id).distinct().order_by("-created_at")
 
+    def _build_breadcrumbs(self, user, folder_id):
+        try:
+            folder = Folder.objects.get(id=folder_id)
+        except Folder.DoesNotExist:
+            return []
+
+        chain = []
+        current = folder
+        while current:
+            chain.append(current)
+            current = current.parent
+
+        chain.reverse()
+
+        accessible_ids = set(
+            Folder.objects.filter(
+                self._access_predicate(user),
+                id__in=[f.id for f in chain],
+            ).values_list("id", flat=True)
+        )
+
+        for i, f in enumerate(chain):
+            if f.id in accessible_ids:
+                return [{"id": str(entry.id), "name": entry.name} for entry in chain[i:]]
+
+    @extend_schema(
+        summary="List library contents",
+        parameters=[
+            OpenApiParameter(
+                name="folder_id",
+                type=str,
+                location=OpenApiParameter.PATH,
+                required=False,
+                description="UUID of the folder to browse. Defaults to the user's root folder.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                description="Folder contents with breadcrumb path",
+                response={
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "string", "format": "uuid"},
+                                    "name": {"type": "string"},
+                                },
+                            },
+                            "description": "Breadcrumb path from the topmost accessible folder to the current folder.",
+                        },
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                            "description": "List of folders and quizzes in the current folder.",
+                        },
+                    },
+                },
+            ),
+            403: OpenApiResponse(description="No permission to access this folder"),
+        },
+    )
     def get(self, request, folder_id=None):
         user = request.user
 
@@ -849,4 +913,9 @@ class LibraryView(APIView):
             )
 
         items = list(self._get_subfolders(user, folder_id)) + list(self._get_quizzes(user, folder_id))
-        return Response(LibraryItemSerializer(items, many=True, context={"request": request}).data)
+        return Response(
+            {
+                "path": self._build_breadcrumbs(user, folder_id),
+                "items": LibraryItemSerializer(items, many=True, context={"request": request}).data,
+            }
+        )

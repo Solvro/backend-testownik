@@ -680,12 +680,16 @@ class LibraryItemSerializer(serializers.Serializer):
             }
 
         if isinstance(instance, Quiz):
+            if instance.is_anonymous and user != instance.creator:
+                owner = None
+            else:
+                owner = PublicUserSerializer(instance.folder.owner).data
             return {
                 "id": instance.id,
                 "name": instance.title,
                 "description": instance.description,
                 "type": "quiz",
-                "owner": PublicUserSerializer(instance.folder.owner).data,
+                "owner": owner,
                 "can_edit": instance.can_edit(user),
                 "created_at": instance.created_at,
             }

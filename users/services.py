@@ -72,7 +72,7 @@ def migrate_guest_to_user(guest_id: str, target_user: User) -> bool:
                 Folder.objects.filter(owner=guest).exclude(pk=guest_root.pk).update(owner=target_user)
                 guest.root_folder = None
                 guest.save(update_fields=["root_folder"])
-                Folder.objects.filter(pk=guest_root.pk).delete()
+                guest_root.delete()
             else:
                 Folder.objects.filter(owner=guest).update(owner=target_user)
 
