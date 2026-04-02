@@ -68,6 +68,24 @@ class SharedFolder(models.Model):
     )
     allow_edit = models.BooleanField(default=False)
 
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(user__isnull=False, study_group__isnull=True) | Q(user__isnull=True, study_group__isnull=False)
+                ),
+                name="sharedfolder_exactly_one_target",
+            ),
+            models.UniqueConstraint(
+                fields=["folder", "user"],
+                name="unique_sharedfolder_folder_user",
+            ),
+            models.UniqueConstraint(
+                fields=["folder", "study_group"],
+                name="unique_sharedfolder_folder_study_group",
+            ),
+        ]
+
     def __str__(self):
         return f"Folder {self.folder.name} shared with {self.user or self.study_group}"
 

@@ -160,7 +160,7 @@ class LastUsedQuizzesView(generics.ListAPIView):
     def get_queryset(self):
         return (
             Quiz.objects.filter(sessions__user=self.request.user, sessions__is_active=True)
-            .select_related("creator")
+            .select_related("creator", "folder", "folder__owner")
             .order_by("-sessions__updated_at")
             .distinct()
         )
@@ -267,7 +267,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             if not user.is_authenticated:
                 return Quiz.objects.none()
 
-            return Quiz.objects.filter(creator=user)
+            return Quiz.objects.filter(creator=user).select_related("creator", "folder", "folder__owner")
 
         queryset = Quiz.objects.all()
 
@@ -334,7 +334,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         user = request.user
 
-        if not (quiz.visibility >= 1 or user == quiz.creator):
+        if not (quiz.visibility >= 1 or (user.is_authenticated and user.owns_quiz_via_folder(quiz))):
             raise PermissionDenied("You do not have permission to access this quiz metadata.")
 
         data = QuizMetaDataSerializer(quiz, context={"request": request}).data
@@ -635,6 +635,7 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
                 quiz__visibility__gte=1,
             )
             | Q(quiz__creator=self.request.user)
+            | Q(quiz__folder__owner=self.request.user)
         )
         if self.request.query_params.get("quiz"):
             _filter &= Q(quiz_id=self.request.query_params.get("quiz"))
@@ -819,16 +820,26 @@ class LibraryView(APIView):
         return Q(owner=user) | Q(shares__user=user) | Q(shares__study_group__in=user.study_groups.all())
 
     def _has_access(self, user, folder_id):
-        if Folder.objects.filter(self._access_predicate(user), id=folder_id).exists():
+        # Precompute IDs of all folders the user can directly access.
+        accessible_folder_ids = set(Folder.objects.filter(self._access_predicate(user)).values_list("id", flat=True))
+
+        # Direct access to this folder.
+        if folder_id in accessible_folder_ids:
             return True
-        folder = Folder.objects.filter(id=folder_id).select_related("parent").first()
+
+        # Walk up the ancestor chain using lightweight queries and check access in-memory.
+        folder = Folder.objects.filter(id=folder_id).only("id", "parent_id").first()
         if not folder:
             return False
-        current = folder.parent
-        while current:
-            if Folder.objects.filter(self._access_predicate(user), id=current.id).exists():
+
+        current_parent_id = folder.parent_id
+        while current_parent_id:
+            if current_parent_id in accessible_folder_ids:
                 return True
-            current = current.parent
+            parent = Folder.objects.filter(id=current_parent_id).only("id", "parent_id").first()
+            if not parent:
+                break
+            current_parent_id = parent.parent_id
         return False
 
     def _get_subfolders(self, user, folder_id):

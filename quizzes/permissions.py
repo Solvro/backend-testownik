@@ -72,7 +72,7 @@ class IsQuizReadable(permissions.BasePermission):
     """
     Custom permission for read access to a quiz.
     Allowed if:
-    - User is the creator
+    - User is the folder owner
     - Quiz is public or unlisted (visibility >= 2) and user is authenticated (or quiz allows anonymous)
     - Quiz is shared with the user explicitly (requires non-guest account)
     - Quiz is shared with a group the user belongs to (requires non-guest account)

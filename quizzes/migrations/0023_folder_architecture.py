@@ -10,17 +10,17 @@ def create_root_folders(apps, schema_editor):
     Folder = apps.get_model("quizzes", "Folder")
     Quiz = apps.get_model("quizzes", "Quiz")
 
-    for user in User.objects.all():
+    for user in User.objects.all().iterator():
         if user.root_folder_id:
-            continue
-
-        folder = Folder.objects.create(
-            id=uuid.uuid4(),
-            name="Moje quizy",
-            owner=user,
-            parent=None,
-        )
-        User.objects.filter(pk=user.pk).update(root_folder=folder)
+            folder = Folder.objects.get(pk=user.root_folder_id)
+        else:
+            folder = Folder.objects.create(
+                id=uuid.uuid4(),
+                name="Moje quizy",
+                owner=user,
+                parent=None,
+            )
+            User.objects.filter(pk=user.pk).update(root_folder=folder)
         Quiz.objects.filter(creator=user, folder__isnull=True).update(folder=folder)
 
 

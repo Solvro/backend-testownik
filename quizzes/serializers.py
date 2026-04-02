@@ -286,7 +286,7 @@ class QuizSerializer(serializers.ModelSerializer):
             else:
                 data.pop("current_session", None)
 
-            if user.is_creator(instance):
+            if user.owns_quiz_via_folder(instance):
                 data["folder"] = FolderSerializer(instance.folder).data
             else:
                 data.pop("folder", None)
@@ -489,7 +489,7 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
         if not user or (instance.is_anonymous and user != instance.creator):
             data["creator"] = None
 
-        if user and user.is_authenticated and user.is_creator(instance):
+        if user and user.is_authenticated and user.owns_quiz_via_folder(instance):
             data["folder"] = FolderSerializer(instance.folder).data
         else:
             data.pop("folder", None)
@@ -656,11 +656,13 @@ class MoveQuizSerializer(serializers.Serializer):
     folder_id = serializers.UUIDField(allow_null=True)
 
     def validate_folder_id(self, value):
-        if value:
-            user = self.context["request"].user
+        user = self.context["request"].user
 
-            if not Folder.objects.filter(id=value, owner=user).exists():
-                raise serializers.ValidationError("The folder does not exist or you do not have access to it.")
+        if not value:
+            return user.root_folder_id
+
+        if not Folder.objects.filter(id=value, owner=user).exists():
+            raise serializers.ValidationError("The folder does not exist or you do not have access to it.")
 
         return value
 

@@ -151,8 +151,19 @@ class User(AbstractBaseUser, PermissionsMixin):
             and self.staff_status is StaffStatus.NOT_STAFF.value
         )
 
+    def owns_quiz_via_folder(self, quiz) -> bool:
+        """
+        Return True if the user owns the given quiz via its folder.
+
+        This checks `quiz.folder.owner == self` and does not look at `quiz.creator`.
+        """
+        folder = getattr(quiz, "folder", None)
+        owner = getattr(folder, "owner", None)
+        return owner == self
+
     def is_creator(self, quiz) -> bool:
-        return quiz.folder.owner == self
+        """Deprecated: use owns_quiz_via_folder() instead."""
+        return self.owns_quiz_via_folder(quiz)
 
     @property
     def photo(self) -> str | None:
