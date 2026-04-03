@@ -14,7 +14,7 @@ def migrate_guest_to_user(guest_id: str, target_user: User) -> bool:
     Migrate all data from a guest account to the target user account, then delete the guest.
 
     Transfers:
-    - Quizzes (maintainer)
+    - Quizzes (creator)
     - Quiz sessions (where target doesn't already have one for that quiz)
     - Folders (owner)
 
@@ -46,7 +46,7 @@ def migrate_guest_to_user(guest_id: str, target_user: User) -> bool:
         with transaction.atomic():
             from quizzes.models import Folder, Quiz, QuizSession
 
-            Quiz.objects.filter(maintainer=guest).update(maintainer=target_user)
+            Quiz.objects.filter(creator=guest).update(creator=target_user)
 
             guest_active_sessions = {s.quiz_id: s for s in QuizSession.objects.filter(user=guest, is_active=True)}
             target_active_sessions = {
@@ -63,7 +63,18 @@ def migrate_guest_to_user(guest_id: str, target_user: User) -> bool:
 
             QuizSession.objects.filter(user=guest).update(user=target_user)
 
-            Folder.objects.filter(owner=guest).update(owner=target_user)
+            guest_root = guest.root_folder
+            target_root = target_user.root_folder
+
+            if guest_root and target_root:
+                Quiz.objects.filter(folder=guest_root).update(folder=target_root)
+                Folder.objects.filter(parent=guest_root).update(parent=target_root, owner=target_user)
+                Folder.objects.filter(owner=guest).exclude(pk=guest_root.pk).update(owner=target_user)
+                guest.root_folder = None
+                guest.save(update_fields=["root_folder"])
+                guest_root.delete()
+            else:
+                Folder.objects.filter(owner=guest).update(owner=target_user)
 
             guest.delete()
 
