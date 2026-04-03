@@ -58,18 +58,4 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.RunPython(create_root_folders, migrations.RunPython.noop),
-        migrations.AlterField(
-            model_name="quiz",
-            name="folder",
-            field=models.ForeignKey(
-                on_delete=django.db.models.deletion.PROTECT,
-                related_name="quizzes",
-                to="quizzes.folder",
-            ),
-        ),
-        migrations.AlterField(
-            model_name="folder",
-            name="created_at",
-            field=models.DateTimeField(auto_now_add=True),
-        ),
     ]
