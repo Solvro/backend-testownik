@@ -6,7 +6,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quizzes.models import Answer, Question, Quiz
+from quizzes.models import Answer, Folder, Question, Quiz, Type
 from users.models import User
 
 
@@ -190,10 +190,22 @@ class QuizCRUDTestCase(APITestCase):
         question.refresh_from_db()
         self.assertEqual(question.text, "Updated Text")
 
-    # --- DELETE ---
-    def test_delete_quiz(self):
-        """Test deleting a quiz."""
-        quiz = Quiz.objects.create(title="To Delete", creator=self.user, folder=self.user.root_folder)
+    def test_delete_quiz_moves_to_archive(self):
+        """Test deleting a quiz moves it to the archive folder instead of complete deletion."""
+        quiz = Quiz.objects.create(title="To Trash", creator=self.user, folder=self.user.root_folder)
+        url = reverse("quiz-detail", kwargs={"pk": quiz.id})
+
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        quiz.refresh_from_db()
+        archive_folder = Folder.objects.get(owner=self.user, folder_type=Type.ARCHIVE)
+        self.assertEqual(quiz.folder, archive_folder)
+
+    def test_delete_quiz_permanently(self):
+        """Test deleting a quiz already in the archive folder permanently deletes it."""
+        archive_folder = Folder.objects.get(owner=self.user, folder_type=Type.ARCHIVE)
+        quiz = Quiz.objects.create(title="In Trash", creator=self.user, folder=archive_folder)
         url = reverse("quiz-detail", kwargs={"pk": quiz.id})
 
         response = self.client.delete(url)
