@@ -380,7 +380,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             try:
                 archive_folder = Folder.objects.get(owner=self.request.user, folder_type=Type.ARCHIVE)
                 instance.folder = archive_folder
-                instance.save(update_fields=["folder"])
+                instance.save(update_fields=["folder", "updated_at"])
             except Folder.DoesNotExist:
                 instance.delete()
         else:
