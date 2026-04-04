@@ -2,13 +2,13 @@ import json
 import logging
 import os
 import re
+import urllib.parse
 from asyncio import CancelledError, sleep
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import dotenv
 from asgiref.sync import sync_to_async
 from django.contrib import messages
-from django.contrib.auth import aget_user
 from django.contrib.auth import alogin as async_auth_login
 from django.contrib.auth import login as auth_login
 from django.db.models import Q
@@ -25,8 +25,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from usos_api import USOSAPIException, USOSClient
+from usos_api.models import StaffStatus, StudentStatus
 
-from quizzes.models import QuizProgress, SharedQuiz
+from quizzes.models import QuizSession, SharedQuiz
+from quizzes.permissions import IsInternalApiRequest
 from testownik_core.settings import (
     ALLOW_PREVIEW_ENVIRONMENTS,
     ALLOWED_REDIRECT_ORIGINS,
@@ -34,7 +36,14 @@ from testownik_core.settings import (
     oauth,
 )
 from users.auth_cookies import set_jwt_cookies
-from users.models import EmailLoginToken, StudyGroup, Term, User, UserSettings
+from users.models import (
+    AccountType,
+    EmailLoginToken,
+    StudyGroup,
+    Term,
+    User,
+    UserSettings,
+)
 from users.serializers import (
     PublicUserSerializer,
     StudyGroupSerializer,
@@ -43,6 +52,7 @@ from users.serializers import (
     UserTokenObtainPairSerializer,
     UserTokenRefreshSerializer,
 )
+from users.services import migrate_guest_to_user
 from users.utils import send_login_email_to_user
 
 dotenv.load_dotenv()
@@ -105,6 +115,9 @@ def is_safe_redirect_url(url: str) -> bool:
     if not url:
         return False
 
+    if url == "admin:index":
+        return True
+
     if url.startswith("//"):
         return False
 
@@ -138,13 +151,16 @@ def login(request):
     confirm_user = request.GET.get("confirm_user", "false") == "true"
     jwt = request.GET.get("jwt", "false") == "true"
     redirect_url = request.GET.get("redirect", "")
+    guest_id = request.GET.get("guest_id", "")
 
     if redirect_url and not is_safe_redirect_url(redirect_url):
         logger.warning("Blocked unsafe redirect URL in login: %s", redirect_url)
         return HttpResponseBadRequest("Invalid redirect URL")
 
     callback_url = request.build_absolute_uri(
-        f"/api/authorize/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
+        f"/api/authorize/?jwt={str(jwt).lower()}"
+        f"{f'&redirect={redirect_url}' if redirect_url else ''}"
+        f"{f'&guest_id={urllib.parse.quote(guest_id)}' if guest_id else ''}"
     )
     additional_params = {}
     if confirm_user:
@@ -156,6 +172,7 @@ async def login_usos(request):
     confirm_user = request.GET.get("confirm_user", "false") == "true"
     jwt = request.GET.get("jwt", "false") == "true"
     redirect_url = request.GET.get("redirect", "")
+    guest_id = request.GET.get("guest_id", "")
 
     if jwt and not redirect_url:
         return HttpResponseForbidden("Redirect URL must be provided when using JWT")
@@ -165,7 +182,9 @@ async def login_usos(request):
         return HttpResponseBadRequest("Invalid redirect URL")
 
     callback_url = request.build_absolute_uri(
-        f"/api/authorize/usos/?jwt={str(jwt).lower()}{f'&redirect={redirect_url}' if redirect_url else ''}"
+        f"/api/authorize/usos/?jwt={str(jwt).lower()}"
+        f"{f'&redirect={redirect_url}' if redirect_url else ''}"
+        f"{f'&guest_id={urllib.parse.quote(guest_id)}' if guest_id else ''}"
     )
 
     max_retries = 3  # max tries
@@ -224,7 +243,11 @@ async def login_usos(request):
 
 
 def admin_login(request):
-    next_url = request.GET.get("next", "/admin")
+    next_url = request.GET.get("next", "admin:index")
+    if not is_safe_redirect_url(next_url):
+        logger.warning("Blocked unsafe redirect URL in admin_login: %s", next_url)
+        messages.error(request, "Unsafe redirect URL, defaulting to admin index")
+        next_url = "admin:index"
     if request.user.is_authenticated and request.user.is_superuser:
         return redirect(next_url)
     return render(request, "users/admin_login.html", {"next": next_url, "username": request.user})
@@ -266,6 +289,10 @@ def authorize(request):
         defaults={
             "photo_url": f"https://api.dicebear.com/9.x/adventurer/svg?seed={profile['email']}",
         },
+        create_defaults={
+            "account_type": AccountType.EMAIL,
+            "photo_url": f"https://api.dicebear.com/9.x/adventurer/svg?seed={profile['email']}",
+        },
     )
 
     if user.is_banned:
@@ -278,6 +305,10 @@ def authorize(request):
 
         messages.error(request, f"Twoje konto zostało zablokowane: {user.ban_reason or 'Brak powodu'}")
         return redirect(redirect_url)
+
+    guest_id = request.GET.get("guest_id", "")
+    if guest_id:
+        migrate_guest_to_user(guest_id, user)
 
     if request.GET.get("jwt", "false") == "true":
         refresh = UserTokenObtainPairSerializer.get_token(user)
@@ -375,6 +406,10 @@ async def authorize_usos(request):
                 return redirect(add_query_params(redirect_url, {"error": "not_student"}))
             return redirect("index")
 
+    guest_id = request.GET.get("guest_id", "")
+    if guest_id:
+        await sync_to_async(migrate_guest_to_user)(guest_id, user)
+
     if request.GET.get("jwt", "false") == "true":
         refresh = await sync_to_async(UserTokenObtainPairSerializer.get_token)(user)
         response = redirect(remove_query_params(redirect_url, ["error"]))
@@ -422,6 +457,11 @@ async def update_user_data_from_usos(client=None, access_token=None, access_toke
             user_data.photo_urls.get("200x200", next(iter(user_data.photo_urls.values()), None)),
         ),
     }
+
+    if user_data.staff_status.value >= StaffStatus.NON_ACADEMIC_STAFF.value:
+        defaults["account_type"] = AccountType.LECTURER
+    elif user_data.student_status.value >= StudentStatus.INACTIVE_STUDENT.value:
+        defaults["account_type"] = AccountType.STUDENT
 
     if access_token and access_token_secret:
         defaults["access_token"] = access_token
@@ -552,18 +592,6 @@ class SettingsViewSet(
     def partial_update(self, request, *args, **kwargs):
         """PATCH /api/settings/"""
         return super().partial_update(request, *args, **kwargs)
-
-
-async def refresh_user_data(request):
-    try:
-        request_user = await aget_user(request)
-        await update_user_data_from_usos(
-            access_token=request_user.access_token,
-            access_token_secret=request_user.access_token_secret,
-        )
-    except Exception as e:
-        messages.error(request, f"Wystąpił błąd podczas odświeżania danych użytkownika: {e}")
-    return redirect(request.GET.get("next", "index"))
 
 
 class CurrentUserView(GenericAPIView):
@@ -707,7 +735,7 @@ class GenerateOtpView(APIView):
                     "message": {"type": "string"},
                 },
             },
-            404: OpenApiResponse(description="User not found"),
+            403: OpenApiResponse(description="Rate limit exceeded"),
         },
         examples=[
             OpenApiExample(
@@ -718,12 +746,6 @@ class GenerateOtpView(APIView):
                 "Success response",
                 response_only=True,
                 value={"message": "Login email sent."},
-            ),
-            OpenApiExample(
-                "Error response (user not found)",
-                response_only=True,
-                value={"error": "User not found"},
-                status_codes=["404"],
             ),
         ],
     )
@@ -741,6 +763,7 @@ class GenerateOtpView(APIView):
 class LoginOtpView(APIView):
     permission_classes = [AllowAny]
 
+    @method_decorator(ratelimit(key="ip", rate="10/m", method="POST", block=True))
     @extend_schema(
         summary="Verify OTP for login",
         description="Verify the OTP provided by the user and return JWT tokens.",
@@ -762,6 +785,7 @@ class LoginOtpView(APIView):
                 },
             },
             400: OpenApiResponse(description="Invalid or expired OTP"),
+            403: OpenApiResponse(description="Rate limit exceeded"),
         },
         examples=[
             OpenApiExample("Valid request", value={"email": "user@example.com", "otp": "123456"}),
@@ -787,6 +811,7 @@ class LoginOtpView(APIView):
     def post(self, request):
         email = request.data.get("email")
         otp_code = request.data.get("otp")
+        guest_id = request.data.get("guest_id", "")
 
         if not email or not otp_code:
             return Response({"error": "Email and OTP code must be provided"}, status=400)
@@ -816,6 +841,9 @@ class LoginOtpView(APIView):
 
         refresh = UserTokenObtainPairSerializer.get_token(user)
         email_login_token.delete()
+
+        if guest_id:
+            migrate_guest_to_user(guest_id, user)
 
         response = Response({"message": "Login successful"})
         set_jwt_cookies(response, str(refresh.access_token), str(refresh))
@@ -863,6 +891,7 @@ class LoginLinkView(APIView):
     )
     def post(self, request):
         token = request.data.get("token")
+        guest_id = request.data.get("guest_id", "")
         if not token:
             return Response({"error": "Token not provided"}, status=400)
 
@@ -888,7 +917,39 @@ class LoginLinkView(APIView):
         refresh = UserTokenObtainPairSerializer.get_token(user)
         email_login_token.delete()
 
+        if guest_id:
+            migrate_guest_to_user(guest_id, user)
+
         response = Response({"message": "Login successful"})
+        set_jwt_cookies(response, str(refresh.access_token), str(refresh))
+        return response
+
+
+class GuestCreateView(APIView):
+    """Create a guest account with no credentials. Returns JWT tokens for immediate use."""
+
+    permission_classes = [IsInternalApiRequest]
+
+    @extend_schema(
+        summary="Create guest account",
+        description="Creates a new guest account automatically without requiring any data. "
+        "Returns JWT tokens in cookies for immediate use.",
+        request=None,
+        responses={
+            201: {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string"},
+                },
+            },
+            403: OpenApiResponse(description="Forbidden - internal API access only"),
+        },
+    )
+    def post(self, request):
+        user = User.objects.create_guest_user()
+        refresh = UserTokenObtainPairSerializer.get_token(user)
+
+        response = Response({"message": "Guest account created"}, status=201)
         set_jwt_cookies(response, str(refresh.access_token), str(refresh))
         return response
 
@@ -937,12 +998,12 @@ class DeleteAccountView(APIView):
             except User.DoesNotExist:
                 return Response({"error": "User to transfer quizzes to not found"}, status=404)
 
-            quizzes = Quiz.objects.filter(maintainer=request.user)
+            quizzes = Quiz.objects.filter(creator=request.user)
             for quiz in quizzes:
-                quiz.maintainer = transfer_to_user
+                quiz.creator = transfer_to_user
                 quiz.save()
 
-        QuizProgress.objects.filter(user=request.user).delete()
+        QuizSession.objects.filter(user=request.user).delete()
         SharedQuiz.objects.filter(user=request.user).delete()
         request.user.delete()
 

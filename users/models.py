@@ -1,4 +1,4 @@
-import random
+import secrets
 import uuid
 from datetime import date, timedelta
 
@@ -13,6 +13,24 @@ from rest_framework import serializers
 from usos_api.models import Sex, StaffStatus, StudentStatus
 
 
+class AccountType(models.TextChoices):
+    GUEST = "guest", "Guest"
+    EMAIL = "email", "Email"
+    STUDENT = "student", "Confirmed Student"
+    LECTURER = "lecturer", "Lecturer"
+
+
+class AccountLevel(models.TextChoices):
+    BASIC = "basic", "Basic"
+    GOLD = "gold", "Gold"
+
+
+SEX_TO_GENDER = {
+    Sex.MALE: "male",
+    Sex.FEMALE: "female",
+}
+
+
 class CustomUserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         if not email:
@@ -20,6 +38,13 @@ class CustomUserManager(BaseUserManager):
         email = self.normalize_email(email)
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_guest_user(self):
+        """Create a guest user with no email, name, or password."""
+        user = self.model(account_type=AccountType.GUEST)
+        user.set_unusable_password()
         user.save(using=self._db)
         return user
 
@@ -39,7 +64,19 @@ class User(AbstractBaseUser, PermissionsMixin):
     objects = CustomUserManager()
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    email = models.EmailField(unique=True)
+    email = models.EmailField(unique=True, null=True, blank=True)
+    account_type = models.CharField(
+        max_length=10,
+        choices=AccountType.choices,
+        default=AccountType.EMAIL,
+        help_text="Determines the user's account type and associated permissions",
+    )
+    account_level = models.CharField(
+        max_length=10,
+        choices=AccountLevel.choices,
+        default=AccountLevel.BASIC,
+        help_text="Represents the user's account level tier",
+    )
     student_number = models.CharField(max_length=6)
     usos_id = models.IntegerField(null=True, blank=True)
     first_name = models.CharField(max_length=30)
@@ -59,6 +96,14 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     is_superuser = BooleanField(default=False)
     is_staff = BooleanField(default=False)
+
+    root_folder = models.OneToOneField(
+        "quizzes.Folder",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="root_owner",
+    )
 
     hide_profile = BooleanField(
         default=False,
@@ -106,9 +151,32 @@ class User(AbstractBaseUser, PermissionsMixin):
             and self.staff_status is StaffStatus.NOT_STAFF.value
         )
 
+    def owns_quiz_via_folder(self, quiz) -> bool:
+        """
+        Return True if the user owns the given quiz via its folder.
+
+        This checks `quiz.folder.owner == self` and does not look at `quiz.creator`.
+        """
+        folder = getattr(quiz, "folder", None)
+        owner = getattr(folder, "owner", None)
+        return owner == self
+
+    def is_creator(self, quiz) -> bool:
+        """Deprecated: use owns_quiz_via_folder() instead."""
+        return self.owns_quiz_via_folder(quiz)
+
     @property
     def photo(self) -> str | None:
         return self.overriden_photo_url or self.photo_url
+
+    @property
+    def gender(self) -> str | None:
+        if not self.sex:
+            return None
+        try:
+            return SEX_TO_GENDER.get(self.get_sex())
+        except ValueError:
+            return None
 
     def get_sex(self):
         return Sex(self.sex)
@@ -194,7 +262,7 @@ class EmailLoginToken(models.Model):
 
     @staticmethod
     def generate_otp():
-        return f"{random.randint(100000, 999999)}"
+        return f"{secrets.randbelow(900000) + 100000}"
 
     @staticmethod
     def create_for_user(user):

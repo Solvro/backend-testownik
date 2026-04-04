@@ -21,10 +21,14 @@ class UserTokenObtainPairSerializer(TokenObtainPairSerializer):
         token["full_name"] = user.full_name
         token["email"] = user.email
         token["student_number"] = user.student_number
+        token["sex"] = user.sex
+        token["gender"] = user.gender
         token["photo"] = user.photo
         token["is_staff"] = user.is_staff
         token["is_superuser"] = user.is_superuser
         token["is_banned"] = user.is_banned
+        token["account_type"] = user.account_type
+        token["account_level"] = user.account_level
 
         return token
 
@@ -104,17 +108,21 @@ class UserSerializer(serializers.ModelSerializer):
             "is_superuser",
             "is_staff",
             "student_number",
+            "sex",
+            "gender",
             "photo_url",
             "overriden_photo_url",
             "photo",
             "hide_profile",
+            "account_type",
+            "account_level",
         ]
 
 
 class PublicUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "full_name", "student_number", "photo"]
+        fields = ["id", "full_name", "student_number", "photo", "account_type", "account_level"]
 
 
 class UserSettingsSerializer(serializers.ModelSerializer):

@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import UploadedImage
@@ -22,6 +23,7 @@ class UploadedImageSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    @extend_schema_field(serializers.URLField(allow_null=True))
     def get_url(self, obj):
         """Return absolute URL for the image."""
         request = self.context.get("request")
