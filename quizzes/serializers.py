@@ -473,7 +473,7 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "version",
             "can_edit",
             "folder",
-            "quiz_rating"  # quiz rating of user who is making the request
+            "quiz_rating",  # quiz rating of user who is making the request
             "average_rating",
             "review_count",
         ]
