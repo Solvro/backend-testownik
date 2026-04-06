@@ -764,18 +764,20 @@ class CommentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Content cannot be empty")
         return value
 
+    def validate_parent(self, value):
+        quiz_id = self.context["view"].kwargs.get("quiz_pk")
+        if value and str(value.quiz_id) != str(quiz_id):
+            raise serializers.ValidationError("Parent comment does not belong to this quiz")
+        return value
+
     def validate(self, data):
         quiz = data.get("quiz")
         question = data.get("question")
-        parent = data.get("parent")
 
         # Prevent user from commenting question that belongs to another quiz
         # Basically question_quiz_id must be equal to quiz_id
         if question and quiz and question.quiz != quiz:
             raise serializers.ValidationError("This question does not belong to the selected quiz")
-
-        if parent and parent.quiz != quiz:
-            raise serializers.ValidationError("Parent comment does not belong to the selected quiz")
 
         return data
 
