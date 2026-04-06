@@ -3,8 +3,8 @@ from datetime import timedelta
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from django.utils import timezone
 from django.db.models import ProtectedError, Q
+from django.utils import timezone
 
 from users.models import StudyGroup, User
 
@@ -121,6 +121,10 @@ class Quiz(models.Model):
 
     def get_average_rating(self):
         return self.ratings.aggregate(avg=models.Avg("score"))["avg"]
+
+    def get_review_count(self):
+        return self.ratings.count()
+
     def get_last_used_at(self, user):
         last_session = self.sessions.filter(user=user).order_by("-updated_at").first()
 
@@ -397,5 +401,4 @@ class Comment(models.Model):
         self.is_deleted = True
         self.deleted_at = timezone.now()
         self.author = None
-        self.content = ""
-        self.save(update_fields=["is_deleted", "deleted_at", "author", "content"])
+        self.save(update_fields=["is_deleted", "deleted_at", "author"])

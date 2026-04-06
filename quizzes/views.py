@@ -852,8 +852,14 @@ class CommentViewSet(viewsets.ModelViewSet):
     serializer_class = CommentSerializer
     queryset = Comment.objects.all()
 
+    # This function solves problems with authorization
+    # Queryset contains comments linked to quizzes, to which user has direct or indirect access
     def get_queryset(self):
         user = self.request.user
+        quiz_id = self.request.query_params.get("quiz_id")
+
+        if not quiz_id:
+            raise ValidationError({"quiz_id": "This query parameter is required."})
 
         shared_quiz_ids = SharedQuiz.objects.filter(
             Q(user=user) | Q(study_group__in=user.study_groups.all()), quiz__visibility__gte=1
@@ -863,14 +869,16 @@ class CommentViewSet(viewsets.ModelViewSet):
             Q(quiz__maintainer=user)  # user is maintainer
             | Q(quiz_id__in=shared_quiz_ids)  # quiz was shared to user
             | Q(quiz__visibility=3)  # quiz is public
-        )
+        ).distinct()
+
+    def perform_update(self, serializer):
+        return super().perform_update(serializer)
 
     def perform_destroy(self, instance: Comment):
         if instance.is_deleted:
             raise ValidationError("Comment is already deleted.")
 
         instance.mark_as_deleted()
-        return Response(serializer.errors, status=400)
 
 
 class LibraryView(APIView):

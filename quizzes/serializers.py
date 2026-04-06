@@ -454,6 +454,8 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
     creator = PublicUserSerializer(read_only=True)
     can_edit = serializers.SerializerMethodField()
     last_used_at = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+    review_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Quiz
@@ -471,8 +473,22 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "version",
             "can_edit",
             "folder",
+            "quiz_rating"  # quiz rating of user who is making the request
+            "average_rating",
+            "review_count",
         ]
-        read_only_fields = ["creator", "created_at", "updated_at", "last_used_at", "version", "can_edit", "folder"]
+        read_only_fields = [
+            "creator",
+            "created_at",
+            "updated_at",
+            "last_used_at",
+            "version",
+            "can_edit",
+            "folder",
+            "quiz_rating",
+            "average_rating",
+            "review_count",
+        ]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -487,21 +503,37 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             data.pop("folder", None)
         return data
 
-    def get_last_used_at(self, obj: Quiz):
-        # context is always request
+    def _is_authenticated(self):
         request = self.context.get("request")
+        return request and request.user.is_authenticated
 
-        # if user is authenticated
-        if request and request.user.is_authenticated:
-            return obj.get_last_used_at(request.user)
+    def get_last_used_at(self, obj: Quiz):
+        if self._is_authenticated():
+            return obj.get_last_used_at(self.context.get("request").user)
 
         return None
 
-    def get_can_edit(self, obj) -> bool:
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            return obj.can_edit(request.user)
+    def get_can_edit(self, obj: Quiz) -> bool:
+        if self._is_authenticated():
+            return obj.can_edit(self.context.get("request").user)
         return False
+
+    def get_quiz_rating(self, obj: Quiz):
+        if self._is_authenticated():
+            user = self.context.get("request").user
+            return obj.ratings.filter(user=user).first()
+
+        return None
+
+    def get_average_rating(self, obj: Quiz):
+        if self._is_authenticated():
+            return obj.get_average_rating()
+
+        return None
+
+    def get_review_count(self, obj: Quiz):
+        if self._is_authenticated():
+            return obj.get_review_count()
 
 
 class QuizMetaDataWithQuestionSerializer(QuizMetaDataSerializer):
