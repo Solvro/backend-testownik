@@ -1,7 +1,7 @@
 python-dotenv==1.2.2
 Django==6.0.3
 usos-api==0.3.4
-requests==2.33.0
+requests==2.33.1
 djangorestframework==3.17.1
 djangorestframework-simplejwt==5.5.1
 django-cors-headers==4.9.0
@@ -15,6 +15,6 @@ drf-spectacular==0.29.0
 django-filter==25.2
 django-constance>=4.3.2
 Authlib==1.6.9
-nh3==0.3.3
-Pillow==12.1.1
+nh3==0.3.4
+Pillow==12.2.0
 django-storages[s3]==1.14.6

@@ -5,6 +5,7 @@ from quizzes.views import (
     CommentViewSet,
     FolderViewSet,
     LastUsedQuizzesView,
+    LibraryView,
     QuestionViewSet,
     QuizRatingViewSet,
     QuizViewSet,
@@ -27,6 +28,8 @@ urlpatterns = [
     path("", include(router.urls)),
     path("random-question/", RandomQuestionView.as_view(), name="random-question"),
     path("last-used-quizzes/", LastUsedQuizzesView.as_view(), name="last-used-quizzes"),
+    path("library/", LibraryView.as_view(), name="library-root"),
+    path("library/<uuid:folder_id>/", LibraryView.as_view(), name="library-folder"),
     path(
         "report-question-issue/",
         ReportQuestionIssueView.as_view(),
