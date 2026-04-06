@@ -454,6 +454,7 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
     creator = PublicUserSerializer(read_only=True)
     can_edit = serializers.SerializerMethodField()
     last_used_at = serializers.SerializerMethodField()
+    quiz_rating = serializers.SerializerMethodField()
     average_rating = serializers.SerializerMethodField()
     review_count = serializers.SerializerMethodField()
 
@@ -473,7 +474,7 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "version",
             "can_edit",
             "folder",
-            "quiz_rating"  # quiz rating of user who is making the request
+            "quiz_rating",  # quiz rating of user who is making the request
             "average_rating",
             "review_count",
         ]
@@ -756,7 +757,7 @@ class CommentSerializer(serializers.ModelSerializer):
             "deleted_at",
             "is_reply",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "is_deleted", "deleted_at", "is_reply"]
+        read_only_fields = ["id", "quiz", "created_at", "updated_at", "is_deleted", "deleted_at", "is_reply"]
 
     def validate_content(self, value):
         if not value.strip():
@@ -766,11 +767,15 @@ class CommentSerializer(serializers.ModelSerializer):
     def validate(self, data):
         quiz = data.get("quiz")
         question = data.get("question")
+        parent = data.get("parent")
 
         # Prevent user from commenting question that belongs to another quiz
         # Basically question_quiz_id must be equal to quiz_id
         if question and quiz and question.quiz != quiz:
             raise serializers.ValidationError("This question does not belong to the selected quiz")
+
+        if parent and parent.quiz != quiz:
+            raise serializers.ValidationError("Parent comment does not belong to the selected quiz")
 
         return data
 

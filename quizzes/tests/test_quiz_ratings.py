@@ -3,7 +3,7 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from quizzes.models import Quiz, QuizRating
+from quizzes.models import Folder, Quiz, QuizRating
 
 User = get_user_model()
 
@@ -13,7 +13,8 @@ class QuizRatingViewSetTestCase(TestCase):
         self.client = APIClient()
         self.user = User.objects.create_user(email="example_1@mail.com", password="password")
         self.other_user = User.objects.create_user(email="example_2@mail.com", password="password")
-        self.quiz = Quiz.objects.create(title="Test Quiz", maintainer=self.user)
+        self.folder = Folder.objects.create(name="Test Folder", owner=self.user)
+        self.quiz = Quiz.objects.create(title="Test Quiz", creator=self.user, folder=self.folder)
         self.rating = QuizRating.objects.create(user=self.user, quiz=self.quiz, score=4)
         self.client.force_authenticate(user=self.user)
 
@@ -30,7 +31,7 @@ class QuizRatingViewSetTestCase(TestCase):
 
     # CREATE
     def test_create_rating(self):
-        quiz2 = Quiz.objects.create(title="Quiz 2", maintainer=self.user)
+        quiz2 = Quiz.objects.create(title="Quiz 2", creator=self.user, folder=self.folder)
         response = self.client.post(
             "/api/quiz-ratings/",
             {

@@ -8,6 +8,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.html import escape
 from drf_spectacular.utils import (
@@ -856,20 +857,22 @@ class CommentViewSet(viewsets.ModelViewSet):
     # Queryset contains comments linked to quizzes, to which user has direct or indirect access
     def get_queryset(self):
         user = self.request.user
-        quiz_id = self.request.query_params.get("quiz_id")
+        quiz_id = self.kwargs.get("quiz_pk")
 
         if not quiz_id:
-            raise ValidationError({"quiz_id": "This query parameter is required."})
+            raise ValidationError({"quiz_pk": "This query parameter is required."})
 
         shared_quiz_ids = SharedQuiz.objects.filter(
             Q(user=user) | Q(study_group__in=user.study_groups.all()), quiz__visibility__gte=1
         ).values_list("quiz_id", flat=True)
 
-        return Comment.objects.filter(
-            Q(quiz__maintainer=user)  # user is maintainer
-            | Q(quiz_id__in=shared_quiz_ids)  # quiz was shared to user
-            | Q(quiz__visibility=3)  # quiz is public
-        ).distinct()
+        has_access = Q(quiz__creator=user) | Q(quiz_id__in=shared_quiz_ids) | Q(quiz__visibility=3)
+
+        return Comment.objects.filter(has_access, quiz_id=quiz_id).distinct()
+
+    def perform_create(self, serializer):
+        quiz = get_object_or_404(Quiz, pk=self.kwargs["quiz_pk"])
+        serializer.save(quiz=quiz, author=self.request.user)
 
     def perform_update(self, serializer):
         return super().perform_update(serializer)
