@@ -2,18 +2,15 @@ import urllib.parse
 from unittest.mock import MagicMock, patch
 
 from django.http import HttpResponseRedirect
-from django.test import TestCase, override_settings
+from django.test import override_settings
 from django.urls import reverse
-from rest_framework.test import APIClient
+from rest_framework.test import APITestCase
 
 from users.models import User
 
 
 @override_settings(DEBUG=True)
-class SolvroOAuthTests(TestCase):
-    def setUp(self):
-        self.client = APIClient()
-
+class SolvroOAuthTests(APITestCase):
     @patch("users.views.oauth.create_client")
     def test_solvro_login_redirect_url(self, mock_create_client):
         """Test SolvroLoginView builds the correct callback URL with query parameters."""

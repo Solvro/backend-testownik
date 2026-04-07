@@ -15,7 +15,7 @@ from django.contrib.auth import alogin as async_auth_login
 from django.contrib.auth import login as auth_login
 from django.db.models import Q
 from django.http import HttpResponseBadRequest, HttpResponseForbidden
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect, render, resolve_url
 from django.utils.decorators import method_decorator
 from django.utils.http import url_has_allowed_host_and_scheme
 from django_ratelimit.decorators import ratelimit
@@ -425,7 +425,7 @@ class UsosLoginView(AsyncAPIView):
                 "<set>" if usos_key else "<missing>",
                 "<set>" if usos_secret else "<missing>",
             )
-            return redirect(add_query_params(redirect_url, {"error": "usos_unavailable"}))
+            return redirect(add_query_params(redirect_url or "index", {"error": "usos_unavailable"}))
 
         for attempt in range(max_retries):
             try:
@@ -463,9 +463,9 @@ class UsosLoginView(AsyncAPIView):
                     await sleep(retry_delay)
                     continue
 
-                return redirect(add_query_params(redirect_url, {"error": "usos_unavailable"}))
+                return redirect(add_query_params(redirect_url or "index", {"error": "usos_unavailable"}))
 
-        return redirect(add_query_params(redirect_url, {"error": "usos_unavailable"}))
+        return redirect(add_query_params(redirect_url or "index", {"error": "usos_unavailable"}))
 
 
 def admin_login(request):
@@ -543,11 +543,11 @@ class SolvroAuthorizeView(APIView):
             logger.error("Failed to retrieve Solvro user profile: %s", str(e), exc_info=True)
             raise
 
-        redirect_url = request.GET.get("redirect", "index")
+        redirect_url = request.GET.get("redirect") or resolve_url("index")
 
         if not is_safe_redirect_url(redirect_url, request):
             logger.warning("Blocked unsafe redirect URL in authorize: %s", redirect_url)
-            redirect_url = "index"
+            redirect_url = resolve_url("index")
 
         if not profile.get("email"):
             logger.error("Solvro user profile missing email. Profile keys: %s", list(profile.keys()))
@@ -662,11 +662,11 @@ class UsosAuthorizeView(AsyncAPIView):
         tags=["Authentication"],
     )
     async def get(self, request):
-        redirect_url = request.GET.get("redirect", "index")
+        redirect_url = request.GET.get("redirect") or resolve_url("index")
 
         if not is_safe_redirect_url(redirect_url, request):
             logger.warning("Blocked unsafe redirect URL in authorize_usos: %s", redirect_url)
-            redirect_url = "index"
+            redirect_url = resolve_url("index")
 
         async with USOSClient(
             "https://apps.usos.pwr.edu.pl/",
