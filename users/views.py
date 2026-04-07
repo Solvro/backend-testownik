@@ -15,7 +15,7 @@ from django.contrib.auth import alogin as async_auth_login
 from django.contrib.auth import login as auth_login
 from django.db.models import Q
 from django.http import HttpResponseBadRequest, HttpResponseForbidden
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect, render, resolve_url
 from django.utils.decorators import method_decorator
 from django.utils.http import url_has_allowed_host_and_scheme
 from django_ratelimit.decorators import ratelimit
@@ -392,7 +392,6 @@ class UsosLoginView(AsyncAPIView):
             302: OpenApiResponse(
                 description="Redirect to USOS OAuth provider, or redirect with `?error=usos_unavailable` on failure."
             ),
-            400: OpenApiResponse(description="Invalid redirect URL."),
             403: OpenApiResponse(description="`jwt=true` but no `redirect` URL provided."),
             404: OpenApiResponse(description="Not found."),
         },
@@ -545,7 +544,9 @@ class SolvroAuthorizeView(APIView):
             logger.error("Failed to retrieve Solvro user profile: %s", str(e), exc_info=True)
             raise
 
-        redirect_url = get_safe_redirect_url(request.GET.get("redirect", "index"), request, default="index")
+        redirect_url = get_safe_redirect_url(
+            request.GET.get("redirect", resolve_url("index")), request, default=resolve_url("index")
+        )
 
         if not profile.get("email"):
             logger.error("Solvro user profile missing email. Profile keys: %s", list(profile.keys()))
@@ -660,7 +661,9 @@ class UsosAuthorizeView(AsyncAPIView):
         tags=["Authentication"],
     )
     async def get(self, request):
-        redirect_url = get_safe_redirect_url(request.GET.get("redirect", "index"), request, default="index")
+        redirect_url = get_safe_redirect_url(
+            request.GET.get("redirect", resolve_url("index")), request, default=resolve_url("index")
+        )
 
         async with USOSClient(
             "https://apps.usos.pwr.edu.pl/",
