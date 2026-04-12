@@ -1387,9 +1387,9 @@ class DeleteAccountView(APIView):
             except User.DoesNotExist:
                 return Response({"error": "User to transfer quizzes to not found"}, status=404)
 
-            quizzes = Quiz.objects.filter(maintainer=request.user)
+            quizzes = Quiz.objects.filter(creator=request.user)
             for quiz in quizzes:
-                quiz.maintainer = transfer_to_user
+                quiz.creator = transfer_to_user
                 quiz.save()
 
         QuizSession.objects.filter(user=request.user).delete()

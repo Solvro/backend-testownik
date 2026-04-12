@@ -39,15 +39,16 @@ from quizzes.permissions import (
     IsFolderOwner,
     IsInternalApiRequest,
     IsQuestionReadable,
-    IsQuizMaintainer,
-    IsQuizMaintainerOrCollaboratorOrReadOnly,
+    IsQuizCreator,
+    IsQuizCreatorOrCollaboratorOrReadOnly,
     IsQuizReadable,
-    IsSharedQuizMaintainerOrReadOnly,
+    IsSharedQuizCreatorOrReadOnly,
 )
 from quizzes.serializers import (
     AnswerRecordSerializer,
     AnswerSerializer,
     FolderSerializer,
+    LibraryItemSerializer,
     MoveFolderSerializer,
     MoveQuizSerializer,
     QuestionSerializer,
@@ -159,7 +160,7 @@ class LastUsedQuizzesView(generics.ListAPIView):
     def get_queryset(self):
         return (
             Quiz.objects.filter(sessions__user=self.request.user, sessions__is_active=True)
-            .select_related("maintainer")
+            .select_related("creator", "folder", "folder__owner")
             .order_by("-sessions__updated_at")
             .distinct()
         )
@@ -198,15 +199,15 @@ class SearchQuizzesView(APIView):
         if not query:
             return Response({"error": "Query parameter is required"}, status=400)
 
-        user_quizzes = Quiz.objects.filter(maintainer=request.user, title__icontains=query).select_related("maintainer")
+        user_quizzes = Quiz.objects.filter(creator=request.user, title__icontains=query).select_related("creator")
         shared_quizzes = SharedQuiz.objects.filter(
             user=request.user, quiz__title__icontains=query, quiz__visibility__gte=1
-        ).select_related("quiz__maintainer")
+        ).select_related("quiz__creator")
         group_quizzes = SharedQuiz.objects.filter(
             study_group__in=request.user.study_groups.all(),
             quiz__title__icontains=query,
             quiz__visibility__gte=1,
-        ).select_related("quiz__maintainer")
+        ).select_related("quiz__creator")
 
         result = {
             "user_quizzes": QuizSearchResultSerializer(user_quizzes, many=True, context={"request": request}).data,
@@ -219,7 +220,7 @@ class SearchQuizzesView(APIView):
         }
 
         if request.user.account_type == AccountType.STUDENT:
-            public_quizzes = Quiz.objects.filter(title__icontains=query, visibility__gte=3).select_related("maintainer")
+            public_quizzes = Quiz.objects.filter(title__icontains=query, visibility__gte=3).select_related("creator")
             result["public_quizzes"] = QuizSearchResultSerializer(
                 public_quizzes, many=True, context={"request": request}
             ).data
@@ -233,7 +234,7 @@ class SearchQuizzesView(APIView):
 #   but will allow to view all quizzes when retrieving a single quiz.
 # This is by design, if the user wants to view shared quizzes,
 #   they should use the SharedQuizViewSet and for public quizzes they should use the api_search_quizzes view.
-# It will also allow to create, update and delete quizzes only if the user is the maintainer of the quiz.
+# It will also allow to create, update and delete quizzes only if the user is the creator of the quiz.
 @extend_schema_view(
     retrieve=extend_schema(
         parameters=[
@@ -255,7 +256,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     serializer_class = QuizSerializer
     permission_classes = [
         permissions.IsAuthenticatedOrReadOnly,
-        IsQuizMaintainerOrCollaboratorOrReadOnly,
+        IsQuizCreatorOrCollaboratorOrReadOnly,
         IsQuizReadable,
     ]
 
@@ -266,7 +267,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             if not user.is_authenticated:
                 return Quiz.objects.none()
 
-            return Quiz.objects.filter(maintainer=user)
+            return Quiz.objects.filter(creator=user).select_related("creator", "folder", "folder__owner")
 
         queryset = Quiz.objects.all()
 
@@ -317,7 +318,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         Get quiz metadata for Next.js server-side rendering.
 
         Access Rules:
-        - Private (0): Only maintainer
+        - Private (0): Only creator
         - Shared (1): Everyone but without preview question and always anonymous
         - Unlisted/Public (≥2): Everyone
 
@@ -333,7 +334,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         user = request.user
 
-        if not (quiz.visibility >= 1 or user == quiz.maintainer):
+        if not (quiz.visibility >= 1 or (user.is_authenticated and user.owns_quiz_via_folder(quiz))):
             raise PermissionDenied("You do not have permission to access this quiz metadata.")
 
         data = QuizMetaDataSerializer(quiz, context={"request": request}).data
@@ -358,21 +359,21 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         if quiz.visibility == 1:
             data["is_anonymous"] = True
-            data["maintainer"] = None
+            data["creator"] = None
 
         data["question_count"] = question_count
 
         return Response(data)
 
     def perform_create(self, serializer):
-        serializer.save(maintainer=self.request.user)
+        serializer.save(creator=self.request.user, folder=self.request.user.root_folder)
 
     def perform_update(self, serializer):
         serializer.save(version=serializer.instance.version + 1)
 
     def perform_destroy(self, instance):
-        if instance.maintainer != self.request.user:
-            raise PermissionDenied("Only the maintainer can delete this quiz")
+        if instance.folder.owner != self.request.user:
+            raise PermissionDenied("Only the folder owner can delete this quiz")
         instance.delete()
 
     def get_serializer_class(self):
@@ -398,7 +399,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         detail=True,
         methods=["post"],
         serializer_class=MoveQuizSerializer,
-        permission_classes=[permissions.IsAuthenticated, IsQuizMaintainer],
+        permission_classes=[permissions.IsAuthenticated, IsQuizCreator],
     )
     def move(self, request, pk=None):
         quiz = self.get_object()
@@ -575,7 +576,8 @@ class QuizViewSet(viewsets.ModelViewSet):
         new_quiz = Quiz.objects.create(
             title=new_title,
             description=original_quiz.description,
-            maintainer=request.user,
+            creator=request.user,
+            folder=request.user.root_folder,
         )
 
         original_questions = list(original_quiz.questions.all())
@@ -623,7 +625,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 class SharedQuizViewSet(viewsets.ModelViewSet):
     queryset = SharedQuiz.objects.all()
     serializer_class = SharedQuizSerializer
-    permission_classes = [permissions.IsAuthenticated, IsSharedQuizMaintainerOrReadOnly]
+    permission_classes = [permissions.IsAuthenticated, IsSharedQuizCreatorOrReadOnly]
 
     def get_queryset(self):
         _filter = (
@@ -632,7 +634,8 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
                 study_group__in=self.request.user.study_groups.all(),
                 quiz__visibility__gte=1,
             )
-            | Q(quiz__maintainer=self.request.user)
+            | Q(quiz__creator=self.request.user)
+            | Q(quiz__folder__owner=self.request.user)
         )
         if self.request.query_params.get("quiz"):
             _filter &= Q(quiz_id=self.request.query_params.get("quiz"))
@@ -691,7 +694,7 @@ class ReportQuestionIssueView(APIView):
         if not quiz:
             return Response({"error": "Quiz not found"}, status=404)
 
-        if request.user == quiz.maintainer:
+        if request.user == quiz.creator:
             return Response(
                 {"error": "You cannot report issues with your own questions"},
                 status=400,
@@ -712,7 +715,7 @@ class ReportQuestionIssueView(APIView):
             f"{escape(data.get('issue'))}"
         )
 
-        recipient_list = [quiz.maintainer.email]
+        recipient_list = [quiz.creator.email]
         reply_to = [request.user.email]
 
         try:
@@ -742,7 +745,7 @@ class QuestionViewSet(
 ):
     serializer_class = QuestionSerializer
     queryset = Question.objects.all()
-    permission_classes = [permissions.IsAuthenticated, IsQuizMaintainerOrCollaboratorOrReadOnly, IsQuestionReadable]
+    permission_classes = [permissions.IsAuthenticated, IsQuizCreatorOrCollaboratorOrReadOnly, IsQuestionReadable]
 
     @extend_schema(
         responses={
@@ -787,7 +790,15 @@ class FolderViewSet(viewsets.ModelViewSet):
         return Folder.objects.filter(owner=self.request.user).order_by("-created_at")
 
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        if not serializer.validated_data.get("parent"):
+            serializer.save(owner=self.request.user, parent=self.request.user.root_folder)
+        else:
+            serializer.save(owner=self.request.user)
+
+    def perform_destroy(self, instance):
+        if hasattr(instance, "root_owner"):
+            raise PermissionDenied("Cannot delete root folder.")
+        instance.delete()
 
     @action(detail=True, methods=["post"], serializer_class=MoveFolderSerializer)
     def move(self, request, pk=None):
@@ -799,4 +810,125 @@ class FolderViewSet(viewsets.ModelViewSet):
             folder.save()
             return Response({"status": "Folder moved successfully"})
 
-        return Response(serializer.errors)
+        return Response(serializer.errors, status=400)
+
+
+class LibraryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _access_predicate(self, user):
+        return Q(owner=user) | Q(shares__user=user) | Q(shares__study_group__in=user.study_groups.all())
+
+    def _has_access(self, user, folder_id):
+        # Precompute IDs of all folders the user can directly access.
+        accessible_folder_ids = set(Folder.objects.filter(self._access_predicate(user)).values_list("id", flat=True))
+
+        # Direct access to this folder.
+        if folder_id in accessible_folder_ids:
+            return True
+
+        # Walk up the ancestor chain using lightweight queries and check access in-memory.
+        folder = Folder.objects.filter(id=folder_id).only("id", "parent_id").first()
+        if not folder:
+            return False
+
+        current_parent_id = folder.parent_id
+        while current_parent_id:
+            if current_parent_id in accessible_folder_ids:
+                return True
+            parent = Folder.objects.filter(id=current_parent_id).only("id", "parent_id").first()
+            if not parent:
+                break
+            current_parent_id = parent.parent_id
+        return False
+
+    def _get_subfolders(self, user, folder_id):
+        return Folder.objects.filter(parent_id=folder_id).distinct().order_by("-created_at")
+
+    def _get_quizzes(self, user, folder_id):
+        return Quiz.objects.filter(folder_id=folder_id).distinct().order_by("-created_at")
+
+    def _build_breadcrumbs(self, user, folder_id):
+        try:
+            folder = Folder.objects.get(id=folder_id)
+        except Folder.DoesNotExist:
+            return []
+
+        chain = []
+        current = folder
+        while current:
+            chain.append(current)
+            current = current.parent
+
+        chain.reverse()
+
+        accessible_ids = set(
+            Folder.objects.filter(
+                self._access_predicate(user),
+                id__in=[f.id for f in chain],
+            ).values_list("id", flat=True)
+        )
+
+        for i, f in enumerate(chain):
+            if f.id in accessible_ids:
+                return [{"id": str(entry.id), "name": entry.name} for entry in chain[i:]]
+
+        return []
+
+    @extend_schema(
+        summary="List library contents",
+        parameters=[
+            OpenApiParameter(
+                name="folder_id",
+                type=str,
+                location=OpenApiParameter.PATH,
+                required=False,
+                description="UUID of the folder to browse. Defaults to the user's root folder.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                description="Folder contents with breadcrumb path",
+                response={
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "string", "format": "uuid"},
+                                    "name": {"type": "string"},
+                                },
+                            },
+                            "description": "Breadcrumb path from the topmost accessible folder to the current folder.",
+                        },
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                            "description": "List of folders and quizzes in the current folder.",
+                        },
+                    },
+                },
+            ),
+            403: OpenApiResponse(description="No permission to access this folder"),
+        },
+    )
+    def get(self, request, folder_id=None):
+        user = request.user
+
+        if folder_id is None:
+            folder_id = user.root_folder_id
+
+        if not self._has_access(user, folder_id):
+            return Response(
+                {"error": "You do not have permission to access this folder"}, status=status.HTTP_403_FORBIDDEN
+            )
+
+        items = list(self._get_subfolders(user, folder_id)) + list(self._get_quizzes(user, folder_id))
+        return Response(
+            {
+                "path": self._build_breadcrumbs(user, folder_id),
+                "items": LibraryItemSerializer(items, many=True, context={"request": request}).data,
+            }
+        )

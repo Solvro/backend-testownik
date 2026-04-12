@@ -13,7 +13,9 @@ class QuestionTypesTestCase(APITestCase):
         )
         self.client.force_authenticate(user=self.user)
 
-        self.quiz = Quiz.objects.create(title="Test Quiz", maintainer=self.user, visibility=2)
+        self.quiz = Quiz.objects.create(
+            title="Test Quiz", creator=self.user, folder=self.user.root_folder, visibility=2
+        )
 
         # Pytanie zamknięte
         self.closed_question = Question.objects.create(
