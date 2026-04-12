@@ -320,14 +320,21 @@ class SolvroLoginView(APIView):
                 description="Guest account ID to migrate to the authenticated user.",
             ),
         ],
-        responses={302: OpenApiResponse(description="Redirect to Solvro OAuth provider.")},
+        responses={
+            302: OpenApiResponse(description="Redirect to Solvro OAuth provider."),
+            400: OpenApiResponse(description="Invalid redirect URL."),
+        },
         tags=["Authentication"],
     )
     def get(self, request):
         confirm_user = request.GET.get("confirm_user", "false") == "true"
         jwt = request.GET.get("jwt", "false") == "true"
-        redirect_url = get_safe_redirect_url(request.GET.get("redirect", ""), request, default="")
+        raw_redirect_url = request.GET.get("redirect", "")
+        redirect_url = get_safe_redirect_url(raw_redirect_url, request, default="")
         guest_id = request.GET.get("guest_id", "")
+
+        if raw_redirect_url and not redirect_url:
+            return HttpResponseBadRequest("Invalid redirect URL")
 
         callback_params = {"jwt": str(jwt).lower()}
         if redirect_url:
@@ -392,6 +399,7 @@ class UsosLoginView(AsyncAPIView):
             302: OpenApiResponse(
                 description="Redirect to USOS OAuth provider, or redirect with `?error=usos_unavailable` on failure."
             ),
+            400: OpenApiResponse(description="Invalid redirect URL."),
             403: OpenApiResponse(description="`jwt=true` but no `redirect` URL provided."),
             404: OpenApiResponse(description="Not found."),
         },
@@ -400,8 +408,12 @@ class UsosLoginView(AsyncAPIView):
     async def get(self, request):
         confirm_user = request.GET.get("confirm_user", "false") == "true"
         jwt = request.GET.get("jwt", "false") == "true"
-        redirect_url = get_safe_redirect_url(request.GET.get("redirect", ""), request, default="")
+        raw_redirect_url = request.GET.get("redirect", "")
+        redirect_url = get_safe_redirect_url(raw_redirect_url, request, default="")
         guest_id = request.GET.get("guest_id", "")
+
+        if raw_redirect_url and not redirect_url:
+            return HttpResponseBadRequest("Invalid redirect URL")
 
         if jwt and not redirect_url:
             return HttpResponseForbidden("Redirect URL must be provided when using JWT")
