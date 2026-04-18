@@ -11,7 +11,7 @@ from users.models import User
 
 @override_settings(DEBUG=True)
 class SolvroOAuthTests(APITestCase):
-    @patch("users.views.oauth.create_client")
+    @patch("users.views.oauth.oauth.create_client")
     def test_solvro_login_redirect_url(self, mock_create_client):
         """Test SolvroLoginView builds the correct callback URL with query parameters."""
         mock_auth_client = MagicMock()
@@ -42,7 +42,7 @@ class SolvroOAuthTests(APITestCase):
         self.assertIn(f"redirect={expected_encoded_redirect}", callback_url)
         self.assertIn(f"guest_id={guest_id}", callback_url)
 
-    @patch("users.views.oauth.create_client")
+    @patch("users.views.oauth.oauth.create_client")
     def test_solvro_authorize_success(self, mock_create_client):
         """Test SolvroAuthorizeView successful login logic via mock."""
         mock_auth_client = MagicMock()
