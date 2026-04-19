@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 def admin_login(request):
     next_url = request.GET.get("next", "admin:index")
-    if not is_safe_redirect_url(next_url):
+    if not is_safe_redirect_url(next_url, request):
         logger.warning("Blocked unsafe redirect URL in admin_login: %s", next_url)
         messages.error(request, "Unsafe redirect URL, defaulting to admin index")
         next_url = "admin:index"

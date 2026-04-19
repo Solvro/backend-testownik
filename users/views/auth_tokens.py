@@ -14,8 +14,8 @@ class CustomTokenObtainPairView(TokenObtainPairView):
         summary="Obtain JWT token pair",
         description=(
             "Authenticate with email and password. "
-            "On success, `access` and `refresh` tokens are set as HTTP-only cookies "
-            "and the JSON body returns a confirmation message. "
+            "On success, both tokens are set as cookies and the JSON body returns a confirmation message. "
+            "The `access_token` cookie is readable by client JavaScript, while `refresh_token` is HTTP-only. "
             "The `access` token contains embedded user data "
             "(first_name, last_name, email, student_number, photo, account_type, etc.)."
         ),
@@ -73,8 +73,8 @@ class CustomTokenRefreshView(TokenRefreshView):
         summary="Refresh JWT token",
         description=(
             "Exchange a valid `refresh` token for a new `access`/`refresh` pair. "
-            "On success, new tokens are set as HTTP-only cookies "
-            "and the JSON body returns a confirmation message. "
+            "On success, new tokens are set as cookies and the JSON body returns a confirmation message. "
+            "The `access_token` cookie is readable by client JavaScript, while `refresh_token` is HTTP-only. "
             "The new `access` token contains re-populated user data."
         ),
         request={

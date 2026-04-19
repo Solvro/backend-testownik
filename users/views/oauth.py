@@ -6,7 +6,7 @@ import dotenv
 from adrf.views import APIView as AsyncAPIView
 from django.contrib import messages
 from django.http import HttpResponseForbidden
-from django.shortcuts import redirect
+from django.shortcuts import redirect, resolve_url
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework.permissions import AllowAny
@@ -105,6 +105,7 @@ class SolvroLoginView(APIView):
         responses={
             302: OpenApiResponse(description="Redirect to Solvro OAuth provider."),
             400: OpenApiResponse(description="Invalid redirect URL."),
+            403: OpenApiResponse(description="`jwt=true` but no `redirect` URL provided."),
         },
         tags=["Authentication"],
     )
@@ -149,7 +150,7 @@ class UsosLoginView(AsyncAPIView):
     )
     async def get(self, request):
         params = parse_oauth_login_params(request)
-        error_response = validate_login_params(params, require_redirect_for_jwt=True)
+        error_response = validate_login_params(params)
         if error_response is not None:
             return error_response
 
@@ -164,7 +165,9 @@ class UsosLoginView(AsyncAPIView):
                 "<set>" if usos_key else "<missing>",
                 "<set>" if usos_secret else "<missing>",
             )
-            return redirect(add_query_params(params.redirect_url or "index", {"error": "usos_unavailable"}))
+            return redirect(
+                add_query_params(params.redirect_url or resolve_url("index"), {"error": "usos_unavailable"})
+            )
 
         max_retries = 3
         retry_delay = 2
@@ -205,7 +208,9 @@ class UsosLoginView(AsyncAPIView):
                     await sleep(retry_delay)
                     continue
 
-                return redirect(add_query_params(params.redirect_url or "index", {"error": "usos_unavailable"}))
+                return redirect(
+                    add_query_params(params.redirect_url or resolve_url("index"), {"error": "usos_unavailable"})
+                )
 
         return redirect(add_query_params(params.redirect_url or "index", {"error": "usos_unavailable"}))
 

@@ -40,11 +40,11 @@ def parse_oauth_login_params(request) -> OAuthLoginParams:
     )
 
 
-def validate_login_params(params: OAuthLoginParams, *, require_redirect_for_jwt: bool = False):
+def validate_login_params(params: OAuthLoginParams):
     """Validate OAuth login params. Returns an HttpResponse on error, or None if OK."""
     if params.raw_redirect_url and not params.redirect_url:
         return HttpResponseBadRequest("Invalid redirect URL")
-    if require_redirect_for_jwt and params.jwt and not params.redirect_url:
+    if params.jwt and not params.redirect_url:
         return HttpResponseForbidden("Redirect URL must be provided when using JWT")
     return None
 
@@ -87,48 +87,52 @@ def _banned_redirect(redirect_url: str, user):
 
 def handle_oauth_login_result(request, user, *, jwt: bool, redirect_url: str, guest_id: str = ""):
     """Finalize a sync OAuth login: ban check, guest migration, JWT cookies or session login."""
+    safe_redirect_url = get_safe_redirect_url(redirect_url, request, default=resolve_url("index"))
+
     if user.is_banned:
         logger.warning("Banned user attempted login. Email: %s", user.email)
         if jwt:
-            return _banned_redirect(redirect_url, user)
+            return _banned_redirect(safe_redirect_url, user)
         messages.error(
             request,
             f"Twoje konto zostało zablokowane: {user.ban_reason or 'Brak powodu'}",
         )
-        return redirect(redirect_url)
+        return redirect(safe_redirect_url)
 
     if guest_id:
         migrate_guest_to_user(guest_id, user)
 
     if jwt:
-        response = redirect(remove_query_params(redirect_url, ["error"]))
+        response = redirect(remove_query_params(safe_redirect_url, ["error"]))
         return set_jwt_cookies_for_user(response, user)
 
     auth_login(request, user)
-    return redirect(redirect_url)
+    return redirect(safe_redirect_url)
 
 
 async def ahandle_oauth_login_result(request, user, *, jwt: bool, redirect_url: str, guest_id: str = ""):
     """Async variant of handle_oauth_login_result for USOS flow."""
+    safe_redirect_url = get_safe_redirect_url(redirect_url, request, default=resolve_url("index"))
+
     if user.is_banned:
         logger.warning("Banned user attempted login. Email: %s", user.email)
         if jwt:
-            return _banned_redirect(redirect_url, user)
+            return _banned_redirect(safe_redirect_url, user)
         messages.error(
             request,
             f"Twoje konto zostało zablokowane: {user.ban_reason or 'Brak powodu'}",
         )
-        return redirect(redirect_url)
+        return redirect(safe_redirect_url)
 
     if guest_id:
         await sync_to_async(migrate_guest_to_user)(guest_id, user)
 
     if jwt:
-        response = redirect(remove_query_params(redirect_url, ["error"]))
+        response = redirect(remove_query_params(safe_redirect_url, ["error"]))
         return await aset_jwt_cookies_for_user(response, user)
 
     await async_auth_login(request, user)
-    return redirect(redirect_url)
+    return redirect(safe_redirect_url)
 
 
 def resolve_callback_redirect_url(request):

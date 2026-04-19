@@ -1,5 +1,4 @@
-import json
-
+from django.db import transaction
 from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
@@ -124,15 +123,15 @@ class CurrentUserView(GenericAPIView):
         description="Update limited fields in the user's profile.",
     )
     def patch(self, request):
-        allowed_fields_patch = ["overriden_photo_url", "hide_profile"]
-        data = json.loads(request.body)
+        allowed_fields_patch = {"overriden_photo_url", "hide_profile"}
+        data = request.data
 
-        for key in data:
-            if key not in allowed_fields_patch:
-                return Response(
-                    f"Field '{key}' is not allowed to be updated",
-                    status=400,
-                )
+        disallowed = set(data) - allowed_fields_patch
+        if disallowed:
+            return Response(
+                f"Field '{next(iter(disallowed))}' is not allowed to be updated",
+                status=400,
+            )
 
         serializer = self.get_serializer(request.user, data=data, partial=True)
         if serializer.is_valid():
@@ -288,22 +287,29 @@ class DeleteAccountView(APIView):
     def post(self, request):
         from quizzes.models import Quiz
 
-        data = json.loads(request.body)
-        transfer_to_user_id = data.get("transfer_to_user_id")
+        transfer_to_user_id = request.data.get("transfer_to_user_id")
+        transfer_to_user = None
 
         if transfer_to_user_id:
             try:
                 transfer_to_user = User.objects.get(id=transfer_to_user_id)
             except User.DoesNotExist:
                 return Response({"error": "User to transfer quizzes to not found"}, status=404)
+            if transfer_to_user.root_folder is None:
+                return Response(
+                    {"error": "Transfer target user has no root folder"},
+                    status=400,
+                )
 
-            quizzes = Quiz.objects.filter(creator=request.user)
-            for quiz in quizzes:
-                quiz.creator = transfer_to_user
-                quiz.save()
+        with transaction.atomic():
+            if transfer_to_user is not None:
+                Quiz.objects.filter(creator=request.user).update(
+                    creator=transfer_to_user,
+                    folder=transfer_to_user.root_folder,
+                )
 
-        QuizSession.objects.filter(user=request.user).delete()
-        SharedQuiz.objects.filter(user=request.user).delete()
-        request.user.delete()
+            QuizSession.objects.filter(user=request.user).delete()
+            SharedQuiz.objects.filter(user=request.user).delete()
+            request.user.delete()
 
         return Response({"message": "Account deleted successfully"})
