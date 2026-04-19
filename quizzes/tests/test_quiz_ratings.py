@@ -27,7 +27,7 @@ class QuizRatingViewSetTestCase(TestCase):
     def test_cannot_see_other_user_ratings(self):
         QuizRating.objects.create(user=self.other_user, quiz=self.quiz, score=2)
         response = self.client.get("/api/quiz-ratings/")
-        self.assertEqual(len(response.data), 1)  # tylko własna ocena
+        self.assertEqual(len(response.data), 1)
 
     # CREATE
     def test_create_rating(self):
@@ -92,3 +92,21 @@ class QuizRatingViewSetTestCase(TestCase):
         other_rating = QuizRating.objects.create(user=self.other_user, quiz=self.quiz, score=3)
         response = self.client.delete(f"/api/quiz-ratings/{other_rating.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_cannot_rate_inaccessible_quiz(self):
+        other_folder = Folder.objects.create(name="Other", owner=self.other_user)
+        private_quiz = Quiz.objects.create(title="Private", creator=self.other_user, folder=other_folder, visibility=0)
+        response = self.client.post(
+            "/api/quiz-ratings/",
+            {"quiz": private_quiz.id, "score": 5},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(QuizRating.objects.filter(user=self.user, quiz=private_quiz).exists())
+
+    def test_cannot_rate_same_quiz_twice(self):
+        response = self.client.post(
+            "/api/quiz-ratings/",
+            {"quiz": self.quiz.id, "score": 3},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("non_field_errors", response.data)

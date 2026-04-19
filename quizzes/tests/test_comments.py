@@ -16,11 +16,9 @@ class CommentViewSetTestCase(TestCase):
 
         self.folder = Folder.objects.create(name="Test Folder", owner=self.user)
 
-        # Tworzymy Quiz i pytanie do niego
         self.quiz = Quiz.objects.create(title="Test Quiz", creator=self.user, folder=self.folder)
         self.question = Question.objects.create(quiz=self.quiz, text="What is 2+2?", order=1)
 
-        # Tworzymy komentarz przypisany bezpośrednio do Quizu
         self.comment = Comment.objects.create(
             author=self.user,
             content="Test comment",
@@ -95,13 +93,14 @@ class CommentViewSetTestCase(TestCase):
         self.assertEqual(response.data["content"], "Updated comment")
 
     def test_update_other_user_comment(self):
+        # The private quiz is not visible to other_user, so get_queryset filters
+        # the comment out before the permission check — expect 404.
         self.client.force_authenticate(user=self.other_user)
         response = self.client.patch(
             f"/api/quizzes/{self.quiz.id}/comments/{self.comment.id}/",
             {"content": "Hacked comment"},
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        # Zmieniono na 404, bo Twoje get_queryset odfiltruje ten komentarz dla innego usera
 
     # DELETE
     def test_soft_delete_own_comment(self):
@@ -125,3 +124,47 @@ class CommentViewSetTestCase(TestCase):
 
         self.assertIsNone(response.data["content"])
         self.assertIsNone(response.data["author"])
+
+    def test_cannot_comment_on_inaccessible_quiz(self):
+        # Quiz is private (visibility=0 default for visibility_default? Actually
+        # default is 2 "unlisted". Force it to private and confirm outsiders cannot comment.
+        self.quiz.visibility = 0
+        self.quiz.save(update_fields=["visibility"])
+
+        self.client.force_authenticate(user=self.other_user)
+        response = self.client.post(
+            f"/api/quizzes/{self.quiz.id}/comments/",
+            {"content": "I should not be able to post this"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Comment.objects.filter(content="I should not be able to post this").exists())
+
+    def test_cannot_reply_to_deleted_comment(self):
+        self.comment.mark_as_deleted()
+        response = self.client.post(
+            f"/api/quizzes/{self.quiz.id}/comments/",
+            {"content": "Reply to a ghost", "parent": self.comment.id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("parent", response.data)
+
+    def test_reply_to_reply_is_flattened_to_top_level(self):
+        reply = Comment.objects.create(author=self.user, content="First reply", quiz=self.quiz, parent=self.comment)
+        response = self.client.post(
+            f"/api/quizzes/{self.quiz.id}/comments/",
+            {"content": "Nested reply", "parent": reply.id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # Parent was flattened to the top-level comment, not the intermediate reply.
+        self.assertEqual(response.data["parent"], self.comment.id)
+
+    def test_question_from_other_quiz_is_rejected(self):
+        other_quiz = Quiz.objects.create(title="Other quiz", creator=self.user, folder=self.folder)
+        foreign_question = Question.objects.create(quiz=other_quiz, text="Other?", order=1)
+
+        response = self.client.post(
+            f"/api/quizzes/{self.quiz.id}/comments/",
+            {"content": "Cross-quiz question ref", "question": foreign_question.id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("question", response.data)

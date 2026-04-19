@@ -520,21 +520,29 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
         return False
 
     def get_quiz_rating(self, obj: Quiz):
-        if self._is_authenticated():
-            user = self.context.get("request").user
-            return obj.ratings.filter(user=user).first()
+        if not self._is_authenticated():
+            return None
 
-        return None
+        # Prefer prefetched rating to avoid N+1 when listing quizzes.
+        cached = getattr(obj, "_user_rating", None)
+        if cached is not None:
+            return cached[0].score if cached else None
+
+        user = self.context.get("request").user
+        rating = obj.ratings.filter(user=user).first()
+        return rating.score if rating else None
 
     def get_average_rating(self, obj: Quiz):
-        if self._is_authenticated():
-            return obj.get_average_rating()
-
-        return None
+        annotated = getattr(obj, "avg_rating", None)
+        if annotated is not None:
+            return annotated
+        return obj.get_average_rating()
 
     def get_review_count(self, obj: Quiz):
-        if self._is_authenticated():
-            return obj.get_review_count()
+        annotated = getattr(obj, "review_count", None)
+        if annotated is not None:
+            return annotated
+        return obj.get_review_count()
 
 
 class QuizMetaDataWithQuestionSerializer(QuizMetaDataSerializer):
@@ -736,6 +744,9 @@ class QuizRatingSerializer(serializers.ModelSerializer):
         model = QuizRating
         fields = ["id", "user", "quiz", "score", "created_at", "updated_at"]
         read_only_fields = ["id", "created_at", "updated_at"]
+        # DRF auto-generates a UniqueTogetherValidator on (user, quiz) from the
+        # model's UniqueConstraint — a second POST for the same pair is rejected
+        # with a 400 instead of bubbling up as a 500 IntegrityError.
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -765,19 +776,27 @@ class CommentSerializer(serializers.ModelSerializer):
         return value
 
     def validate_parent(self, value):
+        if value is None:
+            return value
+
         quiz_id = self.context["view"].kwargs.get("quiz_pk")
-        if value and str(value.quiz_id) != str(quiz_id):
+        if str(value.quiz_id) != str(quiz_id):
             raise serializers.ValidationError("Parent comment does not belong to this quiz")
+        if value.is_deleted:
+            raise serializers.ValidationError("Cannot reply to a deleted comment")
+        # Flatten nesting: replies to a reply attach to the top-level parent.
+        if value.parent_id is not None:
+            return value.parent
         return value
 
     def validate(self, data):
-        quiz = data.get("quiz")
         question = data.get("question")
+        quiz_id = self.context["view"].kwargs.get("quiz_pk")
 
-        # Prevent user from commenting question that belongs to another quiz
-        # Basically question_quiz_id must be equal to quiz_id
-        if question and quiz and question.quiz != quiz:
-            raise serializers.ValidationError("This question does not belong to the selected quiz")
+        # `quiz` is read-only on this serializer (bound in perform_create from the
+        # URL), so pull the quiz id from the URL to validate question consistency.
+        if question and quiz_id and str(question.quiz_id) != str(quiz_id):
+            raise serializers.ValidationError({"question": "This question does not belong to the selected quiz"})
 
         return data
 

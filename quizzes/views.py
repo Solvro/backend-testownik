@@ -7,7 +7,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Avg, Count, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.html import escape
@@ -164,9 +164,13 @@ class LastUsedQuizzesView(generics.ListAPIView):
         return self.list(request, *args, **kwargs)
 
     def get_queryset(self):
+        user = self.request.user
+        user_ratings = Prefetch("ratings", queryset=QuizRating.objects.filter(user=user), to_attr="_user_rating")
         return (
-            Quiz.objects.filter(sessions__user=self.request.user, sessions__is_active=True)
+            Quiz.objects.filter(sessions__user=user, sessions__is_active=True)
             .select_related("creator", "folder", "folder__owner")
+            .annotate(avg_rating=Avg("ratings__score"), review_count=Count("ratings", distinct=True))
+            .prefetch_related(user_ratings)
             .order_by("-sessions__updated_at")
             .distinct()
         )
@@ -273,7 +277,14 @@ class QuizViewSet(viewsets.ModelViewSet):
             if not user.is_authenticated:
                 return Quiz.objects.none()
 
-            return Quiz.objects.filter(creator=user).select_related("creator", "folder", "folder__owner")
+            return (
+                Quiz.objects.filter(creator=user)
+                .select_related("creator", "folder", "folder__owner")
+                .annotate(avg_rating=Avg("ratings__score"), review_count=Count("ratings", distinct=True))
+                .prefetch_related(
+                    Prefetch("ratings", queryset=QuizRating.objects.filter(user=user), to_attr="_user_rating")
+                )
+            )
 
         queryset = Quiz.objects.all()
 
@@ -819,12 +830,27 @@ class FolderViewSet(viewsets.ModelViewSet):
         return Response(serializer.errors, status=400)
 
 
+def _user_has_quiz_read_access(user, quiz: Quiz) -> bool:
+    """Mirrors IsQuizReadable.has_object_permission for non-view code paths."""
+    if quiz.folder.owner == user:
+        return True
+    if quiz.visibility >= 2 and user.is_authenticated:
+        return True
+    if user.is_authenticated:
+        if quiz.sharedquiz_set.filter(user=user).exists():
+            return True
+        if quiz.sharedquiz_set.filter(study_group__in=user.study_groups.all()).exists():
+            return True
+    return False
+
+
 class QuizRatingViewSet(viewsets.ModelViewSet):
     """
     Manages quiz ratings for the authenticated user.
 
     All operations are scoped to the authenticated user.
     A user can only have one rating per quiz (enforced by unique constraint).
+    Users can only rate quizzes they have read access to.
     """
 
     permission_classes = [permissions.IsAuthenticated]
@@ -832,29 +858,39 @@ class QuizRatingViewSet(viewsets.ModelViewSet):
     queryset = QuizRating.objects.all()
 
     def get_queryset(self):
-        return QuizRating.objects.filter(user=self.request.user)
+        return QuizRating.objects.filter(user=self.request.user).select_related("quiz")
+
+    def perform_create(self, serializer):
+        quiz = serializer.validated_data["quiz"]
+        if not _user_has_quiz_read_access(self.request.user, quiz):
+            raise PermissionDenied("You do not have access to this quiz.")
+        serializer.save()
 
 
 class CommentViewSet(viewsets.ModelViewSet):
     """
-    Manages comments for the authenticated user.
+    Manages comments on a quiz (nested under /quizzes/<quiz_pk>/comments/).
 
-    Access Control (get_queryset):
-    Users can only access comments if:
-        1. They are the quiz maintainer (owner).
-        2. The quiz has been shared with them directly or via their study groups.
-        3. The quiz visibility is set to Public (visibility=3).
+    Access control:
+      - Users can read comments on quizzes they own, have shared with them, or
+        that are public (visibility=3).
+      - Users can post comments only on quizzes they have read access to.
+      - Only the author can modify or delete their own comments.
 
-    DELETE performs a soft delete — comment content is cleared but record is kept.
-    Only the author can modify or delete their own comments.
+    DELETE performs a soft delete — the record is kept but content/author are
+    hidden in responses for deleted comments to preserve thread structure.
     """
 
     permission_classes = [permissions.IsAuthenticated, IsCommentAuthorOrReadOnly]
     serializer_class = CommentSerializer
     queryset = Comment.objects.all()
 
-    # This function solves problems with authorization
-    # Queryset contains comments linked to quizzes, to which user has direct or indirect access
+    def _accessible_quizzes(self, user):
+        shared_quiz_ids = SharedQuiz.objects.filter(
+            Q(user=user) | Q(study_group__in=user.study_groups.all()), quiz__visibility__gte=1
+        ).values_list("quiz_id", flat=True)
+        return Q(quiz__creator=user) | Q(quiz_id__in=shared_quiz_ids) | Q(quiz__visibility=3)
+
     def get_queryset(self):
         user = self.request.user
         quiz_id = self.kwargs.get("quiz_pk")
@@ -862,20 +898,21 @@ class CommentViewSet(viewsets.ModelViewSet):
         if not quiz_id:
             raise ValidationError({"quiz_pk": "This query parameter is required."})
 
-        shared_quiz_ids = SharedQuiz.objects.filter(
-            Q(user=user) | Q(study_group__in=user.study_groups.all()), quiz__visibility__gte=1
-        ).values_list("quiz_id", flat=True)
+        return (
+            Comment.objects.filter(self._accessible_quizzes(user), quiz_id=quiz_id)
+            .select_related("author", "parent")
+            .distinct()
+        )
 
-        has_access = Q(quiz__creator=user) | Q(quiz_id__in=shared_quiz_ids) | Q(quiz__visibility=3)
-
-        return Comment.objects.filter(has_access, quiz_id=quiz_id).distinct()
+    def _get_accessible_quiz_or_403(self):
+        quiz = get_object_or_404(Quiz, pk=self.kwargs["quiz_pk"])
+        if not _user_has_quiz_read_access(self.request.user, quiz):
+            raise PermissionDenied("You do not have access to this quiz.")
+        return quiz
 
     def perform_create(self, serializer):
-        quiz = get_object_or_404(Quiz, pk=self.kwargs["quiz_pk"])
+        quiz = self._get_accessible_quiz_or_403()
         serializer.save(quiz=quiz, author=self.request.user)
-
-    def perform_update(self, serializer):
-        return super().perform_update(serializer)
 
     def perform_destroy(self, instance: Comment):
         if instance.is_deleted:
