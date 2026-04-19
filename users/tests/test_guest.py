@@ -51,7 +51,10 @@ class MigrateGuestToUserTestCase(TestCase):
         result = migrate_guest_to_user(str(self.guest.id), self.target_user)
 
         self.assertTrue(result)
-        self.assertEqual(QuizSession.objects.filter(user=self.target_user, quiz=quiz, is_active=True).count(), 1)
+        self.assertEqual(
+            QuizSession.objects.filter(user=self.target_user, quiz=quiz, is_active=True).count(),
+            1,
+        )
 
     def test_migrate_sessions_with_conflict_archives_older(self):
         """When both guest and target have an active session for the same quiz,
@@ -159,13 +162,19 @@ class GuestCreateViewTestCase(APITestCase):
         """Request without Api-Key header is rejected."""
         response = self.client.post(self.url)
 
-        self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+        self.assertIn(
+            response.status_code,
+            (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN),
+        )
 
     def test_wrong_api_key_is_rejected(self):
         """Request with incorrect Api-Key header is rejected."""
         response = self.client.post(self.url, HTTP_API_KEY="wrong-key")
 
-        self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+        self.assertIn(
+            response.status_code,
+            (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN),
+        )
 
     def test_jwt_contains_guest_account_type(self):
         """The JWT token embeds account_type='guest'."""
@@ -203,7 +212,11 @@ class GuestMigrationOnOTPLoginTestCase(APITestCase):
 
         response = self.client.post(
             reverse("login_otp"),
-            {"email": "user@example.com", "otp": token.otp_code, "guest_id": str(self.guest.id)},
+            {
+                "email": "user@example.com",
+                "otp": token.otp_code,
+                "guest_id": str(self.guest.id),
+            },
             format="json",
         )
 
