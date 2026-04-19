@@ -124,21 +124,22 @@ class CommentViewSetTestCase(TestCase):
 
         self.comment.refresh_from_db()
         self.assertTrue(self.comment.is_deleted)
-        self.assertIsNone(self.comment.author)
+        # Author is preserved on the DB row (attribution is intentional).
+        self.assertEqual(self.comment.author, self.user)
         self.assertTrue(self.comment.content)
 
-        # check that GET hides the content
+        # GET hides the content but still attributes the comment.
         response = self.client.get(f"/api/comments/{self.comment.id}/")
-        self.assertIsNone(response.data["content"])
-        self.assertIsNone(response.data["author"])
+        self.assertEqual(response.data["content"], "")
+        self.assertEqual(response.data["author"]["id"], str(self.user.id))
 
     def test_deleted_comment_hides_content(self):
         self.comment.mark_as_deleted()
 
         response = self.client.get(f"/api/comments/{self.comment.id}/")
 
-        self.assertIsNone(response.data["content"])
-        self.assertIsNone(response.data["author"])
+        self.assertEqual(response.data["content"], "")
+        self.assertEqual(response.data["author"]["id"], str(self.user.id))
 
     def test_cannot_comment_on_inaccessible_quiz(self):
         self.quiz.visibility = 0

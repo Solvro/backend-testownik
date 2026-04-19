@@ -378,7 +378,8 @@ class Comment(models.Model):
         return self.parent_id is not None
 
     def mark_as_deleted(self):
+        # Author is preserved so the original poster can be held accountable for
+        # the original content; the serializer hides content on read.
         self.is_deleted = True
         self.deleted_at = timezone.now()
-        self.author = None
-        self.save(update_fields=["is_deleted", "deleted_at", "author"])
+        self.save(update_fields=["is_deleted", "deleted_at"])

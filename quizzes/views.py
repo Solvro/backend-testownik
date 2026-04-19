@@ -47,6 +47,7 @@ from quizzes.permissions import (
     IsQuizReadable,
     IsRatingUserOrReadOnly,
     IsSharedQuizCreatorOrReadOnly,
+    accessible_quizzes_q,
     user_has_quiz_read_access,
 )
 from quizzes.serializers import (
@@ -845,17 +846,9 @@ class QuizRatingViewSet(viewsets.ModelViewSet):
     ordering_fields = ["created_at", "updated_at", "score"]
     ordering = ["-created_at"]
 
-    def _accessible_quizzes_filter(self, user):
-        shared_quiz_ids = SharedQuiz.objects.filter(
-            Q(user=user) | Q(study_group__in=user.study_groups.all()), quiz__visibility__gte=1
-        ).values_list("quiz_id", flat=True)
-        return Q(quiz__folder__owner=user) | Q(quiz_id__in=shared_quiz_ids) | Q(quiz__visibility__gte=2)
-
     def get_queryset(self):
         user = self.request.user
-        return (
-            QuizRating.objects.filter(self._accessible_quizzes_filter(user)).select_related("quiz", "user").distinct()
-        )
+        return QuizRating.objects.filter(accessible_quizzes_q(user)).select_related("quiz", "user").distinct()
 
     def list(self, request, *args, **kwargs):
         if "quiz" not in request.query_params:
@@ -872,7 +865,7 @@ class QuizRatingViewSet(viewsets.ModelViewSet):
         quiz = serializer.validated_data["quiz"]
         if not user_has_quiz_read_access(self.request.user, quiz):
             raise PermissionDenied("You do not have access to this quiz.")
-        serializer.save()
+        serializer.save(user=self.request.user)
 
 
 class CommentViewSet(viewsets.ModelViewSet):
@@ -896,17 +889,9 @@ class CommentViewSet(viewsets.ModelViewSet):
     ordering_fields = ["created_at", "updated_at"]
     ordering = ["-created_at"]
 
-    def _accessible_quizzes_filter(self, user):
-        shared_quiz_ids = SharedQuiz.objects.filter(
-            Q(user=user) | Q(study_group__in=user.study_groups.all()), quiz__visibility__gte=1
-        ).values_list("quiz_id", flat=True)
-        return Q(quiz__folder__owner=user) | Q(quiz_id__in=shared_quiz_ids) | Q(quiz__visibility__gte=2)
-
     def get_queryset(self):
         user = self.request.user
-        return (
-            Comment.objects.filter(self._accessible_quizzes_filter(user)).select_related("author", "parent").distinct()
-        )
+        return Comment.objects.filter(accessible_quizzes_q(user)).select_related("author", "parent").distinct()
 
     def list(self, request, *args, **kwargs):
         if "quiz" not in request.query_params:

@@ -733,19 +733,21 @@ class RecordAnswerSerializer(serializers.Serializer):
 
 
 class QuizRatingSerializer(serializers.ModelSerializer):
-    user = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    user = PublicUserSerializer(default=serializers.CurrentUserDefault(), read_only=True)
 
     class Meta:
         model = QuizRating
         fields = ["id", "user", "quiz", "score", "created_at", "updated_at"]
         read_only_fields = ["id", "created_at", "updated_at"]
-        # DRF auto-generates a UniqueTogetherValidator on (user, quiz) from the
-        # model's UniqueConstraint — a second POST for the same pair is rejected
-        # with a 400 instead of bubbling up as a 500 IntegrityError.
+
+    def validate_quiz(self, value):
+        if self.instance and self.instance.quiz_id != value.id:
+            raise serializers.ValidationError("Cannot change the quiz of an existing rating")
+        return value
 
 
 class CommentSerializer(serializers.ModelSerializer):
-    author = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    author = PublicUserSerializer(default=serializers.CurrentUserDefault(), read_only=True)
     is_reply = serializers.BooleanField(read_only=True)
 
     class Meta:
@@ -784,6 +786,11 @@ class CommentSerializer(serializers.ModelSerializer):
             return value.parent
         return value
 
+    def validate_quiz(self, value):
+        if self.instance and self.instance.quiz_id != value.id:
+            raise serializers.ValidationError("Cannot move a comment to a different quiz")
+        return value
+
     def validate(self, data):
         question = data.get("question")
         quiz = data.get("quiz")
@@ -797,7 +804,8 @@ class CommentSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
 
         if instance.is_deleted:
-            data["content"] = None
-            data["author"] = None
+            # Hide the original text but keep author attribution so the
+            # thread still shows who posted the (now removed) comment.
+            data["content"] = ""
 
         return data

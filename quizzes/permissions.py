@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.db.models import Q
 from rest_framework import permissions
 
 from users.models import AccountType
@@ -66,6 +67,22 @@ class IsQuizCreator(permissions.BasePermission):
 
     def has_object_permission(self, request, view, obj):
         return obj.folder.owner == request.user
+
+
+def accessible_quizzes_q(user) -> Q:
+    """
+    Q object matching rows whose related ``quiz`` is readable by ``user``.
+
+    Mirrors :func:`user_has_quiz_read_access` for queryset filtering, so list
+    endpoints (comments, ratings, ...) stay in sync with the per-object
+    permission check. Assumes ``user`` is authenticated — callers that accept
+    anonymous users must handle ``allow_anonymous`` / guests themselves.
+    """
+    shared_quiz_ids = Quiz.objects.filter(
+        Q(sharedquiz__user=user) | Q(sharedquiz__study_group__in=user.study_groups.all()),
+        visibility__gte=1,
+    ).values_list("id", flat=True)
+    return Q(quiz__folder__owner=user) | Q(quiz_id__in=shared_quiz_ids) | Q(quiz__visibility__gte=2)
 
 
 def user_has_quiz_read_access(user, quiz) -> bool:
