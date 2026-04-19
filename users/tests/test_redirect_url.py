@@ -4,7 +4,7 @@ Tests for is_safe_redirect_url function to prevent open redirect vulnerabilities
 
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from users.views import is_safe_redirect_url
 
@@ -26,17 +26,39 @@ class IsSafeRedirectUrlTestCase(TestCase):
         self.assertTrue(is_safe_redirect_url("/path?query=value"))
         self.assertTrue(is_safe_redirect_url("/path#anchor"))
 
-    @patch("users.views.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000", "https://example.com"])
-    def test_allowed_origin_is_safe(self):
-        """URLs with allowed origins should be accepted."""
+    @override_settings(DEBUG=True)
+    @patch(
+        "users.views.utils.ALLOWED_REDIRECT_ORIGINS",
+        ["http://localhost:3000", "https://example.com"],
+    )
+    def test_allowed_origin_is_safe_debug_true(self):
+        """URLs with allowed origins should be accepted. HTTP is permitted in DEBUG mode."""
         self.assertTrue(is_safe_redirect_url("http://localhost:3000/callback"))
         self.assertTrue(is_safe_redirect_url("http://localhost:3000"))
         self.assertTrue(is_safe_redirect_url("https://example.com/path"))
         self.assertTrue(is_safe_redirect_url("https://example.com"))
 
-    @patch("users.views.ALLOW_PREVIEW_ENVIRONMENTS", True)
-    @patch("users.views.PREVIEW_ORIGIN_REGEXES", [r"^https://[\w-]+-testownik\.b\.solvro\.pl$"])
-    @patch("users.views.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000"])
+    @override_settings(DEBUG=False)
+    @patch(
+        "users.views.utils.ALLOWED_REDIRECT_ORIGINS",
+        ["http://localhost:3000", "https://example.com"],
+    )
+    def test_allowed_origin_is_safe_debug_false(self):
+        """In production (DEBUG=False), HTTP URLs must be rejected even if the origin matches,
+        and HTTPS must strictly be enforced."""
+        # HTTP should be REJECTED despite being in ALLOWED_REDIRECT_ORIGINS
+        self.assertFalse(is_safe_redirect_url("http://localhost:3000/callback"))
+        self.assertFalse(is_safe_redirect_url("http://localhost:3000"))
+        # HTTPS should be ACCEPTED
+        self.assertTrue(is_safe_redirect_url("https://example.com/path"))
+        self.assertTrue(is_safe_redirect_url("https://example.com"))
+
+    @patch("users.views.utils.ALLOW_PREVIEW_ENVIRONMENTS", True)
+    @patch(
+        "users.views.utils.PREVIEW_ORIGIN_REGEXES",
+        [r"^https://[\w-]+-testownik\.b\.solvro\.pl$"],
+    )
+    @patch("users.views.utils.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000"])
     def test_preview_environment_regex_is_safe(self):
         """Preview environment URLs matching regex should be allowed when enabled."""
         self.assertTrue(is_safe_redirect_url("https://pr-123-testownik.b.solvro.pl/callback"))
@@ -52,7 +74,7 @@ class IsSafeRedirectUrlTestCase(TestCase):
 
     # --- INVALID CASES: Malicious URLs ---
 
-    @patch("users.views.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000"])
+    @patch("users.views.utils.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000"])
     def test_external_url_is_blocked(self):
         """External URLs not in allowed origins should be blocked."""
         self.assertFalse(is_safe_redirect_url("https://evil.com"))
@@ -90,19 +112,19 @@ class IsSafeRedirectUrlTestCase(TestCase):
         """Whitespace-only URLs should be blocked."""
         self.assertFalse(is_safe_redirect_url("   "))
 
-    @patch("users.views.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000"])
+    @patch("users.views.utils.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000"])
     def test_url_with_credentials_is_blocked(self):
         """URLs with embedded credentials should be blocked (not in allowed origins)."""
         self.assertFalse(is_safe_redirect_url("https://user:pass@evil.com"))
         self.assertFalse(is_safe_redirect_url("https://admin@evil.com"))
 
-    @patch("users.views.ALLOWED_REDIRECT_ORIGINS", ["https://example.com"])
+    @patch("users.views.utils.ALLOWED_REDIRECT_ORIGINS", ["https://example.com"])
     def test_subdomain_attack_is_blocked(self):
         """Subdomain attacks should be blocked."""
         self.assertFalse(is_safe_redirect_url("https://example.com.evil.com"))
         self.assertFalse(is_safe_redirect_url("https://evilexample.com"))
 
-    @patch("users.views.ALLOWED_REDIRECT_ORIGINS", ["https://example.com"])
+    @patch("users.views.utils.ALLOWED_REDIRECT_ORIGINS", ["https://example.com"])
     def test_port_variation_is_blocked(self):
         """Different ports on allowed origins should be blocked."""
         self.assertFalse(is_safe_redirect_url("https://example.com:8080"))
@@ -115,23 +137,26 @@ class IsSafeRedirectUrlTestCase(TestCase):
         self.assertFalse(is_safe_redirect_url("\\\\evil.com"))
         self.assertFalse(is_safe_redirect_url("\\/evil.com"))
 
-    @patch("users.views.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000"])
+    @patch("users.views.utils.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000"])
     def test_null_byte_injection_is_blocked(self):
         """URLs with null bytes should be handled safely."""
         self.assertFalse(is_safe_redirect_url("https://evil.com\x00.localhost:3000"))
 
     # --- Preview environments disabled ---
 
-    @patch("users.views.ALLOW_PREVIEW_ENVIRONMENTS", False)
-    @patch("users.views.PREVIEW_ORIGIN_REGEXES", [r"^https://[\w-]+-testownik\.b\.solvro\.pl$"])
-    @patch("users.views.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000"])
+    @patch("users.views.utils.ALLOW_PREVIEW_ENVIRONMENTS", False)
+    @patch(
+        "users.views.utils.PREVIEW_ORIGIN_REGEXES",
+        [r"^https://[\w-]+-testownik\.b\.solvro\.pl$"],
+    )
+    @patch("users.views.utils.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000"])
     def test_preview_url_blocked_when_disabled(self):
         """Preview environment URLs should be blocked when feature is disabled."""
         self.assertFalse(is_safe_redirect_url("https://pr-123-testownik.b.solvro.pl/callback"))
 
     # --- Scheme handling ---
 
-    @patch("users.views.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000"])
+    @patch("users.views.utils.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000"])
     def test_scheme_mismatch_is_blocked(self):
         """Wrong scheme on allowed origin should be blocked."""
         self.assertFalse(is_safe_redirect_url("https://localhost:3000"))  # https vs http
