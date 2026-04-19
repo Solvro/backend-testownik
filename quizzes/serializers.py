@@ -474,7 +474,7 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "version",
             "can_edit",
             "folder",
-            "quiz_rating",  # quiz rating of user who is making the request
+            "quiz_rating",
             "average_rating",
             "review_count",
         ]
@@ -522,27 +522,22 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
     def get_quiz_rating(self, obj: Quiz):
         if not self._is_authenticated():
             return None
-
-        # Prefer prefetched rating to avoid N+1 when listing quizzes.
+        # Prefer prefetched rating (set via Prefetch(to_attr="_user_rating"))
+        # to avoid N+1 when listing quizzes.
         cached = getattr(obj, "_user_rating", None)
         if cached is not None:
             return cached[0].score if cached else None
-
         user = self.context.get("request").user
         rating = obj.ratings.filter(user=user).first()
         return rating.score if rating else None
 
     def get_average_rating(self, obj: Quiz):
         annotated = getattr(obj, "avg_rating", None)
-        if annotated is not None:
-            return annotated
-        return obj.get_average_rating()
+        return annotated if annotated is not None else obj.get_average_rating()
 
     def get_review_count(self, obj: Quiz):
         annotated = getattr(obj, "review_count", None)
-        if annotated is not None:
-            return annotated
-        return obj.get_review_count()
+        return annotated if annotated is not None else obj.get_review_count()
 
 
 class QuizMetaDataWithQuestionSerializer(QuizMetaDataSerializer):

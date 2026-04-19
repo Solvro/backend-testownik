@@ -349,37 +349,17 @@ class QuizRating(models.Model):
 
 class Comment(models.Model):
     """
-    Represents a comment attached to a specified thread.
-
-    Deleting this comment will result in `SOFT DELETE`
-
-    - Comment must be attached to Quiz
-    - Comment may by linked to Question inside Quiz (optional)
-
+    Threaded comment attached to a Quiz (and optionally a specific Question
+    within it). Deletion is soft — the record is kept to preserve thread
+    structure while the serializer hides content/author on read.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     author = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     content = models.TextField()
-
-    # comment can be reply to other comment
     parent = models.ForeignKey("self", on_delete=models.CASCADE, null=True, blank=True, related_name="replies")
-
-    # comment is ALWAYS linked to quiz
-    quiz = models.ForeignKey(
-        Quiz,
-        on_delete=models.CASCADE,
-        related_name="comments",  # quiz.comments.all()
-    )
-
-    # additionally, comment can be linked to question inside SharedQuiz
-    question = models.ForeignKey(
-        Question,
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="comments",  # question.comments.all()
-    )
+    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="comments")
+    question = models.ForeignKey(Question, on_delete=models.CASCADE, null=True, blank=True, related_name="comments")
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
