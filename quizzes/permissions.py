@@ -81,19 +81,7 @@ class IsQuizReadable(permissions.BasePermission):
     """
 
     def has_object_permission(self, request, view, obj: Quiz):
-        if obj.folder.owner == request.user:
-            return True
-
-        if obj.visibility >= 2 and (request.user.is_authenticated or obj.allow_anonymous):
-            return True
-
-        if _is_effectively_authenticated(request.user) and obj.sharedquiz_set.filter(user=request.user).exists():
-            return True
-
-        return (
-            _is_effectively_authenticated(request.user)
-            and obj.sharedquiz_set.filter(study_group__in=request.user.study_groups.all()).exists()
-        )
+        return user_has_quiz_read_access(request.user, obj)
 
 
 class IsQuestionReadable(permissions.BasePermission):
