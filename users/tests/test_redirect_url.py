@@ -27,7 +27,10 @@ class IsSafeRedirectUrlTestCase(TestCase):
         self.assertTrue(is_safe_redirect_url("/path#anchor"))
 
     @override_settings(DEBUG=True)
-    @patch("users.views.utils.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000", "https://example.com"])
+    @patch(
+        "users.views.utils.ALLOWED_REDIRECT_ORIGINS",
+        ["http://localhost:3000", "https://example.com"],
+    )
     def test_allowed_origin_is_safe_debug_true(self):
         """URLs with allowed origins should be accepted. HTTP is permitted in DEBUG mode."""
         self.assertTrue(is_safe_redirect_url("http://localhost:3000/callback"))
@@ -36,7 +39,10 @@ class IsSafeRedirectUrlTestCase(TestCase):
         self.assertTrue(is_safe_redirect_url("https://example.com"))
 
     @override_settings(DEBUG=False)
-    @patch("users.views.utils.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000", "https://example.com"])
+    @patch(
+        "users.views.utils.ALLOWED_REDIRECT_ORIGINS",
+        ["http://localhost:3000", "https://example.com"],
+    )
     def test_allowed_origin_is_safe_debug_false(self):
         """In production (DEBUG=False), HTTP URLs must be rejected even if the origin matches,
         and HTTPS must strictly be enforced."""
@@ -48,7 +54,10 @@ class IsSafeRedirectUrlTestCase(TestCase):
         self.assertTrue(is_safe_redirect_url("https://example.com"))
 
     @patch("users.views.utils.ALLOW_PREVIEW_ENVIRONMENTS", True)
-    @patch("users.views.utils.PREVIEW_ORIGIN_REGEXES", [r"^https://[\w-]+-testownik\.b\.solvro\.pl$"])
+    @patch(
+        "users.views.utils.PREVIEW_ORIGIN_REGEXES",
+        [r"^https://[\w-]+-testownik\.b\.solvro\.pl$"],
+    )
     @patch("users.views.utils.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000"])
     def test_preview_environment_regex_is_safe(self):
         """Preview environment URLs matching regex should be allowed when enabled."""
@@ -136,7 +145,10 @@ class IsSafeRedirectUrlTestCase(TestCase):
     # --- Preview environments disabled ---
 
     @patch("users.views.utils.ALLOW_PREVIEW_ENVIRONMENTS", False)
-    @patch("users.views.utils.PREVIEW_ORIGIN_REGEXES", [r"^https://[\w-]+-testownik\.b\.solvro\.pl$"])
+    @patch(
+        "users.views.utils.PREVIEW_ORIGIN_REGEXES",
+        [r"^https://[\w-]+-testownik\.b\.solvro\.pl$"],
+    )
     @patch("users.views.utils.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000"])
     def test_preview_url_blocked_when_disabled(self):
         """Preview environment URLs should be blocked when feature is disabled."""
