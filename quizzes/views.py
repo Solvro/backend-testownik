@@ -5,9 +5,9 @@ import uuid
 from datetime import timedelta
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Avg, Count, Prefetch, Q
 from django.utils import timezone
 from django.utils.html import escape
 from drf_spectacular.utils import (
@@ -19,7 +19,7 @@ from drf_spectacular.utils import (
 )
 from rest_framework import generics, mixins, permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed, NotFound, PermissionDenied
+from rest_framework.exceptions import MethodNotAllowed, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -28,25 +28,32 @@ from rest_framework.views import APIView
 from quizzes.models import (
     Answer,
     AnswerRecord,
+    Comment,
     Folder,
     Question,
     QuestionType,
     Quiz,
+    QuizRating,
     QuizSession,
     SharedQuiz,
 )
 from quizzes.permissions import (
+    IsCommentAuthorOrReadOnly,
     IsFolderOwner,
     IsInternalApiRequest,
     IsQuestionReadable,
     IsQuizCreator,
     IsQuizCreatorOrCollaboratorOrReadOnly,
     IsQuizReadable,
+    IsRatingUserOrReadOnly,
     IsSharedQuizCreatorOrReadOnly,
+    accessible_quizzes_q,
+    user_has_quiz_read_access,
 )
 from quizzes.serializers import (
     AnswerRecordSerializer,
     AnswerSerializer,
+    CommentSerializer,
     FolderSerializer,
     LibraryItemSerializer,
     MoveFolderSerializer,
@@ -54,6 +61,7 @@ from quizzes.serializers import (
     QuestionSerializer,
     QuizMetaDataSerializer,
     QuizMetaDataWithQuestionSerializer,
+    QuizRatingSerializer,
     QuizSearchResultSerializer,
     QuizSerializer,
     QuizSessionSerializer,
@@ -158,9 +166,13 @@ class LastUsedQuizzesView(generics.ListAPIView):
         return self.list(request, *args, **kwargs)
 
     def get_queryset(self):
+        user = self.request.user
+        user_ratings = Prefetch("ratings", queryset=QuizRating.objects.filter(user=user), to_attr="_user_rating")
         return (
-            Quiz.objects.filter(sessions__user=self.request.user, sessions__is_active=True)
+            Quiz.objects.filter(sessions__user=user, sessions__is_active=True)
             .select_related("creator", "folder", "folder__owner")
+            .annotate(avg_rating=Avg("ratings__score"), review_count=Count("ratings", distinct=True))
+            .prefetch_related(user_ratings)
             .order_by("-sessions__updated_at")
             .distinct()
         )
@@ -267,7 +279,14 @@ class QuizViewSet(viewsets.ModelViewSet):
             if not user.is_authenticated:
                 return Quiz.objects.none()
 
-            return Quiz.objects.filter(creator=user).select_related("creator", "folder", "folder__owner")
+            return (
+                Quiz.objects.filter(creator=user)
+                .select_related("creator", "folder", "folder__owner")
+                .annotate(avg_rating=Avg("ratings__score"), review_count=Count("ratings", distinct=True))
+                .prefetch_related(
+                    Prefetch("ratings", queryset=QuizRating.objects.filter(user=user), to_attr="_user_rating")
+                )
+            )
 
         queryset = Quiz.objects.all()
 
@@ -458,7 +477,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         try:
             question = Question.objects.prefetch_related("answers").get(id=question_id, quiz=quiz)
-        except (Question.DoesNotExist, ValueError, TypeError, ValidationError):
+        except (Question.DoesNotExist, ValueError, TypeError, DjangoValidationError):
             return Response({"error": "Question not found in this quiz"}, status=404)
 
         if question.question_type == QuestionType.CLOSED:
@@ -531,7 +550,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             if next_question_id is not None:
                 try:
                     exists = Question.objects.filter(id=next_question_id, quiz=quiz).exists()
-                except (ValueError, TypeError, ValidationError):
+                except (ValueError, TypeError, DjangoValidationError):
                     return Response({"error": "next_question must be a valid question in this quiz"}, status=400)
                 if not exists:
                     return Response({"error": "next_question must be a valid question in this quiz"}, status=400)
@@ -811,6 +830,91 @@ class FolderViewSet(viewsets.ModelViewSet):
             return Response({"status": "Folder moved successfully"})
 
         return Response(serializer.errors, status=400)
+
+
+class QuizRatingViewSet(viewsets.ModelViewSet):
+    """
+    Manages quiz ratings for the authenticated user.
+    A user can only have one rating per quiz (enforced by unique constraint).
+    Users can only rate quizzes they have read access to.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsRatingUserOrReadOnly]
+    serializer_class = QuizRatingSerializer
+    queryset = QuizRating.objects.all()
+    filterset_fields = ["quiz"]
+    ordering_fields = ["created_at", "updated_at", "score"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        user = self.request.user
+        return QuizRating.objects.filter(accessible_quizzes_q(user)).select_related("quiz", "user").distinct()
+
+    def list(self, request, *args, **kwargs):
+        if "quiz" not in request.query_params:
+            raise ValidationError({"quiz": "This query parameter is required when listing ratings."})
+        return super().list(request, *args, **kwargs)
+
+    @action(detail=False, methods=["get"], url_path="me")
+    def me(self, request):
+        queryset = self.filter_queryset(self.get_queryset().filter(user=request.user))
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def perform_create(self, serializer):
+        quiz = serializer.validated_data["quiz"]
+        if not user_has_quiz_read_access(self.request.user, quiz):
+            raise PermissionDenied("You do not have access to this quiz.")
+        serializer.save(user=self.request.user)
+
+
+class CommentViewSet(viewsets.ModelViewSet):
+    """
+    Manages comments on quizzes.
+
+    Access control:
+      - List requires ?quiz= query param; returns comments only for quizzes
+        the user can read (owner, shared, or public).
+      - Create validates quiz read access.
+      - Only the author can modify or delete their own comments.
+
+    DELETE performs a soft delete — the record is kept but content/author are
+    hidden in responses for deleted comments to preserve thread structure.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsCommentAuthorOrReadOnly]
+    serializer_class = CommentSerializer
+    queryset = Comment.objects.all()
+    filterset_fields = ["quiz"]
+    ordering_fields = ["created_at", "updated_at"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        user = self.request.user
+        return Comment.objects.filter(accessible_quizzes_q(user)).select_related("author", "parent").distinct()
+
+    def list(self, request, *args, **kwargs):
+        if "quiz" not in request.query_params:
+            raise ValidationError({"quiz": "This query parameter is required when listing comments."})
+        return super().list(request, *args, **kwargs)
+
+    @action(detail=False, methods=["get"], url_path="me")
+    def me(self, request):
+        queryset = self.filter_queryset(self.get_queryset().filter(author=request.user))
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def perform_create(self, serializer):
+        quiz = serializer.validated_data["quiz"]
+        if not user_has_quiz_read_access(self.request.user, quiz):
+            raise PermissionDenied("You do not have access to this quiz.")
+        serializer.save(author=self.request.user)
+
+    def perform_destroy(self, instance: Comment):
+        if instance.is_deleted:
+            raise ValidationError("Comment is already deleted.")
+
+        instance.mark_as_deleted()
 
 
 class LibraryView(APIView):

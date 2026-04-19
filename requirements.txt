@@ -18,3 +18,4 @@ Authlib==1.6.9
 nh3==0.3.4
 Pillow==12.2.0
 django-storages[s3]==1.14.6
+

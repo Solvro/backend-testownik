@@ -5,15 +5,7 @@ from django.db.models import Q
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from quizzes.models import (
-    Answer,
-    AnswerRecord,
-    Folder,
-    Question,
-    Quiz,
-    QuizSession,
-    SharedQuiz,
-)
+from quizzes.models import Answer, AnswerRecord, Comment, Folder, Question, Quiz, QuizRating, QuizSession, SharedQuiz
 from uploads.models import UploadedImage
 from users.models import StudyGroup, User, UserSettings
 from users.serializers import (
@@ -462,6 +454,9 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
     creator = PublicUserSerializer(read_only=True)
     can_edit = serializers.SerializerMethodField()
     last_used_at = serializers.SerializerMethodField()
+    quiz_rating = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+    review_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Quiz
@@ -479,8 +474,22 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "version",
             "can_edit",
             "folder",
+            "quiz_rating",
+            "average_rating",
+            "review_count",
         ]
-        read_only_fields = ["creator", "created_at", "updated_at", "last_used_at", "version", "can_edit", "folder"]
+        read_only_fields = [
+            "creator",
+            "created_at",
+            "updated_at",
+            "last_used_at",
+            "version",
+            "can_edit",
+            "folder",
+            "quiz_rating",
+            "average_rating",
+            "review_count",
+        ]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -495,21 +504,40 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             data.pop("folder", None)
         return data
 
-    def get_last_used_at(self, obj: Quiz):
-        # context is always request
+    def _is_authenticated(self):
         request = self.context.get("request")
+        return request and request.user.is_authenticated
 
-        # if user is authenticated
-        if request and request.user.is_authenticated:
-            return obj.get_last_used_at(request.user)
+    def get_last_used_at(self, obj: Quiz):
+        if self._is_authenticated():
+            return obj.get_last_used_at(self.context.get("request").user)
 
         return None
 
-    def get_can_edit(self, obj) -> bool:
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            return obj.can_edit(request.user)
+    def get_can_edit(self, obj: Quiz) -> bool:
+        if self._is_authenticated():
+            return obj.can_edit(self.context.get("request").user)
         return False
+
+    def get_quiz_rating(self, obj: Quiz):
+        if not self._is_authenticated():
+            return None
+        # Prefer prefetched rating (set via Prefetch(to_attr="_user_rating"))
+        # to avoid N+1 when listing quizzes.
+        cached = getattr(obj, "_user_rating", None)
+        if cached is not None:
+            return cached[0].score if cached else None
+        user = self.context.get("request").user
+        rating = obj.ratings.filter(user=user).first()
+        return rating.score if rating else None
+
+    def get_average_rating(self, obj: Quiz):
+        annotated = getattr(obj, "avg_rating", None)
+        return annotated if annotated is not None else obj.get_average_rating()
+
+    def get_review_count(self, obj: Quiz):
+        annotated = getattr(obj, "review_count", None)
+        return annotated if annotated is not None else obj.get_review_count()
 
 
 class QuizMetaDataWithQuestionSerializer(QuizMetaDataSerializer):
@@ -702,3 +730,82 @@ class LibraryItemSerializer(serializers.Serializer):
 class RecordAnswerSerializer(serializers.Serializer):
     question_id = serializers.UUIDField()
     selected_answers = serializers.ListField(allow_empty=False)
+
+
+class QuizRatingSerializer(serializers.ModelSerializer):
+    user = PublicUserSerializer(default=serializers.CurrentUserDefault(), read_only=True)
+
+    class Meta:
+        model = QuizRating
+        fields = ["id", "user", "quiz", "score", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate_quiz(self, value):
+        if self.instance and self.instance.quiz_id != value.id:
+            raise serializers.ValidationError("Cannot change the quiz of an existing rating")
+        return value
+
+
+class CommentSerializer(serializers.ModelSerializer):
+    author = PublicUserSerializer(default=serializers.CurrentUserDefault(), read_only=True)
+    is_reply = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Comment
+        fields = [
+            "id",
+            "author",
+            "content",
+            "parent",
+            "quiz",
+            "question",
+            "created_at",
+            "updated_at",
+            "is_deleted",
+            "deleted_at",
+            "is_reply",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at", "is_deleted", "deleted_at", "is_reply"]
+
+    def validate_content(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Content cannot be empty")
+        return value
+
+    def validate_parent(self, value):
+        if value is None:
+            return value
+
+        quiz_id = self.initial_data.get("quiz") or (self.instance.quiz_id if self.instance else None)
+        if quiz_id and str(value.quiz_id) != str(quiz_id):
+            raise serializers.ValidationError("Parent comment does not belong to this quiz")
+        if value.is_deleted:
+            raise serializers.ValidationError("Cannot reply to a deleted comment")
+        # Flatten nesting: replies to a reply attach to the top-level parent.
+        if value.parent_id is not None:
+            return value.parent
+        return value
+
+    def validate_quiz(self, value):
+        if self.instance and self.instance.quiz_id != value.id:
+            raise serializers.ValidationError("Cannot move a comment to a different quiz")
+        return value
+
+    def validate(self, data):
+        question = data.get("question")
+        quiz = data.get("quiz")
+
+        if question and quiz and str(question.quiz_id) != str(quiz.id):
+            raise serializers.ValidationError({"question": "This question does not belong to the selected quiz"})
+
+        return data
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+
+        if instance.is_deleted:
+            # Hide the original text but keep author attribution so the
+            # thread still shows who posted the (now removed) comment.
+            data["content"] = ""
+
+        return data
