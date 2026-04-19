@@ -133,6 +133,24 @@ class IsFolderOwner(permissions.BasePermission):
         return obj.owner == request.user
 
 
+def user_has_quiz_read_access(user, quiz) -> bool:
+    """
+    Standalone version of IsQuizReadable's check for non-view code paths
+    (e.g. perform_create). Kept here as the single source of truth so the
+    viewset doesn't duplicate the permission logic.
+    """
+    if quiz.folder.owner == user:
+        return True
+    if quiz.visibility >= 2 and (user.is_authenticated or quiz.allow_anonymous):
+        return True
+    if _is_effectively_authenticated(user) and quiz.sharedquiz_set.filter(user=user).exists():
+        return True
+    return (
+        _is_effectively_authenticated(user)
+        and quiz.sharedquiz_set.filter(study_group__in=user.study_groups.all()).exists()
+    )
+
+
 class IsCommentAuthorOrReadOnly(permissions.BasePermission):
     """
     Custom permission to only allow comment authors to edit.

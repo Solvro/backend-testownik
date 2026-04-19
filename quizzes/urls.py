@@ -1,6 +1,5 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
-from rest_framework_nested.routers import NestedDefaultRouter
 
 from quizzes.views import (
     CommentViewSet,
@@ -22,9 +21,7 @@ router.register("shared-quizzes", SharedQuizViewSet)
 router.register("folders", FolderViewSet)
 router.register("questions", QuestionViewSet)
 router.register("quiz-ratings", QuizRatingViewSet)
-
-quizzes_router = NestedDefaultRouter(router, "quizzes", lookup="quiz")
-quizzes_router.register("comments", CommentViewSet, basename="quiz-comments")
+router.register("comments", CommentViewSet)
 
 urlpatterns = [
     path("", include(router.urls)),
@@ -38,5 +35,4 @@ urlpatterns = [
         name="report-question-issue",
     ),
     path("search-quizzes/", SearchQuizzesView.as_view(), name="search-quizzes"),
-    path("", include(quizzes_router.urls)),
 ]

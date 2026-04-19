@@ -763,7 +763,7 @@ class CommentSerializer(serializers.ModelSerializer):
             "deleted_at",
             "is_reply",
         ]
-        read_only_fields = ["id", "quiz", "created_at", "updated_at", "is_deleted", "deleted_at", "is_reply"]
+        read_only_fields = ["id", "created_at", "updated_at", "is_deleted", "deleted_at", "is_reply"]
 
     def validate_content(self, value):
         if not value.strip():
@@ -774,8 +774,9 @@ class CommentSerializer(serializers.ModelSerializer):
         if value is None:
             return value
 
-        quiz_id = self.context["view"].kwargs.get("quiz_pk")
-        if str(value.quiz_id) != str(quiz_id):
+        # Resolve quiz_id from initial data (create) or existing instance (update).
+        quiz_id = self.initial_data.get("quiz") or (self.instance.quiz_id if self.instance else None)
+        if quiz_id and str(value.quiz_id) != str(quiz_id):
             raise serializers.ValidationError("Parent comment does not belong to this quiz")
         if value.is_deleted:
             raise serializers.ValidationError("Cannot reply to a deleted comment")
@@ -786,11 +787,9 @@ class CommentSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         question = data.get("question")
-        quiz_id = self.context["view"].kwargs.get("quiz_pk")
+        quiz = data.get("quiz")
 
-        # `quiz` is read-only on this serializer (bound in perform_create from the
-        # URL), so pull the quiz id from the URL to validate question consistency.
-        if question and quiz_id and str(question.quiz_id) != str(quiz_id):
+        if question and quiz and str(question.quiz_id) != str(quiz.id):
             raise serializers.ValidationError({"question": "This question does not belong to the selected quiz"})
 
         return data

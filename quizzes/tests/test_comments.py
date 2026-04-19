@@ -27,28 +27,32 @@ class CommentViewSetTestCase(TestCase):
         self.client.force_authenticate(user=self.user)
 
     def test_list_comments(self):
-        response = self.client.get(f"/api/quizzes/{self.quiz.id}/comments/")
+        response = self.client.get(f"/api/comments/?quiz={self.quiz.id}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_list_comments_requires_quiz_param(self):
+        response = self.client.get("/api/comments/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_create_comment_to_quiz(self):
-        """Test tworzenia komentarza ogólnego do quizu"""
         response = self.client.post(
-            f"/api/quizzes/{self.quiz.id}/comments/",
+            "/api/comments/",
             {
                 "content": "New quiz comment",
+                "quiz": self.quiz.id,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["quiz"], self.quiz.id)
 
     def test_create_comment_to_question(self):
-        """Test tworzenia komentarza do konkretnego pytania"""
         response = self.client.post(
-            f"/api/quizzes/{self.quiz.id}/comments/",
+            "/api/comments/",
             {
                 "content": "Question feedback",
                 "question": self.question.id,
+                "quiz": self.quiz.id,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -56,9 +60,10 @@ class CommentViewSetTestCase(TestCase):
 
     def test_create_comment_empty_content(self):
         response = self.client.post(
-            f"/api/quizzes/{self.quiz.id}/comments/",
+            "/api/comments/",
             {
                 "content": "   ",
+                "quiz": self.quiz.id,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -66,17 +71,18 @@ class CommentViewSetTestCase(TestCase):
     def test_create_comment_unauthenticated(self):
         self.client.force_authenticate(user=None)
         response = self.client.post(
-            f"/api/quizzes/{self.quiz.id}/comments/",
-            {"content": "New comment"},
+            "/api/comments/",
+            {"content": "New comment", "quiz": self.quiz.id},
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_create_reply(self):
         response = self.client.post(
-            f"/api/quizzes/{self.quiz.id}/comments/",
+            "/api/comments/",
             {
                 "content": "Reply comment",
                 "parent": self.comment.id,
+                "quiz": self.quiz.id,
             },
         )
 
@@ -86,7 +92,7 @@ class CommentViewSetTestCase(TestCase):
     # UPDATE
     def test_update_own_comment(self):
         response = self.client.patch(
-            f"/api/quizzes/{self.quiz.id}/comments/{self.comment.id}/",
+            f"/api/comments/{self.comment.id}/",
             {"content": "Updated comment"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -95,16 +101,18 @@ class CommentViewSetTestCase(TestCase):
     def test_update_other_user_comment(self):
         # The private quiz is not visible to other_user, so get_queryset filters
         # the comment out before the permission check — expect 404.
+        self.quiz.visibility = 0
+        self.quiz.save()
         self.client.force_authenticate(user=self.other_user)
         response = self.client.patch(
-            f"/api/quizzes/{self.quiz.id}/comments/{self.comment.id}/",
+            f"/api/comments/{self.comment.id}/",
             {"content": "Hacked comment"},
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     # DELETE
     def test_soft_delete_own_comment(self):
-        response = self.client.delete(f"/api/quizzes/{self.quiz.id}/comments/{self.comment.id}/")
+        response = self.client.delete(f"/api/comments/{self.comment.id}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
         self.comment.refresh_from_db()
@@ -112,29 +120,27 @@ class CommentViewSetTestCase(TestCase):
         self.assertIsNone(self.comment.author)
         self.assertTrue(self.comment.content)
 
-        # teraz sprawdź GET
-        response = self.client.get(f"/api/quizzes/{self.quiz.id}/comments/{self.comment.id}/")
-        self.assertIsNone(response.data["content"])  # serializer zwraca None
+        # check that GET hides the content
+        response = self.client.get(f"/api/comments/{self.comment.id}/")
+        self.assertIsNone(response.data["content"])
         self.assertIsNone(response.data["author"])
 
     def test_deleted_comment_hides_content(self):
         self.comment.mark_as_deleted()
 
-        response = self.client.get(f"/api/quizzes/{self.quiz.id}/comments/{self.comment.id}/")
+        response = self.client.get(f"/api/comments/{self.comment.id}/")
 
         self.assertIsNone(response.data["content"])
         self.assertIsNone(response.data["author"])
 
     def test_cannot_comment_on_inaccessible_quiz(self):
-        # Quiz is private (visibility=0 default for visibility_default? Actually
-        # default is 2 "unlisted". Force it to private and confirm outsiders cannot comment.
         self.quiz.visibility = 0
         self.quiz.save(update_fields=["visibility"])
 
         self.client.force_authenticate(user=self.other_user)
         response = self.client.post(
-            f"/api/quizzes/{self.quiz.id}/comments/",
-            {"content": "I should not be able to post this"},
+            "/api/comments/",
+            {"content": "I should not be able to post this", "quiz": self.quiz.id},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(Comment.objects.filter(content="I should not be able to post this").exists())
@@ -142,8 +148,8 @@ class CommentViewSetTestCase(TestCase):
     def test_cannot_reply_to_deleted_comment(self):
         self.comment.mark_as_deleted()
         response = self.client.post(
-            f"/api/quizzes/{self.quiz.id}/comments/",
-            {"content": "Reply to a ghost", "parent": self.comment.id},
+            "/api/comments/",
+            {"content": "Reply to a ghost", "parent": self.comment.id, "quiz": self.quiz.id},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("parent", response.data)
@@ -151,8 +157,8 @@ class CommentViewSetTestCase(TestCase):
     def test_reply_to_reply_is_flattened_to_top_level(self):
         reply = Comment.objects.create(author=self.user, content="First reply", quiz=self.quiz, parent=self.comment)
         response = self.client.post(
-            f"/api/quizzes/{self.quiz.id}/comments/",
-            {"content": "Nested reply", "parent": reply.id},
+            "/api/comments/",
+            {"content": "Nested reply", "parent": reply.id, "quiz": self.quiz.id},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         # Parent was flattened to the top-level comment, not the intermediate reply.
@@ -163,8 +169,8 @@ class CommentViewSetTestCase(TestCase):
         foreign_question = Question.objects.create(quiz=other_quiz, text="Other?", order=1)
 
         response = self.client.post(
-            f"/api/quizzes/{self.quiz.id}/comments/",
-            {"content": "Cross-quiz question ref", "question": foreign_question.id},
+            "/api/comments/",
+            {"content": "Cross-quiz question ref", "question": foreign_question.id, "quiz": self.quiz.id},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("question", response.data)
