@@ -774,7 +774,6 @@ class CommentSerializer(serializers.ModelSerializer):
         if value is None:
             return value
 
-        # Resolve quiz_id from initial data (create) or existing instance (update).
         quiz_id = self.initial_data.get("quiz") or (self.instance.quiz_id if self.instance else None)
         if quiz_id and str(value.quiz_id) != str(quiz_id):
             raise serializers.ValidationError("Parent comment does not belong to this quiz")

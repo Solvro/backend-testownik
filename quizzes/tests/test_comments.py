@@ -35,6 +35,13 @@ class CommentViewSetTestCase(TestCase):
         response = self.client.get("/api/comments/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_me_comments(self):
+        response = self.client.get("/api/comments/me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        # Verify it's the own comment
+        self.assertEqual(response.data[0]["id"], str(self.comment.id))
+
     def test_create_comment_to_quiz(self):
         response = self.client.post(
             "/api/comments/",

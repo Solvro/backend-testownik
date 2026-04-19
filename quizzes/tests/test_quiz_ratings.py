@@ -20,14 +20,20 @@ class QuizRatingViewSetTestCase(TestCase):
 
     # LIST
     def test_list_own_ratings(self):
-        response = self.client.get("/api/quiz-ratings/")
+        response = self.client.get("/api/quiz-ratings/me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["id"], str(self.rating.id))
 
-    def test_cannot_see_other_user_ratings(self):
-        QuizRating.objects.create(user=self.other_user, quiz=self.quiz, score=2)
+    def test_list_ratings_requires_quiz_param(self):
         response = self.client.get("/api/quiz-ratings/")
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_can_see_other_user_ratings_on_quiz(self):
+        QuizRating.objects.create(user=self.other_user, quiz=self.quiz, score=2)
+        response = self.client.get(f"/api/quiz-ratings/?quiz={self.quiz.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
 
     # CREATE
     def test_create_rating(self):
@@ -81,7 +87,7 @@ class QuizRatingViewSetTestCase(TestCase):
                 "score": 1,
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     # DELETE
     def test_delete_own_rating(self):
@@ -91,7 +97,7 @@ class QuizRatingViewSetTestCase(TestCase):
     def test_cannot_delete_other_user_rating(self):
         other_rating = QuizRating.objects.create(user=self.other_user, quiz=self.quiz, score=3)
         response = self.client.delete(f"/api/quiz-ratings/{other_rating.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_cannot_rate_inaccessible_quiz(self):
         other_folder = Folder.objects.create(name="Other", owner=self.other_user)

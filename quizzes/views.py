@@ -45,6 +45,7 @@ from quizzes.permissions import (
     IsQuizCreator,
     IsQuizCreatorOrCollaboratorOrReadOnly,
     IsQuizReadable,
+    IsRatingUserOrReadOnly,
     IsSharedQuizCreatorOrReadOnly,
     user_has_quiz_read_access,
 )
@@ -833,24 +834,39 @@ class FolderViewSet(viewsets.ModelViewSet):
 class QuizRatingViewSet(viewsets.ModelViewSet):
     """
     Manages quiz ratings for the authenticated user.
-
-    Endpoints:
-      GET    /api/quiz-ratings/           — list current user's ratings
-      POST   /api/quiz-ratings/           — create a rating (quiz in body)
-      GET    /api/quiz-ratings/{id}/      — retrieve a rating
-      PATCH  /api/quiz-ratings/{id}/      — update a rating
-      DELETE /api/quiz-ratings/{id}/      — delete a rating
-
     A user can only have one rating per quiz (enforced by unique constraint).
     Users can only rate quizzes they have read access to.
     """
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsRatingUserOrReadOnly]
     serializer_class = QuizRatingSerializer
     queryset = QuizRating.objects.all()
+    filterset_fields = ["quiz"]
+    ordering_fields = ["created_at", "updated_at", "score"]
+    ordering = ["-created_at"]
+
+    def _accessible_quizzes_filter(self, user):
+        shared_quiz_ids = SharedQuiz.objects.filter(
+            Q(user=user) | Q(study_group__in=user.study_groups.all()), quiz__visibility__gte=1
+        ).values_list("quiz_id", flat=True)
+        return Q(quiz__folder__owner=user) | Q(quiz_id__in=shared_quiz_ids) | Q(quiz__visibility__gte=2)
 
     def get_queryset(self):
-        return QuizRating.objects.filter(user=self.request.user).select_related("quiz")
+        user = self.request.user
+        return (
+            QuizRating.objects.filter(self._accessible_quizzes_filter(user)).select_related("quiz", "user").distinct()
+        )
+
+    def list(self, request, *args, **kwargs):
+        if "quiz" not in request.query_params:
+            raise ValidationError({"quiz": "This query parameter is required when listing ratings."})
+        return super().list(request, *args, **kwargs)
+
+    @action(detail=False, methods=["get"], url_path="me")
+    def me(self, request):
+        queryset = self.filter_queryset(self.get_queryset().filter(user=request.user))
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
     def perform_create(self, serializer):
         quiz = serializer.validated_data["quiz"]
@@ -862,13 +878,6 @@ class QuizRatingViewSet(viewsets.ModelViewSet):
 class CommentViewSet(viewsets.ModelViewSet):
     """
     Manages comments on quizzes.
-
-    Endpoints:
-      GET    /api/comments/?quiz={id}     — list comments for a quiz
-      POST   /api/comments/              — create a comment (quiz in body)
-      GET    /api/comments/{id}/         — retrieve a comment
-      PATCH  /api/comments/{id}/         — update own comment
-      DELETE /api/comments/{id}/         — soft-delete own comment
 
     Access control:
       - List requires ?quiz= query param; returns comments only for quizzes
@@ -883,6 +892,9 @@ class CommentViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsCommentAuthorOrReadOnly]
     serializer_class = CommentSerializer
     queryset = Comment.objects.all()
+    filterset_fields = ["quiz"]
+    ordering_fields = ["created_at", "updated_at"]
+    ordering = ["-created_at"]
 
     def _accessible_quizzes_filter(self, user):
         shared_quiz_ids = SharedQuiz.objects.filter(
@@ -892,15 +904,20 @@ class CommentViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        qs = Comment.objects.filter(self._accessible_quizzes_filter(user)).select_related("author", "parent").distinct()
+        return (
+            Comment.objects.filter(self._accessible_quizzes_filter(user)).select_related("author", "parent").distinct()
+        )
 
-        quiz_id = self.request.query_params.get("quiz")
-        if quiz_id:
-            qs = qs.filter(quiz_id=quiz_id)
-        elif self.action == "list":
+    def list(self, request, *args, **kwargs):
+        if "quiz" not in request.query_params:
             raise ValidationError({"quiz": "This query parameter is required when listing comments."})
+        return super().list(request, *args, **kwargs)
 
-        return qs
+    @action(detail=False, methods=["get"], url_path="me")
+    def me(self, request):
+        queryset = self.filter_queryset(self.get_queryset().filter(author=request.user))
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
     def perform_create(self, serializer):
         quiz = serializer.validated_data["quiz"]
