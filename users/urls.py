@@ -29,10 +29,10 @@ urlpatterns = [
         name="api_delete_account",
     ),
     path("admin/login/", views.admin_login, name="admin_login"),
-    path("login/usos/", views.login_usos, name="login_usos"),
-    path("login/", views.login, name="login"),
-    path("authorize/", views.authorize, name="authorize"),
-    path("authorize/usos/", views.authorize_usos, name="authorize_usos"),
+    path("login/usos/", views.UsosLoginView.as_view(), name="login_usos"),
+    path("login/", views.SolvroLoginView.as_view(), name="login"),
+    path("authorize/", views.SolvroAuthorizeView.as_view(), name="authorize"),
+    path("authorize/usos/", views.UsosAuthorizeView.as_view(), name="authorize_usos"),
     path("guest/create/", views.GuestCreateView.as_view(), name="guest_create"),
 ]
 
