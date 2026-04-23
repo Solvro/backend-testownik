@@ -20,6 +20,7 @@ from drf_spectacular.utils import (
 from rest_framework import generics, mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed, NotFound, PermissionDenied
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -73,6 +74,15 @@ from testownik_core.emails import send_email
 from users.models import AccountType
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_STATS_SCOPES = {"me", "all"}
+
+
+def resolve_stats_scope_user(request):
+    scope = request.query_params.get("scope", "me")
+    if scope not in ALLOWED_STATS_SCOPES:
+        raise DRFValidationError({"scope": "Invalid value. Allowed values are: me, all."})
+    return request.user if scope == "me" else None
 
 
 class RandomQuestionView(APIView):
@@ -437,13 +447,22 @@ class QuizViewSet(viewsets.ModelViewSet):
         raise MethodNotAllowed(request.method)
 
     @extend_schema(
-        summary="Get quiz statistics for the current user",
+        summary="Get quiz statistics",
         description=(
-            "Returns aggregated quiz statistics for the authenticated user across all their sessions. "
-            "Study time reflects the active session only. "
+            "Returns aggregated quiz statistics. "
+            "By default (`scope=me`) it returns data for the authenticated user across their sessions. "
+            "Use `scope=all` to aggregate data across all users with access to this quiz. "
+            "For `scope=me`, study time reflects the active session only. "
             "Pass `?include=per_question` to include a per-question breakdown."
         ),
         parameters=[
+            OpenApiParameter(
+                name="scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Stats scope. Use 'me' for current user, 'all' for all users with access to this quiz.",
+                enum=["me", "all"],
+            ),
             OpenApiParameter(
                 name="include",
                 type=str,
@@ -456,6 +475,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         ],
         responses={
             200: QuizStatsSerializer,
+            400: OpenApiResponse(description="Bad request - invalid query parameters"),
             401: OpenApiResponse(description="Unauthorized - authentication required"),
             403: OpenApiResponse(description="Forbidden - no read access to this quiz"),
             404: OpenApiResponse(description="Quiz not found"),
@@ -474,13 +494,29 @@ class QuizViewSet(viewsets.ModelViewSet):
         include_values = parse_include_values(request)
         include_per_question = "per_question" in include_values
 
-        scope = request.query_params.get("scope", "me")
-        user = request.user if scope == "me" else None
+        user = resolve_stats_scope_user(request)
 
         data = get_quiz_stats(quiz, user, include_per_question=include_per_question)
         serializer = QuizStatsSerializer(instance=data)
         return Response(serializer.data)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Stats scope. Use 'me' for current user, 'all' for all users with access to this quiz.",
+                enum=["me", "all"],
+            )
+        ],
+        responses={
+            200: OpenApiResponse(description="Timeline statistics"),
+            400: OpenApiResponse(description="Bad request - invalid query parameters"),
+            401: OpenApiResponse(description="Unauthorized - authentication required"),
+            403: OpenApiResponse(description="Forbidden - no read access to this quiz"),
+        },
+    )
     @action(
         detail=True,
         methods=["get"],
@@ -492,12 +528,28 @@ class QuizViewSet(viewsets.ModelViewSet):
         from quizzes.services.stats import get_quiz_timeline_stats
 
         quiz = self.get_object()
-        scope = request.query_params.get("scope", "me")
-        user = request.user if scope == "me" else None
+        user = resolve_stats_scope_user(request)
 
         data = get_quiz_timeline_stats(quiz, user=user)
         return Response(data)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Stats scope. Use 'me' for current user, 'all' for all users with access to this quiz.",
+                enum=["me", "all"],
+            )
+        ],
+        responses={
+            200: OpenApiResponse(description="Hardest questions statistics"),
+            400: OpenApiResponse(description="Bad request - invalid query parameters"),
+            401: OpenApiResponse(description="Unauthorized - authentication required"),
+            403: OpenApiResponse(description="Forbidden - no read access to this quiz"),
+        },
+    )
     @action(
         detail=True,
         methods=["get"],
@@ -509,12 +561,28 @@ class QuizViewSet(viewsets.ModelViewSet):
         from quizzes.services.stats import get_quiz_hardest_questions
 
         quiz = self.get_object()
-        scope = request.query_params.get("scope", "me")
-        user = request.user if scope == "me" else None
+        user = resolve_stats_scope_user(request)
 
         data = get_quiz_hardest_questions(quiz, user=user)
         return Response(data)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Stats scope. Use 'me' for current user, 'all' for all users with access to this quiz.",
+                enum=["me", "all"],
+            )
+        ],
+        responses={
+            200: OpenApiResponse(description="Hourly statistics"),
+            400: OpenApiResponse(description="Bad request - invalid query parameters"),
+            401: OpenApiResponse(description="Unauthorized - authentication required"),
+            403: OpenApiResponse(description="Forbidden - no read access to this quiz"),
+        },
+    )
     @action(
         detail=True,
         methods=["get"],
@@ -526,8 +594,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         from quizzes.services.stats import get_quiz_hourly_stats
 
         quiz = self.get_object()
-        scope = request.query_params.get("scope", "me")
-        user = request.user if scope == "me" else None
+        user = resolve_stats_scope_user(request)
 
         data = get_quiz_hourly_stats(quiz, user=user)
         return Response(data)
