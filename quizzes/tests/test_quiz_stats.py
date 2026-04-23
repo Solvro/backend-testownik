@@ -5,6 +5,7 @@ Tests for GET /quizzes/{id}/stats endpoint.
 from datetime import timedelta
 
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -316,6 +317,182 @@ class QuizStatsIsolationTestCase(APITestCase):
         self.assertEqual(response.data["sessions_count"], 1)
 
 
+class QuizStatsScopeTestCase(APITestCase):
+    """Stats endpoint validates scope and supports per-user/global aggregations."""
+
+    def setUp(self):
+        self.owner = _make_user("owner-scope@example.com")
+        self.other = _make_user("other-scope@example.com")
+
+        self.quiz = Quiz.objects.create(title="Scope Quiz", maintainer=self.owner, visibility=3)
+        self.q1 = Question.objects.create(quiz=self.quiz, order=1, text="Q1")
+
+        owner_session = QuizSession.objects.create(quiz=self.quiz, user=self.owner, is_active=True)
+        AnswerRecord.objects.create(session=owner_session, question=self.q1, selected_answers=[], was_correct=True)
+
+        other_session = QuizSession.objects.create(quiz=self.quiz, user=self.other, is_active=True)
+        AnswerRecord.objects.create(session=other_session, question=self.q1, selected_answers=[], was_correct=True)
+        AnswerRecord.objects.create(session=other_session, question=self.q1, selected_answers=[], was_correct=False)
+
+    def test_scope_me_returns_current_user_stats(self):
+        self.client.force_authenticate(user=self.owner)
+        url = reverse("quiz-stats", kwargs={"pk": self.quiz.id})
+        response = self.client.get(url, {"scope": "me"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["total_answers"], 1)
+        self.assertEqual(response.data["correct_answers"], 1)
+        self.assertEqual(response.data["sessions_count"], 1)
+        self.assertIsNone(response.data["unique_users_count"])
+
+    def test_scope_all_returns_aggregated_stats(self):
+        self.client.force_authenticate(user=self.owner)
+        url = reverse("quiz-stats", kwargs={"pk": self.quiz.id})
+        response = self.client.get(url, {"scope": "all"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["total_answers"], 3)
+        self.assertEqual(response.data["correct_answers"], 2)
+        self.assertEqual(response.data["wrong_answers"], 1)
+        self.assertEqual(response.data["sessions_count"], 2)
+        self.assertEqual(response.data["unique_users_count"], 2)
+
+    def test_invalid_scope_returns_400(self):
+        self.client.force_authenticate(user=self.owner)
+        url = reverse("quiz-stats", kwargs={"pk": self.quiz.id})
+        response = self.client.get(url, {"scope": "invalid"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("scope", response.data)
+
+
+class QuizStatsTimelineWindowTestCase(APITestCase):
+    """Timeline includes answers from old sessions when answer date is in range."""
+
+    def setUp(self):
+        self.user = _make_user("timeline-owner@example.com")
+        self.client.force_authenticate(user=self.user)
+
+        self.quiz = Quiz.objects.create(title="Timeline Quiz", maintainer=self.user, visibility=3)
+        self.q1 = Question.objects.create(quiz=self.quiz, order=1, text="Q1")
+
+    def test_timeline_includes_recent_answers_from_old_session(self):
+        now = timezone.now()
+
+        old_session = QuizSession.objects.create(quiz=self.quiz, user=self.user, is_active=True)
+        QuizSession.objects.filter(id=old_session.id).update(started_at=now - timedelta(days=45))
+
+        old_answer = AnswerRecord.objects.create(
+            session=old_session,
+            question=self.q1,
+            selected_answers=[],
+            was_correct=True,
+        )
+        AnswerRecord.objects.filter(id=old_answer.id).update(answered_at=now - timedelta(days=1))
+
+        url = reverse("quiz-stats-timeline", kwargs={"pk": self.quiz.id})
+        response = self.client.get(url, {"scope": "me"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        day_key = (now - timedelta(days=1)).date().isoformat()
+
+        timeline_by_date = {item["date"]: item for item in response.data}
+        self.assertIn(day_key, timeline_by_date)
+        self.assertEqual(timeline_by_date[day_key]["total_answers"], 1)
+        self.assertEqual(timeline_by_date[day_key]["correct_answers"], 1)
+
+
+class QuizStatsChartsScopeTestCase(APITestCase):
+    """Chart endpoints support scope=me/all and validate scope input."""
+
+    def setUp(self):
+        self.owner = _make_user("charts-owner@example.com")
+        self.other = _make_user("charts-other@example.com")
+
+        self.quiz = Quiz.objects.create(title="Charts Quiz", maintainer=self.owner, visibility=3)
+        self.q1 = Question.objects.create(quiz=self.quiz, order=1, text="Q1")
+        self.q2 = Question.objects.create(quiz=self.quiz, order=2, text="Q2")
+
+        now = timezone.now()
+
+        owner_session = QuizSession.objects.create(quiz=self.quiz, user=self.owner, is_active=True)
+        QuizSession.objects.filter(id=owner_session.id).update(started_at=now - timedelta(hours=2))
+
+        AnswerRecord.objects.create(session=owner_session, question=self.q1, selected_answers=[], was_correct=False)
+        owner_correct = AnswerRecord.objects.create(
+            session=owner_session,
+            question=self.q2,
+            selected_answers=[],
+            was_correct=True,
+        )
+        AnswerRecord.objects.filter(id=owner_correct.id).update(answered_at=now - timedelta(days=1))
+
+        other_session = QuizSession.objects.create(quiz=self.quiz, user=self.other, is_active=True)
+        QuizSession.objects.filter(id=other_session.id).update(started_at=now - timedelta(hours=1))
+
+        AnswerRecord.objects.create(session=other_session, question=self.q1, selected_answers=[], was_correct=False)
+
+        self.timeline_url = reverse("quiz-stats-timeline", kwargs={"pk": self.quiz.id})
+        self.hardest_url = reverse("quiz-stats-hardest-questions", kwargs={"pk": self.quiz.id})
+        self.hourly_url = reverse("quiz-stats-hourly", kwargs={"pk": self.quiz.id})
+
+    def test_timeline_scope_me_vs_all(self):
+        self.client.force_authenticate(user=self.owner)
+
+        me_response = self.client.get(self.timeline_url, {"scope": "me"})
+        all_response = self.client.get(self.timeline_url, {"scope": "all"})
+
+        self.assertEqual(me_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(all_response.status_code, status.HTTP_200_OK)
+
+        me_total_answers = sum(item["total_answers"] for item in me_response.data)
+        all_total_answers = sum(item["total_answers"] for item in all_response.data)
+
+        self.assertEqual(me_total_answers, 2)
+        self.assertEqual(all_total_answers, 3)
+
+    def test_hardest_questions_scope_me_vs_all(self):
+        self.client.force_authenticate(user=self.owner)
+
+        me_response = self.client.get(self.hardest_url, {"scope": "me"})
+        all_response = self.client.get(self.hardest_url, {"scope": "all"})
+
+        self.assertEqual(me_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(all_response.status_code, status.HTTP_200_OK)
+
+        me_by_question = {str(item["question_id"]): item for item in me_response.data}
+        all_by_question = {str(item["question_id"]): item for item in all_response.data}
+
+        self.assertEqual(me_by_question[str(self.q1.id)]["wrong_answers"], 1)
+        self.assertEqual(me_by_question[str(self.q1.id)]["total_answers"], 1)
+
+        self.assertEqual(all_by_question[str(self.q1.id)]["wrong_answers"], 2)
+        self.assertEqual(all_by_question[str(self.q1.id)]["total_answers"], 2)
+
+    def test_hourly_scope_me_vs_all(self):
+        self.client.force_authenticate(user=self.owner)
+
+        me_response = self.client.get(self.hourly_url, {"scope": "me"})
+        all_response = self.client.get(self.hourly_url, {"scope": "all"})
+
+        self.assertEqual(me_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(all_response.status_code, status.HTTP_200_OK)
+
+        me_sessions_sum = sum(item["sessions_count"] for item in me_response.data)
+        all_sessions_sum = sum(item["sessions_count"] for item in all_response.data)
+
+        self.assertEqual(me_sessions_sum, 1)
+        self.assertEqual(all_sessions_sum, 2)
+
+    def test_invalid_scope_returns_400_for_chart_endpoints(self):
+        self.client.force_authenticate(user=self.owner)
+
+        for url in (self.timeline_url, self.hardest_url, self.hourly_url):
+            response = self.client.get(url, {"scope": "invalid"})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("scope", response.data)
+
+
 class QuizStatsPermissionsTestCase(APITestCase):
     """Stats endpoint enforces authentication and quiz visibility rules."""
 
@@ -351,6 +528,23 @@ class QuizStatsPermissionsTestCase(APITestCase):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_scope_all_does_not_bypass_private_quiz_permissions(self):
+        self.client.force_authenticate(user=self.stranger)
+        url = reverse("quiz-stats", kwargs={"pk": self.private_quiz.id})
+        response = self.client.get(url, {"scope": "all"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_scope_all_does_not_bypass_private_quiz_permissions_for_chart_endpoints(self):
+        self.client.force_authenticate(user=self.stranger)
+        timeline_url = reverse("quiz-stats-timeline", kwargs={"pk": self.private_quiz.id})
+        hardest_url = reverse("quiz-stats-hardest-questions", kwargs={"pk": self.private_quiz.id})
+        hourly_url = reverse("quiz-stats-hourly", kwargs={"pk": self.private_quiz.id})
+
+        for url in (timeline_url, hardest_url, hourly_url):
+            response = self.client.get(url, {"scope": "all"})
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_stats_for_nonexistent_quiz_returns_404(self):
         self.client.force_authenticate(user=self.owner)
