@@ -27,16 +27,20 @@ def get_quiz_stats(quiz, user=None, *, include_per_question: bool = False) -> di
         sessions = sessions.filter(user=user)
 
     # Aggregate basic session stats in a single query to avoid extra round-trips.
-    session_aggregates = sessions.aggregate(
-        sessions_count=Count("id"),
-        unique_users_count=Count("user", distinct=True) if not user else Count("user", distinct=True),
-        last_activity_at=Max("updated_at"),
-        total_time=Sum("study_time"),
-        avg_time=Avg("study_time", filter=Q(is_active=False) | Q(study_time__gt=timedelta(0))),
-    )
+    # unique_users_count is only meaningful for global scope.
+    aggregate_kwargs = {
+        "sessions_count": Count("id"),
+        "last_activity_at": Max("updated_at"),
+        "total_time": Sum("study_time"),
+        "avg_time": Avg("study_time", filter=Q(is_active=False) | Q(study_time__gt=timedelta(0))),
+    }
+    if user is None:
+        aggregate_kwargs["unique_users_count"] = Count("user", distinct=True)
+
+    session_aggregates = sessions.aggregate(**aggregate_kwargs)
 
     sessions_count = session_aggregates["sessions_count"] or 0
-    unique_users_count = session_aggregates["unique_users_count"] or 0
+    unique_users_count = (session_aggregates["unique_users_count"] or 0) if user is None else None
     last_activity_at = session_aggregates["last_activity_at"]
 
     total_study_time_seconds = (
@@ -46,12 +50,13 @@ def get_quiz_stats(quiz, user=None, *, include_per_question: bool = False) -> di
         int(session_aggregates["avg_time"].total_seconds()) if session_aggregates["avg_time"] else 0
     )
 
-    # For backward compatibility, also provide study_time_seconds as active session time or total time
+    # study_time_seconds has a single semantic: active session time for user scope.
+    # For global scope (user=None), there is no single active session, so return None.
     if user:
         active_study_time = sessions.filter(is_active=True).values_list("study_time", flat=True).first()
         study_time_seconds = int(active_study_time.total_seconds()) if active_study_time else 0
     else:
-        study_time_seconds = average_study_time_seconds
+        study_time_seconds = None
 
     # Aggregate answer data directly from AnswerRecord to avoid cross-join row duplication.
     answer_aggregates = AnswerRecord.objects.filter(session__in=sessions).aggregate(
@@ -90,7 +95,7 @@ def get_quiz_stats(quiz, user=None, *, include_per_question: bool = False) -> di
         "total_study_time_seconds": total_study_time_seconds,
         "average_study_time_seconds": average_study_time_seconds,
         "sessions_count": sessions_count,
-        "unique_users_count": unique_users_count if not user else None,
+        "unique_users_count": unique_users_count,
         "last_activity_at": last_activity_at,
     }
 
