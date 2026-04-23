@@ -5,7 +5,7 @@ from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 
-from quizzes.models import Folder, Quiz, Type
+from quizzes.models import Folder, FolderType, Quiz
 from users.models import User
 
 
@@ -14,7 +14,7 @@ class CleanArchiveCommandTest(TestCase):
         self.user = User.objects.create_user(
             email="commanduser@example.com", password="password123", first_name="Command", last_name="User"
         )
-        self.archive_folder = Folder.objects.get(owner=self.user, folder_type=Type.ARCHIVE)
+        self.archive_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.ARCHIVE)
         self.root_folder = self.user.root_folder
 
         self.quiz_old_archive = Quiz.objects.create(title="Old Archive", creator=self.user, folder=self.archive_folder)
@@ -23,7 +23,7 @@ class CleanArchiveCommandTest(TestCase):
 
         thirty_one_days_ago = timezone.now() - timedelta(days=31)
 
-        Quiz.objects.filter(id=self.quiz_old_archive.id).update(updated_at=thirty_one_days_ago)
+        Quiz.objects.filter(id=self.quiz_old_archive.id).update(archived_at=thirty_one_days_ago)
         Quiz.objects.filter(id=self.quiz_old_normal.id).update(updated_at=thirty_one_days_ago)
 
     def test_clean_archive_quizzes_command(self):

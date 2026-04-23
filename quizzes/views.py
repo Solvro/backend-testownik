@@ -30,13 +30,13 @@ from quizzes.models import (
     AnswerRecord,
     Comment,
     Folder,
+    FolderType,
     Question,
     QuestionType,
     Quiz,
     QuizRating,
     QuizSession,
     SharedQuiz,
-    Type,
 )
 from quizzes.permissions import (
     IsCommentAuthorOrReadOnly,
@@ -395,14 +395,15 @@ class QuizViewSet(viewsets.ModelViewSet):
         if instance.folder.owner != self.request.user:
             raise PermissionDenied("Only the folder owner can delete this quiz")
 
-        if instance.folder.folder_type != Type.ARCHIVE:
+        if instance.folder.folder_type != FolderType.ARCHIVE:
             archive_folder, _ = Folder.objects.get_or_create(
                 owner=self.request.user,
-                folder_type=Type.ARCHIVE,
+                folder_type=FolderType.ARCHIVE,
                 defaults={"name": "Archiwum", "parent": self.request.user.root_folder},
             )
             instance.folder = archive_folder
-            instance.save(update_fields=["folder"])
+            instance.archived_at = timezone.now()
+            instance.save(update_fields=["folder", "archived_at"])
         else:
             instance.delete()
 
@@ -436,8 +437,11 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
-            quiz.folder_id = serializer.validated_data["folder_id"]
-            quiz.save()
+            new_folder_id = serializer.validated_data["folder_id"]
+            destination = Folder.objects.get(pk=new_folder_id)
+            quiz.folder_id = new_folder_id
+            quiz.archived_at = timezone.now() if destination.folder_type == FolderType.ARCHIVE else None
+            quiz.save(update_fields=["folder_id", "archived_at", "updated_at"])
             return Response({"status": "Quiz moved successfully"})
 
         return Response(serializer.errors, status=400)
@@ -453,12 +457,13 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         archive_folder, _ = Folder.objects.get_or_create(
             owner=request.user,
-            folder_type=Type.ARCHIVE,
+            folder_type=FolderType.ARCHIVE,
             defaults={"name": "Archiwum", "parent": request.user.root_folder},
         )
 
         quiz.folder = archive_folder
-        quiz.save()
+        quiz.archived_at = timezone.now()
+        quiz.save(update_fields=["folder", "archived_at"])
         return Response({"status": "Quiz moved successfully"}, status=status.HTTP_200_OK)
 
     @action(
@@ -475,6 +480,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             return Response(QuizSessionSerializer(session).data)
 
         elif request.method == "DELETE":
+            # Archive current session and create new one
             with transaction.atomic():
                 QuizSession.objects.filter(quiz=quiz, user=request.user, is_active=True).update(
                     is_active=False, ended_at=timezone.now()
@@ -491,6 +497,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
     )
     def record_answer(self, request, pk=None):
+        """Record an answer for the current session."""
         quiz = self.get_object()
         session, _ = QuizSession.get_or_create_active(quiz, request.user)
 
@@ -845,7 +852,7 @@ class FolderViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         if hasattr(instance, "root_owner"):
             raise PermissionDenied("Cannot delete root folder.")
-        if instance.folder_type == Type.ARCHIVE:
+        if instance.folder_type == FolderType.ARCHIVE:
             raise PermissionDenied("You can't delete archive folder.")
         instance.delete()
 
@@ -853,7 +860,7 @@ class FolderViewSet(viewsets.ModelViewSet):
     def move(self, request, pk=None):
         folder = self.get_object()
 
-        if folder.folder_type == Type.ARCHIVE:
+        if folder.folder_type == FolderType.ARCHIVE:
             return Response({"error": "You can't move archive folder."}, status=status.HTTP_403_FORBIDDEN)
 
         serializer = self.get_serializer(data=request.data)

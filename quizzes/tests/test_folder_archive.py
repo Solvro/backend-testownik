@@ -2,7 +2,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quizzes.models import Folder, Quiz, Type
+from quizzes.models import Folder, FolderType, Quiz
 from users.models import User
 
 
@@ -20,7 +20,7 @@ class QuizArchiveTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.quiz.refresh_from_db()
-        self.assertEqual(self.quiz.folder.folder_type, Type.ARCHIVE)
+        self.assertEqual(self.quiz.folder.folder_type, FolderType.ARCHIVE)
 
     def test_move_quiz_from_regular_folder_to_archive(self):
         regular_folder = Folder.objects.create(name="Regular", owner=self.user)
@@ -32,18 +32,10 @@ class QuizArchiveTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.quiz.refresh_from_db()
-        self.assertEqual(self.quiz.folder.folder_type, Type.ARCHIVE)
-
-    def test_archive_missing_folder_handling(self):
-        Folder.objects.filter(owner=self.user, folder_type=Type.ARCHIVE).delete()
-
-        url = reverse("quiz-move-to-archive", kwargs={"pk": self.quiz.id})
-        response = self.client.post(url)
-
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(self.quiz.folder.folder_type, FolderType.ARCHIVE)
 
     def test_archive_quiz_twice_is_idempotent(self):
-        archive_folder = Folder.objects.get(owner=self.user, folder_type=Type.ARCHIVE)
+        archive_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.ARCHIVE)
         self.quiz.folder = archive_folder
         self.quiz.save()
 
@@ -85,10 +77,10 @@ class FolderArchiveProtectionTests(APITestCase):
         self.user.set_password("password")
         self.user.save()
         self.client.force_authenticate(user=self.user)
-        self.archive_folder = Folder.objects.get(owner=self.user, folder_type=Type.ARCHIVE)
+        self.archive_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.ARCHIVE)
 
     def test_archive_folder_created_automatically(self):
-        archive_exists = Folder.objects.filter(owner=self.user, folder_type=Type.ARCHIVE).exists()
+        archive_exists = Folder.objects.filter(owner=self.user, folder_type=FolderType.ARCHIVE).exists()
         self.assertTrue(archive_exists)
 
     def test_cannot_delete_archive_folder(self):
@@ -139,20 +131,20 @@ class FolderArchiveProtectionTests(APITestCase):
         regular_folder.refresh_from_db()
         self.assertNotEqual(regular_folder.parent_id, self.archive_folder.id)
 
-    def test_cannot_change_archive_folder_type(self):
+    def test_changing_folder_type_via_patch_is_silently_ignored(self):
         url = reverse("folder-detail", kwargs={"pk": self.archive_folder.id})
-        response = self.client.patch(url, {"folder_type": Type.REGULAR})
+        response = self.client.patch(url, {"folder_type": FolderType.REGULAR})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.archive_folder.refresh_from_db()
-        self.assertEqual(self.archive_folder.folder_type, Type.ARCHIVE)
+        self.assertEqual(self.archive_folder.folder_type, FolderType.ARCHIVE)
 
     def test_each_user_has_separate_archive_folder(self):
         other_user = User(email="other@example.com", first_name="Other", last_name="User")
         other_user.set_password("password")
         other_user.save()
 
-        other_archive = Folder.objects.get(owner=other_user, folder_type=Type.ARCHIVE)
+        other_archive = Folder.objects.get(owner=other_user, folder_type=FolderType.ARCHIVE)
 
         self.assertNotEqual(self.archive_folder.id, other_archive.id)
         self.assertEqual(self.archive_folder.owner, self.user)
@@ -162,7 +154,7 @@ class FolderArchiveProtectionTests(APITestCase):
         other_user = User(email="other@example.com", first_name="Other", last_name="User")
         other_user.set_password("password")
         other_user.save()
-        other_archive = Folder.objects.get(owner=other_user, folder_type=Type.ARCHIVE)
+        other_archive = Folder.objects.get(owner=other_user, folder_type=FolderType.ARCHIVE)
 
         url = reverse("folder-detail", kwargs={"pk": other_archive.id})
         response = self.client.get(url)

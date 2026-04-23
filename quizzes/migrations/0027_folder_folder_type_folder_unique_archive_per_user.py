@@ -29,4 +29,9 @@ class Migration(migrations.Migration):
                 name="unique_archive_per_user",
             ),
         ),
+        migrations.AddField(
+            model_name='quiz',
+            name='archived_at',
+            field=models.DateTimeField(blank=True, null=True),
+        ),
     ]

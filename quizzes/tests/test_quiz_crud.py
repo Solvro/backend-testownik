@@ -6,7 +6,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quizzes.models import Answer, Folder, Question, Quiz, Type
+from quizzes.models import Answer, Folder, FolderType, Question, Quiz
 from users.models import User
 
 
@@ -199,12 +199,12 @@ class QuizCRUDTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
         quiz.refresh_from_db()
-        archive_folder = Folder.objects.get(owner=self.user, folder_type=Type.ARCHIVE)
+        archive_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.ARCHIVE)
         self.assertEqual(quiz.folder, archive_folder)
 
     def test_delete_quiz_permanently(self):
         """Test deleting a quiz already in the archive folder permanently deletes it."""
-        archive_folder = Folder.objects.get(owner=self.user, folder_type=Type.ARCHIVE)
+        archive_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.ARCHIVE)
         quiz = Quiz.objects.create(title="In Trash", creator=self.user, folder=archive_folder)
         url = reverse("quiz-detail", kwargs={"pk": quiz.id})
 

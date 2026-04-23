@@ -3,7 +3,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quizzes.models import Folder, Quiz, Type
+from quizzes.models import Folder, FolderType, Quiz
 
 User = get_user_model()
 
@@ -53,7 +53,7 @@ class FolderPermissionTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
         quiz.refresh_from_db()
-        archive_folder = Folder.objects.get(owner=self.owner, folder_type=Type.ARCHIVE)
+        archive_folder = Folder.objects.get(owner=self.owner, folder_type=FolderType.ARCHIVE)
         self.assertEqual(quiz.folder, archive_folder)
 
     def test_creator_cannot_delete_quiz_in_other_users_folder(self):

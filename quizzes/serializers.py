@@ -10,12 +10,12 @@ from quizzes.models import (
     AnswerRecord,
     Comment,
     Folder,
+    FolderType,
     Question,
     Quiz,
     QuizRating,
     QuizSession,
     SharedQuiz,
-    Type,
 )
 from uploads.models import UploadedImage
 from users.models import StudyGroup, User, UserSettings
@@ -621,7 +621,7 @@ class FolderSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         instance = self.instance
 
-        if instance and instance.folder_type == Type.ARCHIVE:
+        if instance and instance.folder_type == FolderType.ARCHIVE:
             if "name" in attrs and attrs["name"] != instance.name:
                 raise serializers.ValidationError({"name": "You can't change name of archive folder."})
 
@@ -638,7 +638,7 @@ class FolderSerializer(serializers.ModelSerializer):
         if value.owner != user:
             raise serializers.ValidationError("You can only create folders inside your own folders.")
 
-        if value.folder_type == Type.ARCHIVE:
+        if value.folder_type == FolderType.ARCHIVE:
             raise serializers.ValidationError("Cannot create subfolders in Archive folder")
 
         return value
@@ -674,7 +674,7 @@ class MoveFolderSerializer(serializers.Serializer):
             if str(value) == str(folder_to_move.id):
                 raise serializers.ValidationError("You cannot move a folder into itself.")
 
-            if target_parent.folder_type == Type.ARCHIVE:
+            if target_parent.folder_type == FolderType.ARCHIVE:
                 raise serializers.ValidationError("Cannot move folders into Archive folder")
 
             current = target_parent

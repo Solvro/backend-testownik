@@ -44,7 +44,7 @@ def migrate_guest_to_user(guest_id: str, target_user: User) -> bool:
 
     try:
         with transaction.atomic():
-            from quizzes.models import Folder, Quiz, QuizSession, Type
+            from quizzes.models import Folder, FolderType, Quiz, QuizSession
 
             Quiz.objects.filter(creator=guest).update(creator=target_user)
 
@@ -69,10 +69,10 @@ def migrate_guest_to_user(guest_id: str, target_user: User) -> bool:
             if guest_root and target_root:
                 target_archive, _ = Folder.objects.get_or_create(
                     owner=target_user,
-                    folder_type=Type.ARCHIVE,
+                    folder_type=FolderType.ARCHIVE,
                     defaults={"name": "Archiwum", "parent": target_root},
                 )
-                guest_archive = Folder.objects.filter(owner=guest, folder_type=Type.ARCHIVE).first()
+                guest_archive = Folder.objects.filter(owner=guest, folder_type=FolderType.ARCHIVE).first()
                 if guest_archive:
                     Quiz.objects.filter(folder=guest_archive).update(folder=target_archive)
                     guest_archive.delete()

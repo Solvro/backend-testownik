@@ -1,17 +1,19 @@
 from datetime import timedelta
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from quizzes.models import Quiz, Type
+from quizzes.models import FolderType, Quiz
 
 
 class Command(BaseCommand):
-    help = "Deletes quizzes located in the Archive folder for more than 30 days"
+    help = "Deletes quizzes located in the Archive folder for more than ARCHIVE_TTL_DAYS days"
 
     def handle(self, *args, **kwargs):
-        thirty_days_ago = timezone.now() - timedelta(days=30)
+        ttl_days = getattr(settings, "ARCHIVE_TTL_DAYS")
+        cutoff_date = timezone.now() - timedelta(days=ttl_days)
 
-        quizzes_to_delete = Quiz.objects.filter(folder__folder_type=Type.ARCHIVE, updated_at__lt=thirty_days_ago)
+        quizzes_to_delete = Quiz.objects.filter(folder__folder_type=FolderType.ARCHIVE, archived_at__lt=cutoff_date)
 
         quizzes_to_delete.delete()

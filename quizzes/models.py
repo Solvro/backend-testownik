@@ -16,7 +16,7 @@ QUIZ_VISIBILITY_CHOICES = [
 ]
 
 
-class Type(models.TextChoices):
+class FolderType(models.TextChoices):
     ARCHIVE = "archive", "Archive"
     REGULAR = "regular", "Regular"
 
@@ -34,13 +34,15 @@ class Folder(models.Model):
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="folders")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    folder_type = models.CharField(max_length=10, choices=Type.choices, default=Type.REGULAR)
+    folder_type = models.CharField(max_length=10, choices=FolderType.choices, default=FolderType.REGULAR)
 
     class Meta:
         ordering = ["-created_at"]
         constraints = [
             UniqueConstraint(
-                fields=["owner", "folder_type"], condition=Q(folder_type=Type.ARCHIVE), name="unique_archive_per_user"
+                fields=["owner", "folder_type"],
+                condition=Q(folder_type=FolderType.ARCHIVE),
+                name="unique_archive_per_user",
             )
         ]
 
@@ -120,6 +122,7 @@ class Quiz(models.Model):
     version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    archived_at = models.DateTimeField(null=True, blank=True)
     folder = models.ForeignKey(Folder, on_delete=models.PROTECT, related_name="quizzes")
 
     class Meta:
