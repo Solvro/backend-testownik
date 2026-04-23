@@ -396,12 +396,13 @@ class QuizViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("Only the folder owner can delete this quiz")
 
         if instance.folder.folder_type != Type.ARCHIVE:
-            try:
-                archive_folder = Folder.objects.get(owner=self.request.user, folder_type=Type.ARCHIVE)
-                instance.folder = archive_folder
-                instance.save(update_fields=["folder", "updated_at"])
-            except Folder.DoesNotExist:
-                instance.delete()
+            archive_folder, _ = Folder.objects.get_or_create(
+                owner=self.request.user,
+                folder_type=Type.ARCHIVE,
+                defaults={"name": "Archiwum", "parent": self.request.user.root_folder},
+            )
+            instance.folder = archive_folder
+            instance.save(update_fields=["folder"])
         else:
             instance.delete()
 
