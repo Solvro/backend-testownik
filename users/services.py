@@ -67,15 +67,15 @@ def migrate_guest_to_user(guest_id: str, target_user: User) -> bool:
             target_root = target_user.root_folder
 
             if guest_root and target_root:
+                target_archive, _ = Folder.objects.get_or_create(
+                    owner=target_user,
+                    folder_type=Type.ARCHIVE,
+                    defaults={"name": "Archiwum", "parent": target_root},
+                )
                 guest_archive = Folder.objects.filter(owner=guest, folder_type=Type.ARCHIVE).first()
-                target_archive = Folder.objects.filter(owner=target_user, folder_type=Type.ARCHIVE).first()
-                if guest_archive and target_archive:
+                if guest_archive:
                     Quiz.objects.filter(folder=guest_archive).update(folder=target_archive)
                     guest_archive.delete()
-                elif guest_archive:
-                    guest_archive.owner = target_user
-                    guest_archive.parent = target_root
-                    guest_archive.save()
 
                 Quiz.objects.filter(folder=guest_root).update(folder=target_root)
                 Folder.objects.filter(parent=guest_root).update(parent=target_root, owner=target_user)
