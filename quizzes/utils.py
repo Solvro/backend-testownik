@@ -3,11 +3,11 @@ from rest_framework.request import Request
 
 def parse_include_values(request: Request, param_name: str = "include") -> set[str]:
     """
-    Zwraca zbiór wartości parametru query (domyślnie `include`), wspierając:
-    - powtarzane parametry: ?include=a&include=b
-    - wartości CSV: ?include=a,b
+    Returns a set of query parameter values (default `include`), supporting:
+    - repeated parameters: ?include=a&include=b
+    - CSV values: ?include=a,b
 
-    Przykład:
+    Example:
         ?include=questions,stats&include=owner
         -> {"questions", "stats", "owner"}
     """
