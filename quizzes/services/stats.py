@@ -1,6 +1,8 @@
 from datetime import timedelta
 
 from django.db.models import Avg, Count, Max, OuterRef, Q, Subquery, Sum
+from django.db.models.functions import ExtractHour, TruncDate
+from django.utils import timezone
 
 from quizzes.models import AnswerRecord, QuizSession
 
@@ -124,3 +126,103 @@ def _get_per_question_stats(sessions) -> list[dict]:
         }
         for row in per_question
     ]
+
+
+def get_quiz_timeline_stats(quiz, user=None, days: int = 30) -> list[dict]:
+    """
+    Compute timeline statistics (last N days) for a quiz.
+    Returns a list of dicts with date, sessions_count, total_answers, correct_answers.
+    """
+    start_date = timezone.now() - timedelta(days=days)
+
+    sessions = QuizSession.objects.filter(quiz=quiz, started_at__gte=start_date)
+    if user:
+        sessions = sessions.filter(user=user)
+
+    # Aggregate sessions per day
+    sessions_by_date = (
+        sessions.annotate(date=TruncDate("started_at"))
+        .values("date")
+        .annotate(sessions_count=Count("id"))
+        .order_by("date")
+    )
+
+    # Aggregate answers per day
+    answers = AnswerRecord.objects.filter(session__in=sessions, answered_at__gte=start_date)
+    answers_by_date = (
+        answers.annotate(date=TruncDate("answered_at"))
+        .values("date")
+        .annotate(
+            total_answers=Count("id"),
+            correct_answers=Count("id", filter=Q(was_correct=True)),
+        )
+        .order_by("date")
+    )
+
+    # Merge data by date
+    data_by_date = {}
+    for row in sessions_by_date:
+        date_str = row["date"].isoformat() if row["date"] else None
+        if not date_str:
+            continue
+        data_by_date[date_str] = {
+            "date": date_str,
+            "sessions_count": row["sessions_count"],
+            "total_answers": 0,
+            "correct_answers": 0,
+        }
+
+    for row in answers_by_date:
+        date_str = row["date"].isoformat() if row["date"] else None
+        if not date_str:
+            continue
+        if date_str not in data_by_date:
+            data_by_date[date_str] = {
+                "date": date_str,
+                "sessions_count": 0,
+                "total_answers": 0,
+                "correct_answers": 0,
+            }
+        data_by_date[date_str]["total_answers"] = row["total_answers"]
+        data_by_date[date_str]["correct_answers"] = row["correct_answers"]
+
+    return sorted(data_by_date.values(), key=lambda x: x["date"])
+
+
+def get_quiz_hardest_questions(quiz, user=None, limit: int = 10) -> list[dict]:
+    """
+    Get the top N hardest questions (most wrong answers) for a quiz.
+    """
+    sessions = QuizSession.objects.filter(quiz=quiz)
+    if user:
+        sessions = sessions.filter(user=user)
+
+    hardest = (
+        AnswerRecord.objects.filter(session__in=sessions)
+        .values("question_id")
+        .annotate(wrong_answers=Count("id", filter=Q(was_correct=False)), total_answers=Count("id"))
+        .filter(wrong_answers__gt=0)
+        .order_by("-wrong_answers")[:limit]
+    )
+
+    return list(hardest)
+
+
+def get_quiz_hourly_stats(quiz, user=None) -> list[dict]:
+    """
+    Get 24h radar chart data (activity grouped by hour of day).
+    """
+    sessions = QuizSession.objects.filter(quiz=quiz)
+    if user:
+        sessions = sessions.filter(user=user)
+
+    hourly = (
+        sessions.annotate(hour=ExtractHour("started_at"))
+        .values("hour")
+        .annotate(sessions_count=Count("id"))
+        .order_by("hour")
+    )
+
+    # Fill missing hours with 0
+    hourly_dict = {row["hour"]: row["sessions_count"] for row in hourly if row["hour"] is not None}
+    return [{"hour": h, "sessions_count": hourly_dict.get(h, 0)} for h in range(24)]

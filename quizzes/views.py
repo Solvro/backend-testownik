@@ -474,9 +474,63 @@ class QuizViewSet(viewsets.ModelViewSet):
         include_values = parse_include_values(request)
         include_per_question = "per_question" in include_values
 
-        data = get_quiz_stats(quiz, request.user, include_per_question=include_per_question)
+        scope = request.query_params.get("scope", "me")
+        user = request.user if scope == "me" else None
+
+        data = get_quiz_stats(quiz, user, include_per_question=include_per_question)
         serializer = QuizStatsSerializer(instance=data)
         return Response(serializer.data)
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stats/timeline",
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
+    )
+    def stats_timeline(self, request, pk=None):
+        """Return timeline statistics (last 30 days)."""
+        from quizzes.services.stats import get_quiz_timeline_stats
+
+        quiz = self.get_object()
+        scope = request.query_params.get("scope", "me")
+        user = request.user if scope == "me" else None
+
+        data = get_quiz_timeline_stats(quiz, user=user)
+        return Response(data)
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stats/hardest-questions",
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
+    )
+    def stats_hardest_questions(self, request, pk=None):
+        """Return top 10 hardest questions."""
+        from quizzes.services.stats import get_quiz_hardest_questions
+
+        quiz = self.get_object()
+        scope = request.query_params.get("scope", "me")
+        user = request.user if scope == "me" else None
+
+        data = get_quiz_hardest_questions(quiz, user=user)
+        return Response(data)
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stats/hourly",
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
+    )
+    def stats_hourly(self, request, pk=None):
+        """Return radar chart data (activity grouped by hour)."""
+        from quizzes.services.stats import get_quiz_hourly_stats
+
+        quiz = self.get_object()
+        scope = request.query_params.get("scope", "me")
+        user = request.user if scope == "me" else None
+
+        data = get_quiz_hourly_stats(quiz, user=user)
+        return Response(data)
 
     @action(
         detail=True,
