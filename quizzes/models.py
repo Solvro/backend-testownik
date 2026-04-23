@@ -62,6 +62,11 @@ class Folder(models.Model):
                 "Cannot delete root folder.",
                 set([self]),
             )
+        if self.folder_type == FolderType.ARCHIVE:
+            raise ProtectedError(
+                "Cannot delete archive folder.",
+                set([self]),
+            )
         super().delete(*args, **kwargs)
 
     def has_edit_permission(self, user):
