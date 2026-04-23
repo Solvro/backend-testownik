@@ -766,8 +766,8 @@ class QuizStatsSerializer(serializers.Serializer):
     unique_users_count = serializers.IntegerField(allow_null=True, required=False)
     last_activity_at = serializers.DateTimeField(allow_null=True)
     per_question = QuestionStatsSerializer(many=True, required=False)
-    
-    
+
+
 class QuizRatingSerializer(serializers.ModelSerializer):
     user = PublicUserSerializer(default=serializers.CurrentUserDefault(), read_only=True)
 
