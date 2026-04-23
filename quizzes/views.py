@@ -86,11 +86,17 @@ logger = logging.getLogger(__name__)
 ALLOWED_STATS_SCOPES = {"me", "all"}
 
 
-def resolve_stats_scope_user(request):
+def resolve_stats_scope_user(request, quiz):
     scope = request.query_params.get("scope", "me")
     if scope not in ALLOWED_STATS_SCOPES:
-        raise DRFValidationError({"scope": "Invalid value. Allowed values are: me, all."})
-    return request.user if scope == "me" else None
+        raise ValidationError({"scope": "Invalid value. Allowed values are: me, all."})
+
+    if scope == "all":
+        if not quiz.can_edit(request.user):
+            raise PermissionDenied("You do not have permission to view global statistics for this quiz.")
+        return None
+
+    return request.user
 
 
 class RandomQuestionView(APIView):
@@ -285,29 +291,26 @@ class QuizViewSet(viewsets.ModelViewSet):
     ]
 
     def get_queryset(self):
-        from django.db.models import Count
-
         user = self.request.user
 
         if self.action == "list":
             if not user.is_authenticated:
                 return Quiz.objects.none()
 
-        return (
-            Quiz.objects.filter(creator=user)
-            .select_related("creator", "folder", "folder__owner")
-            .annotate(
-                questions_count=Count("questions", distinct=True),
-                avg_rating=Avg("ratings__score"),
-                review_count=Count("ratings", distinct=True),
+            return (
+                Quiz.objects.filter(creator=user)
+                .select_related("creator", "folder", "folder__owner")
+                .annotate(
+                    questions_count=Count("questions", distinct=True),
+                    avg_rating=Avg("ratings__score"),
+                    review_count=Count("ratings", distinct=True),
+                )
+                .prefetch_related(
+                    Prefetch("ratings", queryset=QuizRating.objects.filter(user=user), to_attr="_user_rating")
+                )
             )
-            .prefetch_related(
-                Prefetch("ratings", queryset=QuizRating.objects.filter(user=user), to_attr="_user_rating")
-            )
-        )
-    queryset = Quiz.objects.all().annotate(questions_count=Count("questions", distinct=True))
 
-        queryset = Quiz.objects.all().annotate(questions_count=Count("questions", distinct=True))
+        queryset = Quiz.objects.all()
 
         if self.action in ("retrieve", "copy", "metadata", "progress", "record_answer"):
             queryset = queryset.prefetch_related(
@@ -475,8 +478,9 @@ class QuizViewSet(viewsets.ModelViewSet):
         description=(
             "Returns aggregated quiz statistics. "
             "By default (`scope=me`) it returns data for the authenticated user across their sessions. "
-            "Use `scope=all` to aggregate data across all users with access to this quiz. "
-            "For `scope=me`, study time reflects the active session only. "
+            "Use `scope=all` to aggregate data across all users, available only to quiz editors. "
+            "`study_time_seconds` reflects active session time only for `scope=me`; "
+            "for `scope=all` this field is `null` (use total/average fields instead). "
             "Pass `?include=per_question` to include a per-question breakdown."
         ),
         parameters=[
@@ -484,7 +488,7 @@ class QuizViewSet(viewsets.ModelViewSet):
                 name="scope",
                 type=str,
                 location=OpenApiParameter.QUERY,
-                description="Stats scope. Use 'me' for current user, 'all' for all users with access to this quiz.",
+                description="Stats scope. Use 'me' for current user, 'all' for all users (quiz editors only).",
                 enum=["me", "all"],
             ),
             OpenApiParameter(
@@ -518,7 +522,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         include_values = parse_include_values(request)
         include_per_question = "per_question" in include_values
 
-        user = resolve_stats_scope_user(request)
+        user = resolve_stats_scope_user(request, quiz)
 
         data = get_quiz_stats(quiz, user, include_per_question=include_per_question)
         serializer = QuizStatsSerializer(instance=data)
@@ -530,7 +534,7 @@ class QuizViewSet(viewsets.ModelViewSet):
                 name="scope",
                 type=str,
                 location=OpenApiParameter.QUERY,
-                description="Stats scope. Use 'me' for current user, 'all' for all users with access to this quiz.",
+                description="Stats scope. Use 'me' for current user, 'all' for all users (quiz editors only).",
                 enum=["me", "all"],
             )
         ],
@@ -552,7 +556,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         from quizzes.services.stats import get_quiz_timeline_stats
 
         quiz = self.get_object()
-        user = resolve_stats_scope_user(request)
+        user = resolve_stats_scope_user(request, quiz)
 
         data = get_quiz_timeline_stats(quiz, user=user)
         return Response(data)
@@ -563,7 +567,7 @@ class QuizViewSet(viewsets.ModelViewSet):
                 name="scope",
                 type=str,
                 location=OpenApiParameter.QUERY,
-                description="Stats scope. Use 'me' for current user, 'all' for all users with access to this quiz.",
+                description="Stats scope. Use 'me' for current user, 'all' for all users (quiz editors only).",
                 enum=["me", "all"],
             )
         ],
@@ -585,7 +589,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         from quizzes.services.stats import get_quiz_hardest_questions
 
         quiz = self.get_object()
-        user = resolve_stats_scope_user(request)
+        user = resolve_stats_scope_user(request, quiz)
 
         data = get_quiz_hardest_questions(quiz, user=user)
         return Response(data)
@@ -596,7 +600,7 @@ class QuizViewSet(viewsets.ModelViewSet):
                 name="scope",
                 type=str,
                 location=OpenApiParameter.QUERY,
-                description="Stats scope. Use 'me' for current user, 'all' for all users with access to this quiz.",
+                description="Stats scope. Use 'me' for current user, 'all' for all users (quiz editors only).",
                 enum=["me", "all"],
             )
         ],
@@ -618,7 +622,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         from quizzes.services.stats import get_quiz_hourly_stats
 
         quiz = self.get_object()
-        user = resolve_stats_scope_user(request)
+        user = resolve_stats_scope_user(request, quiz)
 
         data = get_quiz_hourly_stats(quiz, user=user)
         return Response(data)
