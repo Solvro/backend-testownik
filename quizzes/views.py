@@ -263,15 +263,17 @@ class QuizViewSet(viewsets.ModelViewSet):
     ]
 
     def get_queryset(self):
+        from django.db.models import Count
+
         user = self.request.user
 
         if self.action == "list":
             if not user.is_authenticated:
                 return Quiz.objects.none()
 
-            return Quiz.objects.filter(maintainer=user)
+            return Quiz.objects.filter(maintainer=user).annotate(questions_count=Count("questions", distinct=True))
 
-        queryset = Quiz.objects.all()
+        queryset = Quiz.objects.all().annotate(questions_count=Count("questions", distinct=True))
 
         if self.action in ("retrieve", "copy", "metadata", "progress", "record_answer"):
             queryset = queryset.prefetch_related(

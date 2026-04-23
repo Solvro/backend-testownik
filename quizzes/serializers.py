@@ -455,6 +455,7 @@ class QuizSerializer(serializers.ModelSerializer):
 class QuizMetaDataSerializer(serializers.ModelSerializer):
     maintainer = PublicUserSerializer(read_only=True)
     can_edit = serializers.SerializerMethodField()
+    questions_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Quiz
@@ -471,8 +472,17 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "version",
             "can_edit",
             "folder",
+            "questions_count",
         ]
-        read_only_fields = ["maintainer", "created_at", "updated_at", "version", "can_edit", "folder"]
+        read_only_fields = [
+            "maintainer",
+            "created_at",
+            "updated_at",
+            "version",
+            "can_edit",
+            "folder",
+            "questions_count",
+        ]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
