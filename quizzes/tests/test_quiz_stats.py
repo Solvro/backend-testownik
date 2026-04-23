@@ -23,7 +23,7 @@ class QuizStatsEmptyTestCase(APITestCase):
     def setUp(self):
         self.user = _make_user()
         self.client.force_authenticate(user=self.user)
-        self.quiz = Quiz.objects.create(title="Stats Quiz", maintainer=self.user)
+        self.quiz = Quiz.objects.create(title="Stats Quiz", creator=self.user, folder=self.user.root_folder)
 
     def test_stats_with_no_sessions_returns_zeros(self):
         url = reverse("quiz-stats", kwargs={"pk": self.quiz.id})
@@ -54,7 +54,7 @@ class QuizStatsAggregationTestCase(APITestCase):
         self.user = _make_user()
         self.client.force_authenticate(user=self.user)
 
-        self.quiz = Quiz.objects.create(title="Stats Quiz", maintainer=self.user)
+        self.quiz = Quiz.objects.create(title="Stats Quiz", creator=self.user, folder=self.user.root_folder)
         self.q1 = Question.objects.create(quiz=self.quiz, order=1, text="Q1")
         self.q2 = Question.objects.create(quiz=self.quiz, order=2, text="Q2")
 
@@ -139,7 +139,7 @@ class QuizStatsStudyTimeTestCase(APITestCase):
     def setUp(self):
         self.user = _make_user()
         self.client.force_authenticate(user=self.user)
-        self.quiz = Quiz.objects.create(title="Time Quiz", maintainer=self.user)
+        self.quiz = Quiz.objects.create(title="Time Quiz", creator=self.user, folder=self.user.root_folder)
 
     def test_study_time_from_active_session(self):
         QuizSession.objects.create(
@@ -199,7 +199,7 @@ class QuizStatsPerQuestionTestCase(APITestCase):
         self.user = _make_user()
         self.client.force_authenticate(user=self.user)
 
-        self.quiz = Quiz.objects.create(title="Per-Q Quiz", maintainer=self.user)
+        self.quiz = Quiz.objects.create(title="Per-Q Quiz", creator=self.user, folder=self.user.root_folder)
         self.q1 = Question.objects.create(quiz=self.quiz, order=1, text="Q1")
         self.q2 = Question.objects.create(quiz=self.quiz, order=2, text="Q2")
 
@@ -290,7 +290,9 @@ class QuizStatsIsolationTestCase(APITestCase):
         self.owner = _make_user("owner@example.com")
         self.other = _make_user("other@example.com")
 
-        self.quiz = Quiz.objects.create(title="Shared Quiz", maintainer=self.owner, visibility=3)
+        self.quiz = Quiz.objects.create(
+            title="Shared Quiz", creator=self.owner, folder=self.owner.root_folder, visibility=3
+        )
         self.q1 = Question.objects.create(quiz=self.quiz, order=1, text="Q1")
 
         # other user records an answer
@@ -324,7 +326,9 @@ class QuizStatsScopeTestCase(APITestCase):
         self.owner = _make_user("owner-scope@example.com")
         self.other = _make_user("other-scope@example.com")
 
-        self.quiz = Quiz.objects.create(title="Scope Quiz", maintainer=self.owner, visibility=3)
+        self.quiz = Quiz.objects.create(
+            title="Scope Quiz", creator=self.owner, folder=self.owner.root_folder, visibility=3
+        )
         self.q1 = Question.objects.create(quiz=self.quiz, order=1, text="Q1")
 
         owner_session = QuizSession.objects.create(quiz=self.quiz, user=self.owner, is_active=True)
@@ -374,7 +378,9 @@ class QuizStatsTimelineWindowTestCase(APITestCase):
         self.user = _make_user("timeline-owner@example.com")
         self.client.force_authenticate(user=self.user)
 
-        self.quiz = Quiz.objects.create(title="Timeline Quiz", maintainer=self.user, visibility=3)
+        self.quiz = Quiz.objects.create(
+            title="Timeline Quiz", creator=self.user, folder=self.user.root_folder, visibility=3
+        )
         self.q1 = Question.objects.create(quiz=self.quiz, order=1, text="Q1")
 
     def test_timeline_includes_recent_answers_from_old_session(self):
@@ -410,7 +416,9 @@ class QuizStatsChartsScopeTestCase(APITestCase):
         self.owner = _make_user("charts-owner@example.com")
         self.other = _make_user("charts-other@example.com")
 
-        self.quiz = Quiz.objects.create(title="Charts Quiz", maintainer=self.owner, visibility=3)
+        self.quiz = Quiz.objects.create(
+            title="Charts Quiz", creator=self.owner, folder=self.owner.root_folder, visibility=3
+        )
         self.q1 = Question.objects.create(quiz=self.quiz, order=1, text="Q1")
         self.q2 = Question.objects.create(quiz=self.quiz, order=2, text="Q2")
 
@@ -500,8 +508,12 @@ class QuizStatsPermissionsTestCase(APITestCase):
     def setUp(self):
         self.owner = _make_user("owner@example.com")
         self.stranger = _make_user("stranger@example.com")
-        self.private_quiz = Quiz.objects.create(title="Private Quiz", maintainer=self.owner, visibility=0)
-        self.public_quiz = Quiz.objects.create(title="Public Quiz", maintainer=self.owner, visibility=3)
+        self.private_quiz = Quiz.objects.create(
+            title="Private Quiz", creator=self.owner, folder=self.owner.root_folder, visibility=0
+        )
+        self.public_quiz = Quiz.objects.create(
+            title="Public Quiz", creator=self.owner, folder=self.owner.root_folder, visibility=3
+        )
 
     def test_unauthenticated_user_gets_401(self):
         url = reverse("quiz-stats", kwargs={"pk": self.public_quiz.id})
