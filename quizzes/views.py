@@ -451,10 +451,11 @@ class QuizViewSet(viewsets.ModelViewSet):
     def move_to_archive(self, request, pk=None):
         quiz = self.get_object()
 
-        try:
-            archive_folder = Folder.objects.get(owner=request.user, folder_type=Type.ARCHIVE)
-        except Folder.DoesNotExist:
-            return Response({"error": "Archive folder not found"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        archive_folder, _ = Folder.objects.get_or_create(
+            owner=request.user,
+            folder_type=Type.ARCHIVE,
+            defaults={"name": "Archiwum", "parent": request.user.root_folder},
+        )
 
         quiz.folder = archive_folder
         quiz.save()
