@@ -22,6 +22,9 @@ class FolderType(models.TextChoices):
 
 
 class Folder(models.Model):
+    DEFAULT_ROOT_NAME = "Moje quizy"
+    DEFAULT_ARCHIVE_NAME = "Archiwum"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=128)
     parent = models.ForeignKey(

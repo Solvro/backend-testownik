@@ -7,12 +7,14 @@ def create_root_folder(sender, instance, created, **kwargs):
         from .models import Folder, FolderType
 
         with transaction.atomic():
-            folder = Folder.objects.create(name="Moje quizy", owner=instance)
+            folder = Folder.objects.create(name=Folder.DEFAULT_ROOT_NAME, owner=instance)
             sender.objects.filter(pk=instance.pk).update(root_folder=folder)
             instance.root_folder = folder
             instance.root_folder_id = folder.id
 
-            Folder.objects.create(name="Archiwum", owner=instance, parent=folder, folder_type=FolderType.ARCHIVE)
+            Folder.objects.create(
+                name=Folder.DEFAULT_ARCHIVE_NAME, owner=instance, parent=folder, folder_type=FolderType.ARCHIVE
+            )
 
 
 def register_signals():

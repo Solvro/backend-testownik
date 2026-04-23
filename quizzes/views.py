@@ -399,7 +399,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             archive_folder, _ = Folder.objects.get_or_create(
                 owner=self.request.user,
                 folder_type=FolderType.ARCHIVE,
-                defaults={"name": "Archiwum", "parent": self.request.user.root_folder},
+                defaults={"name": Folder.DEFAULT_ARCHIVE_NAME, "parent": self.request.user.root_folder},
             )
             instance.folder = archive_folder
             instance.archived_at = timezone.now()
@@ -458,7 +458,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         archive_folder, _ = Folder.objects.get_or_create(
             owner=request.user,
             folder_type=FolderType.ARCHIVE,
-            defaults={"name": "Archiwum", "parent": request.user.root_folder},
+            defaults={"name": Folder.DEFAULT_ARCHIVE_NAME, "parent": request.user.root_folder},
         )
 
         quiz.folder = archive_folder
