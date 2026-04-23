@@ -135,20 +135,25 @@ def get_quiz_timeline_stats(quiz, user=None, days: int = 30) -> list[dict]:
     """
     start_date = timezone.now() - timedelta(days=days)
 
-    sessions = QuizSession.objects.filter(quiz=quiz, started_at__gte=start_date)
+    sessions = QuizSession.objects.filter(quiz=quiz)
     if user:
         sessions = sessions.filter(user=user)
 
     # Aggregate sessions per day
     sessions_by_date = (
-        sessions.annotate(date=TruncDate("started_at"))
+        sessions.filter(started_at__gte=start_date)
+        .annotate(date=TruncDate("started_at"))
         .values("date")
         .annotate(sessions_count=Count("id"))
         .order_by("date")
     )
 
-    # Aggregate answers per day
-    answers = AnswerRecord.objects.filter(session__in=sessions, answered_at__gte=start_date)
+    # Aggregate answers per day. This is intentionally not limited by session.started_at,
+    # so answers from older sessions are still included when answered within the time window.
+    answers = AnswerRecord.objects.filter(session__quiz=quiz, answered_at__gte=start_date)
+    if user:
+        answers = answers.filter(session__user=user)
+
     answers_by_date = (
         answers.annotate(date=TruncDate("answered_at"))
         .values("date")
