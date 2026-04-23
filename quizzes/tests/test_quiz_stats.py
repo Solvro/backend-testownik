@@ -356,6 +356,7 @@ class QuizStatsScopeTestCase(APITestCase):
         self.assertEqual(response.data["wrong_answers"], 1)
         self.assertEqual(response.data["sessions_count"], 2)
         self.assertEqual(response.data["unique_users_count"], 2)
+        self.assertIsNone(response.data["study_time_seconds"])
 
     def test_invalid_scope_returns_400(self):
         self.client.force_authenticate(user=self.owner)
@@ -536,6 +537,20 @@ class QuizStatsPermissionsTestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_scope_all_requires_edit_permission_even_for_public_quiz(self):
+        self.client.force_authenticate(user=self.stranger)
+        url = reverse("quiz-stats", kwargs={"pk": self.public_quiz.id})
+        response = self.client.get(url, {"scope": "all"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_scope_all_allowed_for_quiz_creator_on_public_quiz(self):
+        self.client.force_authenticate(user=self.owner)
+        url = reverse("quiz-stats", kwargs={"pk": self.public_quiz.id})
+        response = self.client.get(url, {"scope": "all"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_scope_all_does_not_bypass_private_quiz_permissions_for_chart_endpoints(self):
         self.client.force_authenticate(user=self.stranger)
         timeline_url = reverse("quiz-stats-timeline", kwargs={"pk": self.private_quiz.id})
@@ -545,6 +560,26 @@ class QuizStatsPermissionsTestCase(APITestCase):
         for url in (timeline_url, hardest_url, hourly_url):
             response = self.client.get(url, {"scope": "all"})
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_scope_all_requires_edit_permission_for_chart_endpoints_on_public_quiz(self):
+        self.client.force_authenticate(user=self.stranger)
+        timeline_url = reverse("quiz-stats-timeline", kwargs={"pk": self.public_quiz.id})
+        hardest_url = reverse("quiz-stats-hardest-questions", kwargs={"pk": self.public_quiz.id})
+        hourly_url = reverse("quiz-stats-hourly", kwargs={"pk": self.public_quiz.id})
+
+        for url in (timeline_url, hardest_url, hourly_url):
+            response = self.client.get(url, {"scope": "all"})
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_scope_all_allowed_for_chart_endpoints_for_quiz_creator_on_public_quiz(self):
+        self.client.force_authenticate(user=self.owner)
+        timeline_url = reverse("quiz-stats-timeline", kwargs={"pk": self.public_quiz.id})
+        hardest_url = reverse("quiz-stats-hardest-questions", kwargs={"pk": self.public_quiz.id})
+        hourly_url = reverse("quiz-stats-hourly", kwargs={"pk": self.public_quiz.id})
+
+        for url in (timeline_url, hardest_url, hourly_url):
+            response = self.client.get(url, {"scope": "all"})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_stats_for_nonexistent_quiz_returns_404(self):
         self.client.force_authenticate(user=self.owner)
