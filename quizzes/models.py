@@ -1,7 +1,10 @@
 import uuid
 from datetime import timedelta
 
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.db.models import ProtectedError, Q
+from django.utils import timezone
 
 from users.models import StudyGroup, User
 
@@ -33,12 +36,67 @@ class Folder(models.Model):
     def __str__(self):
         return f"{self.name} ({self.owner})"
 
+    @property
+    def is_root(self):
+        try:
+            return self.root_owner is not None
+        except self.__class__.root_owner.RelatedObjectDoesNotExist:
+            return False
+
+    def delete(self, *args, **kwargs):
+        if self.is_root:
+            raise ProtectedError(
+                "Cannot delete root folder.",
+                set([self]),
+            )
+        super().delete(*args, **kwargs)
+
+    def has_edit_permission(self, user):
+        """Check if user can edit content in this folder."""
+        if user == self.owner:
+            return True
+        return self.shares.filter(
+            Q(user=user) | Q(study_group__in=user.study_groups.all()),
+            allow_edit=True,
+        ).exists()
+
+
+class SharedFolder(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    folder = models.ForeignKey(Folder, on_delete=models.CASCADE, related_name="shares")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name="shared_folders")
+    study_group = models.ForeignKey(
+        StudyGroup, on_delete=models.CASCADE, null=True, blank=True, related_name="shared_folders"
+    )
+    allow_edit = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(user__isnull=False, study_group__isnull=True) | Q(user__isnull=True, study_group__isnull=False)
+                ),
+                name="sharedfolder_exactly_one_target",
+            ),
+            models.UniqueConstraint(
+                fields=["folder", "user"],
+                name="unique_sharedfolder_folder_user",
+            ),
+            models.UniqueConstraint(
+                fields=["folder", "study_group"],
+                name="unique_sharedfolder_folder_study_group",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Folder {self.folder.name} shared with {self.user or self.study_group}"
+
 
 class Quiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255)
     description = models.TextField(null=True, blank=True)
-    maintainer = models.ForeignKey(User, on_delete=models.CASCADE)
+    creator = models.ForeignKey(User, on_delete=models.CASCADE, related_name="created_quizzes")
     visibility = models.PositiveIntegerField(choices=QUIZ_VISIBILITY_CHOICES, default=2)
     allow_anonymous = models.BooleanField(
         default=False,
@@ -51,7 +109,7 @@ class Quiz(models.Model):
     version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    folder = models.ForeignKey(Folder, on_delete=models.SET_NULL, null=True, blank=True, related_name="quizzes")
+    folder = models.ForeignKey(Folder, on_delete=models.PROTECT, related_name="quizzes")
 
     class Meta:
         ordering = ["-created_at"]
@@ -61,9 +119,23 @@ class Quiz(models.Model):
     def __str__(self):
         return self.title or f"Quiz {self.id}"
 
+    def get_average_rating(self):
+        return self.ratings.aggregate(avg=models.Avg("score"))["avg"]
+
+    def get_review_count(self):
+        return self.ratings.count()
+
+    def get_last_used_at(self, user):
+        last_session = self.sessions.filter(user=user).order_by("-updated_at").first()
+
+        if last_session:
+            return last_session.updated_at
+
+        return None
+
     def can_edit(self, user):
         return (
-            user == self.maintainer
+            self.folder.has_edit_permission(user)
             or self.sharedquiz_set.filter(user=user, allow_edit=True).exists()
             or self.sharedquiz_set.filter(study_group__in=user.study_groups.all(), allow_edit=True).exists()
         )
@@ -254,3 +326,60 @@ class QuestionIssue(models.Model):
             reporter = "Anonymous"
 
         return f"Issue on Question(id={self.question_id}) by {reporter}"
+
+
+class QuizRating(models.Model):
+    """
+    Represents a rating of a quiz (1-5)
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="quiz_ratings")
+    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="ratings")
+    score = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "quiz"], name="unique_user_quiz_rating")]
+
+    def __str__(self):
+        return f"QuizRating(id={self.id}, author={self.user} score={self.score})"
+
+
+class Comment(models.Model):
+    """
+    Threaded comment attached to a Quiz (and optionally a specific Question
+    within it). Deletion is soft — the record is kept to preserve thread
+    structure while the serializer hides content/author on read.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    author = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    content = models.TextField()
+    parent = models.ForeignKey("self", on_delete=models.CASCADE, null=True, blank=True, related_name="replies")
+    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="comments")
+    question = models.ForeignKey(Question, on_delete=models.CASCADE, null=True, blank=True, related_name="comments")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"Comment(id={self.id}, author={self.author})"
+
+    @property
+    def is_reply(self):
+        return self.parent_id is not None
+
+    def mark_as_deleted(self):
+        # Author is preserved so the original poster can be held accountable for
+        # the original content; the serializer hides content on read.
+        self.is_deleted = True
+        self.deleted_at = timezone.now()
+        self.save(update_fields=["is_deleted", "deleted_at"])
