@@ -15,7 +15,7 @@ drf-spectacular==0.29.0
 django-filter==25.2
 django-constance>=4.3.2
 Authlib==1.7.0
-nh3==0.3.4
+nh3==0.3.5
 Pillow==12.2.0
 django-storages[s3]==1.14.6
 
