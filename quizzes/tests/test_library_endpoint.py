@@ -36,8 +36,9 @@ class LibraryTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         returned_ids = {str(item["id"]) for item in response.data["items"]}
-        # Root folder should contain: Main folder + Root Quiz
-        expected_ids = {str(self.folder_main.id), str(self.quiz_root.id)}
+        # Root folder should contain: Main folder + Root Quiz + Archive folder
+        archive_folder = Folder.objects.get(owner=self.user_a, folder_type="archive")
+        expected_ids = {str(self.folder_main.id), str(self.quiz_root.id), str(archive_folder.id)}
         self.assertEqual(returned_ids, expected_ids)
 
         # Sub folder and hidden quiz should NOT appear at root level
@@ -111,7 +112,7 @@ class LibraryBreadcrumbTests(APITestCase):
             email="viewer@example.com", password="password123", first_name="Anna", last_name="Nowak"
         )
 
-        # owner's root folder auto-created ("Moje quizy")
+        # owner's root folder auto-created (Folder.DEFAULT_ROOT_NAME)
         self.folder_a = Folder.objects.create(name="A", owner=self.owner, parent=self.owner.root_folder)
         self.folder_b = Folder.objects.create(name="B", owner=self.owner, parent=self.folder_a)
         self.folder_c = Folder.objects.create(name="C", owner=self.owner, parent=self.folder_b)
@@ -125,7 +126,7 @@ class LibraryBreadcrumbTests(APITestCase):
         path = response.data["path"]
         self.assertEqual(len(path), 1)
         self.assertEqual(path[0]["id"], str(self.owner.root_folder.id))
-        self.assertEqual(path[0]["name"], "Moje quizy")
+        self.assertEqual(path[0]["name"], Folder.DEFAULT_ROOT_NAME)
 
     def test_owner_nested_breadcrumbs(self):
         """Owner viewing nested folder gets full path from root."""
@@ -136,7 +137,7 @@ class LibraryBreadcrumbTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         path = response.data["path"]
         self.assertEqual(len(path), 4)
-        self.assertEqual(path[0]["name"], "Moje quizy")
+        self.assertEqual(path[0]["name"], Folder.DEFAULT_ROOT_NAME)
         self.assertEqual(path[1]["name"], "A")
         self.assertEqual(path[2]["name"], "B")
         self.assertEqual(path[3]["name"], "C")
