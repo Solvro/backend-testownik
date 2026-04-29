@@ -453,6 +453,7 @@ class QuizSerializer(serializers.ModelSerializer):
 class QuizMetaDataSerializer(serializers.ModelSerializer):
     creator = PublicUserSerializer(read_only=True)
     can_edit = serializers.SerializerMethodField()
+    questions_count = serializers.SerializerMethodField()
     last_used_at = serializers.SerializerMethodField()
     quiz_rating = serializers.SerializerMethodField()
     average_rating = serializers.SerializerMethodField()
@@ -474,6 +475,7 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "version",
             "can_edit",
             "folder",
+            "questions_count",
             "quiz_rating",
             "average_rating",
             "review_count",
@@ -486,6 +488,7 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "version",
             "can_edit",
             "folder",
+            "questions_count",
             "quiz_rating",
             "average_rating",
             "review_count",
@@ -518,6 +521,12 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
         if self._is_authenticated():
             return obj.can_edit(self.context.get("request").user)
         return False
+
+    def get_questions_count(self, obj: Quiz) -> int:
+        annotated = getattr(obj, "questions_count", None)
+        if annotated is not None:
+            return annotated
+        return obj.questions.count()
 
     def get_quiz_rating(self, obj: Quiz):
         if not self._is_authenticated():
@@ -730,6 +739,33 @@ class LibraryItemSerializer(serializers.Serializer):
 class RecordAnswerSerializer(serializers.Serializer):
     question_id = serializers.UUIDField()
     selected_answers = serializers.ListField(allow_empty=False)
+
+
+class QuestionStatsSerializer(serializers.Serializer):
+    """Serializer for per-question statistics within a quiz stats response."""
+
+    question_id = serializers.UUIDField()
+    attempts = serializers.IntegerField()
+    correct_attempts = serializers.IntegerField()
+    last_answered_at = serializers.DateTimeField(allow_null=True)
+
+
+class QuizStatsSerializer(serializers.Serializer):
+    """Serializer for aggregated quiz statistics for the current user."""
+
+    quiz_id = serializers.UUIDField()
+    total_answers = serializers.IntegerField()
+    correct_answers = serializers.IntegerField()
+    wrong_answers = serializers.IntegerField()
+    accuracy = serializers.FloatField()
+    first_answer_accuracy = serializers.FloatField()
+    study_time_seconds = serializers.IntegerField(allow_null=True)
+    total_study_time_seconds = serializers.IntegerField()
+    average_study_time_seconds = serializers.IntegerField()
+    sessions_count = serializers.IntegerField()
+    unique_users_count = serializers.IntegerField(allow_null=True, required=False)
+    last_activity_at = serializers.DateTimeField(allow_null=True)
+    per_question = QuestionStatsSerializer(many=True, required=False)
 
 
 class QuizRatingSerializer(serializers.ModelSerializer):
