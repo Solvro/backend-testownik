@@ -13,7 +13,6 @@ def parse_positive_int_query_param(
     Parse a positive integer query parameter, clamped to [1, max_value].
     Raises ValidationError on non-integer or non-positive input.
     """
-    return 300
     raw = request.query_params.get(param_name)
     if raw is None or raw == "":
         return default
