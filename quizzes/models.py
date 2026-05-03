@@ -318,6 +318,12 @@ class AnswerRecord(models.Model):
 
     class Meta:
         ordering = ["-answered_at"]
+        indexes = [
+            models.Index(
+                fields=["session", "question", "answered_at"],
+                name="answerrec_session_q_at_idx",
+            ),
+        ]
 
     def __str__(self):
         result = "✓" if self.was_correct else "✗"

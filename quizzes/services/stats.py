@@ -32,6 +32,9 @@ def get_quiz_stats(quiz, user=None, *, include_per_question: bool = False) -> di
         "sessions_count": Count("id"),
         "last_activity_at": Max("updated_at"),
         "total_time": Sum("study_time"),
+        # Why: exclude *active* sessions with no recorded time yet (a brand-new
+        # session would otherwise drag the average toward 0). Archived sessions
+        # with study_time=0 are kept — they reflect real, completed attempts.
         "avg_time": Avg("study_time", filter=Q(is_active=False) | Q(study_time__gt=timedelta(0))),
     }
     if user is None:
@@ -70,11 +73,12 @@ def get_quiz_stats(quiz, user=None, *, include_per_question: bool = False) -> di
 
     accuracy = round(correct_answers / total_answers * 100, 2) if total_answers > 0 else 0.0
 
-    # Aggregate first answers for accuracy
+    # Aggregate first answers for accuracy. The `id` tiebreaker keeps the
+    # picked row deterministic when two answers share `answered_at`.
     first_answers = AnswerRecord.objects.filter(
         id=Subquery(
             AnswerRecord.objects.filter(session_id=OuterRef("session_id"), question_id=OuterRef("question_id"))
-            .order_by("answered_at")
+            .order_by("answered_at", "id")
             .values("id")[:1]
         )
     ).filter(session__in=sessions)
@@ -109,17 +113,18 @@ def _get_per_question_stats(sessions) -> list[dict]:
     """
     Compute per-question statistics for the given sessions queryset.
 
-    Returns a list of dicts with question_id, attempts, correct_attempts, and last_answered_at.
+    Returns a list of dicts with question_id, attempts, correct_attempts, and
+    last_answered_at, ordered by the question's display `order`.
     """
     per_question = (
         AnswerRecord.objects.filter(session__in=sessions)
-        .values("question_id")
+        .values("question_id", "question__order")
         .annotate(
             attempts=Count("id"),
             correct_attempts=Count("id", filter=Q(was_correct=True)),
             last_answered_at=Max("answered_at"),
         )
-        .order_by("question_id")
+        .order_by("question__order", "question_id")
     )
 
     return [
@@ -136,25 +141,34 @@ def _get_per_question_stats(sessions) -> list[dict]:
 def get_quiz_timeline_stats(quiz, user=None, days: int = 30) -> list[dict]:
     """
     Compute timeline statistics (last N days) for a quiz.
-    Returns a list of dicts with date, sessions_count, total_answers, correct_answers.
+
+    Returns a list with one entry per calendar day in the trailing window
+    (including days with no activity, filled with zeros). Each entry has:
+    `date`, `sessions_count`, `total_answers`, `correct_answers`,
+    `total_study_time_seconds`.
+
+    `sessions_count` and `total_study_time_seconds` are bucketed by `started_at`.
+    `total_answers` / `correct_answers` are bucketed by `answered_at`, so answers
+    from older sessions still count when answered within the window.
     """
-    start_date = timezone.now() - timedelta(days=days)
+    now = timezone.now()
+    start_date = now - timedelta(days=days)
 
     sessions = QuizSession.objects.filter(quiz=quiz)
     if user:
         sessions = sessions.filter(user=user)
 
-    # Aggregate sessions per day
     sessions_by_date = (
         sessions.filter(started_at__gte=start_date)
         .annotate(date=TruncDate("started_at"))
         .values("date")
-        .annotate(sessions_count=Count("id"))
+        .annotate(
+            sessions_count=Count("id"),
+            study_time=Sum("study_time"),
+        )
         .order_by("date")
     )
 
-    # Aggregate answers per day. This is intentionally not limited by session.started_at,
-    # so answers from older sessions are still included when answered within the time window.
     answers = AnswerRecord.objects.filter(session__quiz=quiz, answered_at__gte=start_date)
     if user:
         answers = answers.filter(session__user=user)
@@ -169,39 +183,108 @@ def get_quiz_timeline_stats(quiz, user=None, days: int = 30) -> list[dict]:
         .order_by("date")
     )
 
-    # Merge data by date
-    data_by_date = {}
-    for row in sessions_by_date:
-        date_str = row["date"].isoformat() if row["date"] else None
-        if not date_str:
-            continue
-        data_by_date[date_str] = {
-            "date": date_str,
-            "sessions_count": row["sessions_count"],
+    # Pre-fill every day in the window so charts have a continuous x-axis.
+    today = now.date()
+    data_by_date: dict[str, dict] = {}
+    for offset in range(days + 1):
+        day = today - timedelta(days=offset)
+        data_by_date[day.isoformat()] = {
+            "date": day.isoformat(),
+            "sessions_count": 0,
             "total_answers": 0,
             "correct_answers": 0,
+            "total_study_time_seconds": 0,
         }
 
-    for row in answers_by_date:
-        date_str = row["date"].isoformat() if row["date"] else None
-        if not date_str:
+    for row in sessions_by_date:
+        if not row["date"]:
             continue
-        if date_str not in data_by_date:
-            data_by_date[date_str] = {
-                "date": date_str,
+        key = row["date"].isoformat()
+        bucket = data_by_date.setdefault(
+            key,
+            {
+                "date": key,
                 "sessions_count": 0,
                 "total_answers": 0,
                 "correct_answers": 0,
-            }
-        data_by_date[date_str]["total_answers"] = row["total_answers"]
-        data_by_date[date_str]["correct_answers"] = row["correct_answers"]
+                "total_study_time_seconds": 0,
+            },
+        )
+        bucket["sessions_count"] = row["sessions_count"]
+        bucket["total_study_time_seconds"] = int(row["study_time"].total_seconds()) if row["study_time"] else 0
+
+    for row in answers_by_date:
+        if not row["date"]:
+            continue
+        key = row["date"].isoformat()
+        bucket = data_by_date.setdefault(
+            key,
+            {
+                "date": key,
+                "sessions_count": 0,
+                "total_answers": 0,
+                "correct_answers": 0,
+                "total_study_time_seconds": 0,
+            },
+        )
+        bucket["total_answers"] = row["total_answers"]
+        bucket["correct_answers"] = row["correct_answers"]
 
     return sorted(data_by_date.values(), key=lambda x: x["date"])
+
+
+def get_quiz_sessions_stats(quiz, user=None, days: int = 30) -> list[dict]:
+    """
+    Return one entry per quiz session within the trailing window, in chronological
+    order. Powers the "score over time" and "study time over time" line charts:
+    each session is a single data point on the x-axis (started_at).
+
+    Each entry: `session_id`, `started_at`, `ended_at`, `study_time_seconds`,
+    `total_answers`, `correct_answers`, `accuracy`.
+    """
+    start_date = timezone.now() - timedelta(days=days)
+
+    sessions = QuizSession.objects.filter(quiz=quiz, started_at__gte=start_date)
+    if user:
+        sessions = sessions.filter(user=user)
+
+    sessions = sessions.annotate(
+        total_answers=Count("answers"),
+        correct_answers=Count("answers", filter=Q(answers__was_correct=True)),
+    ).order_by("started_at")
+
+    result = []
+    for session in sessions.values(
+        "id",
+        "started_at",
+        "ended_at",
+        "study_time",
+        "total_answers",
+        "correct_answers",
+    ):
+        total = session["total_answers"] or 0
+        correct = session["correct_answers"] or 0
+        accuracy = round(correct / total * 100, 2) if total > 0 else 0.0
+        result.append(
+            {
+                "session_id": session["id"],
+                "started_at": session["started_at"],
+                "ended_at": session["ended_at"],
+                "study_time_seconds": (int(session["study_time"].total_seconds()) if session["study_time"] else 0),
+                "total_answers": total,
+                "correct_answers": correct,
+                "accuracy": accuracy,
+            }
+        )
+    return result
 
 
 def get_quiz_hardest_questions(quiz, user=None, limit: int = 10) -> list[dict]:
     """
     Get the top N hardest questions (most wrong answers) for a quiz.
+
+    Each entry includes the question text so charts can label slices without
+    a follow-up round-trip.
     """
     sessions = QuizSession.objects.filter(quiz=quiz)
     if user:
@@ -209,13 +292,21 @@ def get_quiz_hardest_questions(quiz, user=None, limit: int = 10) -> list[dict]:
 
     hardest = (
         AnswerRecord.objects.filter(session__in=sessions)
-        .values("question_id")
+        .values("question_id", "question__text")
         .annotate(wrong_answers=Count("id", filter=Q(was_correct=False)), total_answers=Count("id"))
         .filter(wrong_answers__gt=0)
-        .order_by("-wrong_answers")[:limit]
+        .order_by("-wrong_answers", "question_id")[:limit]
     )
 
-    return list(hardest)
+    return [
+        {
+            "question_id": row["question_id"],
+            "question_text": row["question__text"],
+            "wrong_answers": row["wrong_answers"],
+            "total_answers": row["total_answers"],
+        }
+        for row in hardest
+    ]
 
 
 def get_quiz_hourly_stats(quiz, user=None) -> list[dict]:

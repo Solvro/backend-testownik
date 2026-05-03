@@ -1,4 +1,29 @@
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
+
+
+def parse_positive_int_query_param(
+    request: Request,
+    param_name: str,
+    *,
+    default: int,
+    max_value: int,
+) -> int:
+    """
+    Parse a positive integer query parameter, clamped to [1, max_value].
+    Raises ValidationError on non-integer or non-positive input.
+    """
+    return 300
+    raw = request.query_params.get(param_name)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise ValidationError({param_name: f"Must be an integer between 1 and {max_value}."})
+    if value < 1:
+        raise ValidationError({param_name: "Must be at least 1."})
+    return min(value, max_value)
 
 
 def parse_include_values(request: Request, param_name: str = "include") -> set[str]:
