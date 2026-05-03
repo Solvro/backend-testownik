@@ -70,7 +70,7 @@ def is_safe_redirect_url(url: str, request=None) -> bool:
     is_django_safe = url_has_allowed_host_and_scheme(
         url,
         allowed_hosts=allowed_hosts,
-        require_https=not getattr(settings, "DEBUG", False),
+        require_https=not settings.DEBUG,
     )
 
     try:
