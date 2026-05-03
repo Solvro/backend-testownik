@@ -1,6 +1,7 @@
 from datetime import timedelta
 from io import StringIO
 
+from django.conf import settings
 from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
@@ -21,13 +22,13 @@ class CleanArchiveCommandTest(TestCase):
         self.quiz_new_archive = Quiz.objects.create(title="New Archive", creator=self.user, folder=self.archive_folder)
         self.quiz_old_normal = Quiz.objects.create(title="Old Normal", creator=self.user, folder=self.root_folder)
 
-        thirty_one_days_ago = timezone.now() - timedelta(days=31)
+        past_ttl = timezone.now() - timedelta(days=settings.ARCHIVE_TTL_DAYS + 1)
 
-        Quiz.objects.filter(id=self.quiz_old_archive.id).update(archived_at=thirty_one_days_ago)
-        Quiz.objects.filter(id=self.quiz_old_normal.id).update(updated_at=thirty_one_days_ago)
+        Quiz.objects.filter(id=self.quiz_old_archive.id).update(archived_at=past_ttl)
+        Quiz.objects.filter(id=self.quiz_old_normal.id).update(updated_at=past_ttl)
 
     def test_clean_archive_quizzes_command(self):
-        """Test that the clean_archive_quizzes command only deletes quizzes in the archive folder older than 30 days."""
+        """Only quizzes in the archive folder older than ARCHIVE_TTL_DAYS are deleted."""
         out = StringIO()
 
         call_command("clean_archive_quizzes", stdout=out)

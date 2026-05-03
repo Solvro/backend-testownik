@@ -2,7 +2,7 @@ from django.db import transaction
 from django.db.models.signals import post_save
 
 
-def create_root_folder(sender, instance, created, **kwargs):
+def initialize_user_folders(sender, instance, created, **kwargs):
     if created and not instance.root_folder_id:
         from .models import Folder, FolderType
 
@@ -20,4 +20,4 @@ def create_root_folder(sender, instance, created, **kwargs):
 def register_signals():
     from users.models import User
 
-    post_save.connect(create_root_folder, sender=User, dispatch_uid="quizzes.create_root_folder")
+    post_save.connect(initialize_user_folders, sender=User, dispatch_uid="quizzes.initialize_user_folders")

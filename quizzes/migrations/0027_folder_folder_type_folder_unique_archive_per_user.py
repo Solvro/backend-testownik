@@ -30,8 +30,8 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AddField(
-            model_name='quiz',
-            name='archived_at',
-            field=models.DateTimeField(blank=True, null=True),
+            model_name="quiz",
+            name="archived_at",
+            field=models.DateTimeField(blank=True, db_index=True, null=True),
         ),
     ]

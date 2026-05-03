@@ -623,10 +623,10 @@ class FolderSerializer(serializers.ModelSerializer):
 
         if instance and instance.folder_type == FolderType.ARCHIVE:
             if "name" in attrs and attrs["name"] != instance.name:
-                raise serializers.ValidationError({"name": "You can't change name of archive folder."})
+                raise serializers.ValidationError({"name": "Cannot rename archive folder."})
 
             if "parent" in attrs:
-                raise serializers.ValidationError({"parent": "Archive folder can't be a subfolder."})
+                raise serializers.ValidationError({"parent": "Cannot move archive folder."})
 
         return attrs
 
@@ -639,7 +639,7 @@ class FolderSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("You can only create folders inside your own folders.")
 
         if value.folder_type == FolderType.ARCHIVE:
-            raise serializers.ValidationError("Cannot create subfolders in Archive folder")
+            raise serializers.ValidationError("Cannot create subfolders in archive folder.")
 
         return value
 
@@ -675,7 +675,7 @@ class MoveFolderSerializer(serializers.Serializer):
                 raise serializers.ValidationError("You cannot move a folder into itself.")
 
             if target_parent.folder_type == FolderType.ARCHIVE:
-                raise serializers.ValidationError("Cannot move folders into Archive folder")
+                raise serializers.ValidationError("Cannot move folders into archive folder.")
 
             current = target_parent
             while current:

@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -37,7 +40,8 @@ class QuizArchiveTests(APITestCase):
     def test_archive_quiz_twice_is_idempotent(self):
         archive_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.ARCHIVE)
         self.quiz.folder = archive_folder
-        self.quiz.save()
+        original_archived_at = timezone.now() - timedelta(days=5)
+        Quiz.objects.filter(id=self.quiz.id).update(folder=archive_folder, archived_at=original_archived_at)
 
         url = reverse("quiz-move-to-archive", kwargs={"pk": self.quiz.id})
         response = self.client.post(url)
@@ -45,6 +49,8 @@ class QuizArchiveTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.quiz.refresh_from_db()
         self.assertEqual(self.quiz.folder, archive_folder)
+        # Re-archiving must not refresh archived_at — otherwise users could reset the TTL.
+        self.assertEqual(self.quiz.archived_at, original_archived_at)
 
     def test_cannot_archive_other_users_quiz(self):
         other_user = User(email="other@example.com", first_name="Other", last_name="User")
@@ -55,14 +61,14 @@ class QuizArchiveTests(APITestCase):
         url = reverse("quiz-move-to-archive", kwargs={"pk": other_quiz.id})
         response = self.client.post(url)
 
-        self.assertIn(response.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_unauthenticated_cannot_archive_quiz(self):
         self.client.logout()
         url = reverse("quiz-move-to-archive", kwargs={"pk": self.quiz.id})
         response = self.client.post(url)
 
-        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_archive_nonexistent_quiz(self):
         url = reverse("quiz-move-to-archive", kwargs={"pk": "00000000-0000-0000-0000-000000000000"})
