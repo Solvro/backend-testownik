@@ -30,6 +30,7 @@ from quizzes.models import (
     AnswerRecord,
     Comment,
     Folder,
+    FolderType,
     Question,
     QuestionType,
     Quiz,
@@ -393,7 +394,18 @@ class QuizViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         if instance.folder.owner != self.request.user:
             raise PermissionDenied("Only the folder owner can delete this quiz")
-        instance.delete()
+
+        if instance.folder.folder_type != FolderType.ARCHIVE:
+            archive_folder, _ = Folder.objects.get_or_create(
+                owner=self.request.user,
+                folder_type=FolderType.ARCHIVE,
+                defaults={"name": Folder.DEFAULT_ARCHIVE_NAME, "parent": self.request.user.root_folder},
+            )
+            instance.folder = archive_folder
+            instance.archived_at = timezone.now()
+            instance.save(update_fields=["folder", "archived_at", "updated_at"])
+        else:
+            instance.delete()
 
     def get_serializer_class(self):
         action_serializers = {
@@ -425,11 +437,37 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
-            quiz.folder_id = serializer.validated_data["folder_id"]
-            quiz.save()
+            new_folder_id = serializer.validated_data["folder_id"]
+            destination = Folder.objects.get(pk=new_folder_id)
+            quiz.folder_id = new_folder_id
+            quiz.archived_at = timezone.now() if destination.folder_type == FolderType.ARCHIVE else None
+            quiz.save(update_fields=["folder_id", "archived_at", "updated_at"])
             return Response({"status": "Quiz moved successfully"})
 
         return Response(serializer.errors, status=400)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="move-to-archive",
+        permission_classes=[permissions.IsAuthenticated, IsQuizCreator],
+    )
+    def move_to_archive(self, request, pk=None):
+        quiz = self.get_object()
+
+        if quiz.folder.folder_type == FolderType.ARCHIVE:
+            return Response({"status": "Quiz already in archive"}, status=status.HTTP_200_OK)
+
+        archive_folder, _ = Folder.objects.get_or_create(
+            owner=request.user,
+            folder_type=FolderType.ARCHIVE,
+            defaults={"name": Folder.DEFAULT_ARCHIVE_NAME, "parent": request.user.root_folder},
+        )
+
+        quiz.folder = archive_folder
+        quiz.archived_at = timezone.now()
+        quiz.save(update_fields=["folder", "archived_at", "updated_at"])
+        return Response({"status": "Quiz moved successfully"}, status=status.HTTP_200_OK)
 
     @action(
         detail=True,
@@ -817,17 +855,22 @@ class FolderViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         if hasattr(instance, "root_owner"):
             raise PermissionDenied("Cannot delete root folder.")
+        if instance.folder_type == FolderType.ARCHIVE:
+            raise PermissionDenied("Cannot delete archive folder.")
         instance.delete()
 
     @action(detail=True, methods=["post"], serializer_class=MoveFolderSerializer)
     def move(self, request, pk=None):
         folder = self.get_object()
 
+        if folder.folder_type == FolderType.ARCHIVE:
+            return Response({"error": "Cannot move archive folder."}, status=status.HTTP_403_FORBIDDEN)
+
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
             folder.parent_id = serializer.validated_data["parent_id"]
             folder.save()
-            return Response({"status": "Folder moved successfully"})
+            return Response({"status": "Folder moved successfully"}, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=400)
 

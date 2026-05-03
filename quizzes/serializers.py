@@ -5,7 +5,18 @@ from django.db.models import Q
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from quizzes.models import Answer, AnswerRecord, Comment, Folder, Question, Quiz, QuizRating, QuizSession, SharedQuiz
+from quizzes.models import (
+    Answer,
+    AnswerRecord,
+    Comment,
+    Folder,
+    FolderType,
+    Question,
+    Quiz,
+    QuizRating,
+    QuizSession,
+    SharedQuiz,
+)
 from uploads.models import UploadedImage
 from users.models import StudyGroup, User, UserSettings
 from users.serializers import (
@@ -604,8 +615,20 @@ class FolderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Folder
-        fields = ["id", "name", "created_at", "parent", "quizzes", "subfolders"]
-        read_only_fields = ["id", "created_at", "quizzes", "subfolders"]
+        fields = ["id", "name", "created_at", "parent", "quizzes", "subfolders", "folder_type"]
+        read_only_fields = ["id", "created_at", "quizzes", "subfolders", "folder_type"]
+
+    def validate(self, attrs):
+        instance = self.instance
+
+        if instance and instance.folder_type == FolderType.ARCHIVE:
+            if "name" in attrs and attrs["name"] != instance.name:
+                raise serializers.ValidationError({"name": "Cannot rename archive folder."})
+
+            if "parent" in attrs:
+                raise serializers.ValidationError({"parent": "Cannot move archive folder."})
+
+        return attrs
 
     def validate_parent(self, value):
         if value is None:
@@ -614,6 +637,10 @@ class FolderSerializer(serializers.ModelSerializer):
         user = self.context["request"].user
         if value.owner != user:
             raise serializers.ValidationError("You can only create folders inside your own folders.")
+
+        if value.folder_type == FolderType.ARCHIVE:
+            raise serializers.ValidationError("Cannot create subfolders in archive folder.")
+
         return value
 
 
@@ -646,6 +673,9 @@ class MoveFolderSerializer(serializers.Serializer):
 
             if str(value) == str(folder_to_move.id):
                 raise serializers.ValidationError("You cannot move a folder into itself.")
+
+            if target_parent.folder_type == FolderType.ARCHIVE:
+                raise serializers.ValidationError("Cannot move folders into archive folder.")
 
             current = target_parent
             while current:

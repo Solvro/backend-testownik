@@ -3,7 +3,7 @@ from datetime import timedelta
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from django.db.models import ProtectedError, Q
+from django.db.models import ProtectedError, Q, UniqueConstraint
 from django.utils import timezone
 
 from users.models import StudyGroup, User
@@ -16,7 +16,15 @@ QUIZ_VISIBILITY_CHOICES = [
 ]
 
 
+class FolderType(models.TextChoices):
+    ARCHIVE = "archive", "Archive"
+    REGULAR = "regular", "Regular"
+
+
 class Folder(models.Model):
+    DEFAULT_ROOT_NAME = "Moje quizy"
+    DEFAULT_ARCHIVE_NAME = "Archiwum"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=128)
     parent = models.ForeignKey(
@@ -29,9 +37,17 @@ class Folder(models.Model):
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="folders")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    folder_type = models.CharField(max_length=10, choices=FolderType.choices, default=FolderType.REGULAR)
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            UniqueConstraint(
+                fields=["owner", "folder_type"],
+                condition=Q(folder_type=FolderType.ARCHIVE),
+                name="unique_archive_per_user",
+            )
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.owner})"
@@ -47,6 +63,11 @@ class Folder(models.Model):
         if self.is_root:
             raise ProtectedError(
                 "Cannot delete root folder.",
+                set([self]),
+            )
+        if self.folder_type == FolderType.ARCHIVE:
+            raise ProtectedError(
+                "Cannot delete archive folder.",
                 set([self]),
             )
         super().delete(*args, **kwargs)
@@ -109,6 +130,7 @@ class Quiz(models.Model):
     version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    archived_at = models.DateTimeField(null=True, blank=True, db_index=True)
     folder = models.ForeignKey(Folder, on_delete=models.PROTECT, related_name="quizzes")
 
     class Meta:
