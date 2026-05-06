@@ -35,28 +35,31 @@ class MigrateGuestToUserTestCase(TestCase):
 
     def test_migrate_quizzes(self):
         """Quizzes owned by the guest are transferred to the target user."""
-        quiz = Quiz.objects.create(title="Guest Quiz", maintainer=self.guest)
+        quiz = Quiz.objects.create(title="Guest Quiz", creator=self.guest, folder=self.guest.root_folder)
 
         result = migrate_guest_to_user(str(self.guest.id), self.target_user)
 
         self.assertTrue(result)
         quiz.refresh_from_db()
-        self.assertEqual(quiz.maintainer, self.target_user)
+        self.assertEqual(quiz.creator, self.target_user)
 
     def test_migrate_sessions_no_conflict(self):
         """Sessions are transferred when the target has no session for that quiz."""
-        quiz = Quiz.objects.create(title="Quiz", maintainer=self.target_user)
+        quiz = Quiz.objects.create(title="Quiz", creator=self.target_user, folder=self.target_user.root_folder)
         QuizSession.objects.create(quiz=quiz, user=self.guest, is_active=True)
 
         result = migrate_guest_to_user(str(self.guest.id), self.target_user)
 
         self.assertTrue(result)
-        self.assertEqual(QuizSession.objects.filter(user=self.target_user, quiz=quiz, is_active=True).count(), 1)
+        self.assertEqual(
+            QuizSession.objects.filter(user=self.target_user, quiz=quiz, is_active=True).count(),
+            1,
+        )
 
     def test_migrate_sessions_with_conflict_archives_older(self):
         """When both guest and target have an active session for the same quiz,
         the older one is archived."""
-        quiz = Quiz.objects.create(title="Quiz", maintainer=self.target_user)
+        quiz = Quiz.objects.create(title="Quiz", creator=self.target_user, folder=self.target_user.root_folder)
         guest_session = QuizSession.objects.create(quiz=quiz, user=self.guest, is_active=True)
         target_session = QuizSession.objects.create(quiz=quiz, user=self.target_user, is_active=True)
 
@@ -159,13 +162,19 @@ class GuestCreateViewTestCase(APITestCase):
         """Request without Api-Key header is rejected."""
         response = self.client.post(self.url)
 
-        self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+        self.assertIn(
+            response.status_code,
+            (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN),
+        )
 
     def test_wrong_api_key_is_rejected(self):
         """Request with incorrect Api-Key header is rejected."""
         response = self.client.post(self.url, HTTP_API_KEY="wrong-key")
 
-        self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+        self.assertIn(
+            response.status_code,
+            (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN),
+        )
 
     def test_jwt_contains_guest_account_type(self):
         """The JWT token embeds account_type='guest'."""
@@ -193,7 +202,7 @@ class GuestMigrationOnOTPLoginTestCase(APITestCase):
             student_number="333333",
         )
         self.guest = User.objects.create_guest_user()
-        self.quiz = Quiz.objects.create(title="Guest Quiz", maintainer=self.guest)
+        self.quiz = Quiz.objects.create(title="Guest Quiz", creator=self.guest, folder=self.guest.root_folder)
 
     def test_otp_login_migrates_guest_data(self):
         """OTP login with valid guest_id migrates quizzes to the logged-in user when authenticated as guest."""
@@ -203,13 +212,17 @@ class GuestMigrationOnOTPLoginTestCase(APITestCase):
 
         response = self.client.post(
             reverse("login_otp"),
-            {"email": "user@example.com", "otp": token.otp_code, "guest_id": str(self.guest.id)},
+            {
+                "email": "user@example.com",
+                "otp": token.otp_code,
+                "guest_id": str(self.guest.id),
+            },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.quiz.refresh_from_db()
-        self.assertEqual(self.quiz.maintainer, self.user)
+        self.assertEqual(self.quiz.creator, self.user)
         self.assertFalse(User.objects.filter(id=self.guest.id).exists())
 
     def test_otp_login_without_guest_id_skips_migration(self):
@@ -224,7 +237,7 @@ class GuestMigrationOnOTPLoginTestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.quiz.refresh_from_db()
-        self.assertEqual(self.quiz.maintainer, self.guest)  # unchanged
+        self.assertEqual(self.quiz.creator, self.guest)  # unchanged
 
 
 class GuestMigrationOnLinkLoginTestCase(APITestCase):
@@ -238,7 +251,7 @@ class GuestMigrationOnLinkLoginTestCase(APITestCase):
             student_number="333333",
         )
         self.guest = User.objects.create_guest_user()
-        self.quiz = Quiz.objects.create(title="Guest Quiz", maintainer=self.guest)
+        self.quiz = Quiz.objects.create(title="Guest Quiz", creator=self.guest, folder=self.guest.root_folder)
 
     def test_link_login_migrates_guest_data(self):
         """Link login with valid guest_id migrates quizzes to the logged-in user when authenticated as guest."""
@@ -254,7 +267,7 @@ class GuestMigrationOnLinkLoginTestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.quiz.refresh_from_db()
-        self.assertEqual(self.quiz.maintainer, self.user)
+        self.assertEqual(self.quiz.creator, self.user)
         self.assertFalse(User.objects.filter(id=self.guest.id).exists())
 
     def test_link_login_without_guest_id_skips_migration(self):
@@ -269,4 +282,4 @@ class GuestMigrationOnLinkLoginTestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.quiz.refresh_from_db()
-        self.assertEqual(self.quiz.maintainer, self.guest)  # unchanged
+        self.assertEqual(self.quiz.creator, self.guest)  # unchanged

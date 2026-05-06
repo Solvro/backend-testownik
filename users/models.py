@@ -25,6 +25,12 @@ class AccountLevel(models.TextChoices):
     GOLD = "gold", "Gold"
 
 
+SEX_TO_GENDER = {
+    Sex.MALE: "male",
+    Sex.FEMALE: "female",
+}
+
+
 class CustomUserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         if not email:
@@ -91,6 +97,14 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_superuser = BooleanField(default=False)
     is_staff = BooleanField(default=False)
 
+    root_folder = models.OneToOneField(
+        "quizzes.Folder",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="root_owner",
+    )
+
     hide_profile = BooleanField(
         default=False,
         help_text="Hide profile from other users in search and leaderboards,"
@@ -137,9 +151,32 @@ class User(AbstractBaseUser, PermissionsMixin):
             and self.staff_status is StaffStatus.NOT_STAFF.value
         )
 
+    def owns_quiz_via_folder(self, quiz) -> bool:
+        """
+        Return True if the user owns the given quiz via its folder.
+
+        This checks `quiz.folder.owner == self` and does not look at `quiz.creator`.
+        """
+        folder = getattr(quiz, "folder", None)
+        owner = getattr(folder, "owner", None)
+        return owner == self
+
+    def is_creator(self, quiz) -> bool:
+        """Deprecated: use owns_quiz_via_folder() instead."""
+        return self.owns_quiz_via_folder(quiz)
+
     @property
     def photo(self) -> str | None:
         return self.overriden_photo_url or self.photo_url
+
+    @property
+    def gender(self) -> str | None:
+        if not self.sex:
+            return None
+        try:
+            return SEX_TO_GENDER.get(self.get_sex())
+        except ValueError:
+            return None
 
     def get_sex(self):
         return Sex(self.sex)

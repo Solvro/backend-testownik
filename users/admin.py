@@ -42,7 +42,19 @@ class UserAdmin(admin.ModelAdmin):
     search_fields = ["first_name", "last_name", "student_number", "email", "usos_id"]
 
     fieldsets = (
-        (None, {"fields": ("id", "email", "account_type", "account_level", "student_number", "usos_id")}),
+        (
+            None,
+            {
+                "fields": (
+                    "id",
+                    "email",
+                    "account_type",
+                    "account_level",
+                    "student_number",
+                    "usos_id",
+                )
+            },
+        ),
         (
             "Personal info",
             {

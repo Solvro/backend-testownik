@@ -8,9 +8,12 @@ from rest_framework import serializers
 from quizzes.models import (
     Answer,
     AnswerRecord,
+    Comment,
     Folder,
+    FolderType,
     Question,
     Quiz,
+    QuizRating,
     QuizSession,
     SharedQuiz,
 )
@@ -90,6 +93,7 @@ class QuestionSerializer(serializers.ModelSerializer):
             "quiz",
             "question_type",
             "is_flashcard",
+            "is_markdown_enabled",
         ]
 
     def validate(self, data):
@@ -217,7 +221,7 @@ class QuizSessionSerializer(serializers.ModelSerializer):
 
 
 class QuizSerializer(serializers.ModelSerializer):
-    maintainer = PublicUserSerializer(read_only=True)
+    creator = PublicUserSerializer(read_only=True)
     can_edit = serializers.SerializerMethodField()
     questions = QuestionSerializer(many=True)
 
@@ -232,7 +236,7 @@ class QuizSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "description",
-            "maintainer",
+            "creator",
             "visibility",
             "is_anonymous",
             "allow_anonymous",
@@ -244,7 +248,7 @@ class QuizSerializer(serializers.ModelSerializer):
             "current_session",
             "has_external_images",
         ]
-        read_only_fields = ["maintainer", "version", "can_edit", "folder"]
+        read_only_fields = ["creator", "version", "can_edit", "folder"]
 
     def get_can_edit(self, obj) -> bool:
         request = self.context.get("request")
@@ -267,8 +271,8 @@ class QuizSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         user = getattr(request, "user", None) if request else self.context.get("user")
 
-        if not user or (instance.is_anonymous and user != instance.maintainer):
-            data["maintainer"] = None
+        if not user or (instance.is_anonymous and user != instance.creator):
+            data["creator"] = None
 
         if user and user.is_authenticated:
             includes = [item.strip() for item in request.query_params.get("include", "").split(",")] if request else []
@@ -284,9 +288,15 @@ class QuizSerializer(serializers.ModelSerializer):
                 data["current_session"] = QuizSessionSerializer(session).data
             else:
                 data.pop("current_session", None)
+
+            if user.owns_quiz_via_folder(instance):
+                data["folder"] = FolderSerializer(instance.folder).data
+            else:
+                data.pop("folder", None)
         else:
             data.pop("user_settings", None)
             data.pop("current_session", None)
+            data.pop("folder", None)
 
         return data
 
@@ -452,8 +462,12 @@ class QuizSerializer(serializers.ModelSerializer):
 
 
 class QuizMetaDataSerializer(serializers.ModelSerializer):
-    maintainer = PublicUserSerializer(read_only=True)
+    creator = PublicUserSerializer(read_only=True)
     can_edit = serializers.SerializerMethodField()
+    last_used_at = serializers.SerializerMethodField()
+    quiz_rating = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+    review_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Quiz
@@ -461,31 +475,80 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "description",
-            "maintainer",
+            "creator",
             "visibility",
             "is_anonymous",
             "allow_anonymous",
             "created_at",
             "updated_at",
+            "last_used_at",
             "version",
             "can_edit",
             "folder",
+            "quiz_rating",
+            "average_rating",
+            "review_count",
         ]
-        read_only_fields = ["maintainer", "created_at", "updated_at", "version", "can_edit", "folder"]
+        read_only_fields = [
+            "creator",
+            "created_at",
+            "updated_at",
+            "last_used_at",
+            "version",
+            "can_edit",
+            "folder",
+            "quiz_rating",
+            "average_rating",
+            "review_count",
+        ]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
         request = self.context.get("request")
         user = getattr(request, "user", None) if request else self.context.get("user")
-        if not user or (instance.is_anonymous and user != instance.maintainer):
-            data["maintainer"] = None
+        if not user or (instance.is_anonymous and user != instance.creator):
+            data["creator"] = None
+
+        if user and user.is_authenticated and user.owns_quiz_via_folder(instance):
+            data["folder"] = FolderSerializer(instance.folder).data
+        else:
+            data.pop("folder", None)
         return data
 
-    def get_can_edit(self, obj) -> bool:
+    def _is_authenticated(self):
         request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            return obj.can_edit(request.user)
+        return request and request.user.is_authenticated
+
+    def get_last_used_at(self, obj: Quiz):
+        if self._is_authenticated():
+            return obj.get_last_used_at(self.context.get("request").user)
+
+        return None
+
+    def get_can_edit(self, obj: Quiz) -> bool:
+        if self._is_authenticated():
+            return obj.can_edit(self.context.get("request").user)
         return False
+
+    def get_quiz_rating(self, obj: Quiz):
+        if not self._is_authenticated():
+            return None
+        # Prefer prefetched rating (set via Prefetch(to_attr="_user_rating"))
+        # to avoid N+1 when listing quizzes.
+        cached = getattr(obj, "_user_rating", None)
+        if cached is not None:
+            return cached[0].score if cached else None
+        user = self.context.get("request").user
+        rating = obj.ratings.filter(user=user).first()
+        return rating.score if rating else None
+
+    def get_average_rating(self, obj: Quiz):
+        annotated = getattr(obj, "avg_rating", None)
+        return annotated if annotated is not None else obj.get_average_rating()
+
+    def get_review_count(self, obj: Quiz):
+        annotated = getattr(obj, "review_count", None)
+        return annotated if annotated is not None else obj.get_review_count()
 
 
 class QuizMetaDataWithQuestionSerializer(QuizMetaDataSerializer):
@@ -552,8 +615,33 @@ class FolderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Folder
-        fields = ["id", "name", "created_at", "parent", "quizzes", "subfolders"]
-        read_only_fields = ["id", "created_at", "quizzes", "subfolders"]
+        fields = ["id", "name", "created_at", "parent", "quizzes", "subfolders", "folder_type"]
+        read_only_fields = ["id", "created_at", "quizzes", "subfolders", "folder_type"]
+
+    def validate(self, attrs):
+        instance = self.instance
+
+        if instance and instance.folder_type == FolderType.ARCHIVE:
+            if "name" in attrs and attrs["name"] != instance.name:
+                raise serializers.ValidationError({"name": "Cannot rename archive folder."})
+
+            if "parent" in attrs:
+                raise serializers.ValidationError({"parent": "Cannot move archive folder."})
+
+        return attrs
+
+    def validate_parent(self, value):
+        if value is None:
+            return value
+
+        user = self.context["request"].user
+        if value.owner != user:
+            raise serializers.ValidationError("You can only create folders inside your own folders.")
+
+        if value.folder_type == FolderType.ARCHIVE:
+            raise serializers.ValidationError("Cannot create subfolders in archive folder.")
+
+        return value
 
 
 class MoveFolderSerializer(serializers.Serializer):
@@ -562,6 +650,9 @@ class MoveFolderSerializer(serializers.Serializer):
     def validate_parent_id(self, value):
         user = self.context["request"].user
         folder_to_move = self.context["view"].get_object()
+
+        if folder_to_move.is_root:
+            raise serializers.ValidationError("The root folder cannot be moved.")
 
         if (
             Folder.objects.filter(owner=user, parent_id=value, name=folder_to_move.name)
@@ -583,6 +674,9 @@ class MoveFolderSerializer(serializers.Serializer):
             if str(value) == str(folder_to_move.id):
                 raise serializers.ValidationError("You cannot move a folder into itself.")
 
+            if target_parent.folder_type == FolderType.ARCHIVE:
+                raise serializers.ValidationError("Cannot move folders into archive folder.")
+
             current = target_parent
             while current:
                 if current.id == folder_to_move.id:
@@ -595,7 +689,7 @@ class MoveFolderSerializer(serializers.Serializer):
 class QuizSearchResultSerializer(serializers.ModelSerializer):
     """Serializer for search results."""
 
-    maintainer = serializers.CharField(source="maintainer.full_name", read_only=True)
+    creator = serializers.CharField(source="creator.full_name", read_only=True)
 
     class Meta:
         model = Quiz
@@ -603,7 +697,7 @@ class QuizSearchResultSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "description",
-            "maintainer",
+            "creator",
             "is_anonymous",
         ]
 
@@ -611,8 +705,8 @@ class QuizSearchResultSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         request = self.context.get("request")
         user = getattr(request, "user", None) if request else self.context.get("user")
-        if instance.is_anonymous and user and user != instance.maintainer:
-            data["maintainer"] = None
+        if instance.is_anonymous and user and user != instance.creator:
+            data["creator"] = None
         return data
 
 
@@ -620,15 +714,128 @@ class MoveQuizSerializer(serializers.Serializer):
     folder_id = serializers.UUIDField(allow_null=True)
 
     def validate_folder_id(self, value):
-        if value:
-            user = self.context["request"].user
+        user = self.context["request"].user
 
-            if not Folder.objects.filter(id=value, owner=user).exists():
-                raise serializers.ValidationError("The folder does not exist or you do not have access to it.")
+        if not value:
+            return user.root_folder_id
+
+        if not Folder.objects.filter(id=value, owner=user).exists():
+            raise serializers.ValidationError("The folder does not exist or you do not have access to it.")
 
         return value
+
+
+class LibraryItemSerializer(serializers.Serializer):
+    def to_representation(self, instance):
+        user = self.context["request"].user
+
+        if isinstance(instance, Folder):
+            return {
+                "id": instance.id,
+                "name": instance.name,
+                "type": "folder",
+                "owner": PublicUserSerializer(instance.owner).data,
+                "can_edit": instance.has_edit_permission(user),
+                "created_at": instance.created_at,
+            }
+
+        if isinstance(instance, Quiz):
+            if instance.is_anonymous and user != instance.creator:
+                owner = None
+            else:
+                owner = PublicUserSerializer(instance.folder.owner).data
+            return {
+                "id": instance.id,
+                "name": instance.title,
+                "description": instance.description,
+                "type": "quiz",
+                "owner": owner,
+                "can_edit": instance.can_edit(user),
+                "created_at": instance.created_at,
+            }
+
+        return super().to_representation(instance)
 
 
 class RecordAnswerSerializer(serializers.Serializer):
     question_id = serializers.UUIDField()
     selected_answers = serializers.ListField(allow_empty=False)
+
+
+class QuizRatingSerializer(serializers.ModelSerializer):
+    user = PublicUserSerializer(default=serializers.CurrentUserDefault(), read_only=True)
+
+    class Meta:
+        model = QuizRating
+        fields = ["id", "user", "quiz", "score", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate_quiz(self, value):
+        if self.instance and self.instance.quiz_id != value.id:
+            raise serializers.ValidationError("Cannot change the quiz of an existing rating")
+        return value
+
+
+class CommentSerializer(serializers.ModelSerializer):
+    author = PublicUserSerializer(default=serializers.CurrentUserDefault(), read_only=True)
+    is_reply = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Comment
+        fields = [
+            "id",
+            "author",
+            "content",
+            "parent",
+            "quiz",
+            "question",
+            "created_at",
+            "updated_at",
+            "is_deleted",
+            "deleted_at",
+            "is_reply",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at", "is_deleted", "deleted_at", "is_reply"]
+
+    def validate_content(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Content cannot be empty")
+        return value
+
+    def validate_parent(self, value):
+        if value is None:
+            return value
+
+        quiz_id = self.initial_data.get("quiz") or (self.instance.quiz_id if self.instance else None)
+        if quiz_id and str(value.quiz_id) != str(quiz_id):
+            raise serializers.ValidationError("Parent comment does not belong to this quiz")
+        if value.is_deleted:
+            raise serializers.ValidationError("Cannot reply to a deleted comment")
+        # Flatten nesting: replies to a reply attach to the top-level parent.
+        if value.parent_id is not None:
+            return value.parent
+        return value
+
+    def validate_quiz(self, value):
+        if self.instance and self.instance.quiz_id != value.id:
+            raise serializers.ValidationError("Cannot move a comment to a different quiz")
+        return value
+
+    def validate(self, data):
+        question = data.get("question")
+        quiz = data.get("quiz")
+
+        if question and quiz and str(question.quiz_id) != str(quiz.id):
+            raise serializers.ValidationError({"question": "This question does not belong to the selected quiz"})
+
+        return data
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+
+        if instance.is_deleted:
+            # Hide the original text but keep author attribution so the
+            # thread still shows who posted the (now removed) comment.
+            data["content"] = ""
+
+        return data

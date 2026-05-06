@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.db.models import Q
 from rest_framework import permissions
 
 from users.models import AccountType
@@ -28,9 +29,9 @@ class IsInternalApiRequest(permissions.BasePermission):
         return api_key == settings.INTERNAL_API_KEY
 
 
-class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):
+class IsSharedQuizCreatorOrReadOnly(permissions.BasePermission):
     """
-    Custom permission to only allow maintainer of a shared quiz to edit it.
+    Custom permission to only allow creator of a shared quiz to edit it.
     Also enforces account-type restrictions:
     - Guests cannot view or share quizzes
     - Only Email, Student, and Lecturer accounts can view shared quizzes
@@ -68,25 +69,58 @@ class IsSharedQuizMaintainerOrReadOnly(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
 
-        # Write permissions are only allowed to the maintainer of the shared quiz.
-        return obj.quiz.maintainer == request.user
+        return obj.quiz.folder.owner == request.user
 
 
-class IsQuizMaintainer(permissions.BasePermission):
+class IsQuizCreator(permissions.BasePermission):
     """
     Custom permission for critical actions like Move or Delete.
-    Blocks collaborators - only the quiz maintainer can perform these actions.
+    Only the folder owner can perform these actions.
     """
 
     def has_object_permission(self, request, view, obj):
-        return obj.maintainer == request.user
+        return obj.folder.owner == request.user
+
+
+def accessible_quizzes_q(user) -> Q:
+    """
+    Q object matching rows whose related ``quiz`` is readable by ``user``.
+
+    Mirrors :func:`user_has_quiz_read_access` for queryset filtering, so list
+    endpoints (comments, ratings, ...) stay in sync with the per-object
+    permission check. Assumes ``user`` is authenticated — callers that accept
+    anonymous users must handle ``allow_anonymous`` / guests themselves.
+    """
+    shared_quiz_ids = Quiz.objects.filter(
+        Q(sharedquiz__user=user) | Q(sharedquiz__study_group__in=user.study_groups.all()),
+        visibility__gte=1,
+    ).values_list("id", flat=True)
+    return Q(quiz__folder__owner=user) | Q(quiz_id__in=shared_quiz_ids) | Q(quiz__visibility__gte=2)
+
+
+def user_has_quiz_read_access(user, quiz) -> bool:
+    """
+    Standalone version of IsQuizReadable's check for non-view code paths
+    (e.g. perform_create). Kept here as the single source of truth so the
+    viewset doesn't duplicate the permission logic.
+    """
+    if quiz.folder.owner == user:
+        return True
+    if quiz.visibility >= 2 and (user.is_authenticated or quiz.allow_anonymous):
+        return True
+    if _is_effectively_authenticated(user) and quiz.sharedquiz_set.filter(user=user).exists():
+        return True
+    return (
+        _is_effectively_authenticated(user)
+        and quiz.sharedquiz_set.filter(study_group__in=user.study_groups.all()).exists()
+    )
 
 
 class IsQuizReadable(permissions.BasePermission):
     """
     Custom permission for read access to a quiz.
     Allowed if:
-    - User is the maintainer
+    - User is the folder owner
     - Quiz is public or unlisted (visibility >= 2) and user is authenticated (or quiz allows anonymous)
     - Quiz is shared with the user explicitly (requires non-guest account)
     - Quiz is shared with a group the user belongs to (requires non-guest account)
@@ -95,19 +129,7 @@ class IsQuizReadable(permissions.BasePermission):
     """
 
     def has_object_permission(self, request, view, obj: Quiz):
-        if obj.maintainer == request.user:
-            return True
-
-        if obj.visibility >= 2 and (request.user.is_authenticated or obj.allow_anonymous):
-            return True
-
-        if _is_effectively_authenticated(request.user) and obj.sharedquiz_set.filter(user=request.user).exists():
-            return True
-
-        return (
-            _is_effectively_authenticated(request.user)
-            and obj.sharedquiz_set.filter(study_group__in=request.user.study_groups.all()).exists()
-        )
+        return user_has_quiz_read_access(request.user, obj)
 
 
 class IsQuestionReadable(permissions.BasePermission):
@@ -119,16 +141,16 @@ class IsQuestionReadable(permissions.BasePermission):
         return IsQuizReadable().has_object_permission(request, view, obj.quiz)
 
 
-class IsQuizMaintainerOrCollaboratorOrReadOnly(permissions.BasePermission):
+class IsQuizCreatorOrCollaboratorOrReadOnly(permissions.BasePermission):
     """
-    Custom permission to allow quiz maintainers and accepted collaborators to edit the quiz.
+    Custom permission to allow quiz creator and accepted collaborators to edit the quiz.
     """
 
     def has_object_permission(self, request, view, obj: Quiz | Question):
         if request.method in permissions.SAFE_METHODS:
             return True
 
-        # Write permissions are only allowed to the maintainer or accepted collaborators
+        # Write permissions are only allowed to the creator or accepted collaborators
         if isinstance(obj, Quiz):
             return obj.can_edit(request.user)
 
@@ -145,3 +167,25 @@ class IsFolderOwner(permissions.BasePermission):
 
     def has_object_permission(self, request, view, obj):
         return obj.owner == request.user
+
+
+class IsCommentAuthorOrReadOnly(permissions.BasePermission):
+    """
+    Custom permission to only allow comment authors to edit.
+    """
+
+    def has_object_permission(self, request, view, obj):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return obj.author == request.user
+
+
+class IsRatingUserOrReadOnly(permissions.BasePermission):
+    """
+    Custom permission to only allow rating authors to edit.
+    """
+
+    def has_object_permission(self, request, view, obj):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return obj.user == request.user
