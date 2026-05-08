@@ -19,6 +19,14 @@ QUIZ_VISIBILITY_CHOICES = [
 class FolderType(models.TextChoices):
     ARCHIVE = "archive", "Archive"
     REGULAR = "regular", "Regular"
+    SHARED_DRIVE = "shared_drive", "Shared Drive"
+
+
+class SharedDriveRole(models.TextChoices):
+    ADMIN = "admin", "Admin"
+    QUIZ_MANAGER = "quiz_manager", "Quiz Manager"
+    CONTRIBUTOR = "contributor", "Contributor"
+    VIEWER = "viewer", "Viewer"
 
 
 class Folder(models.Model):
@@ -34,10 +42,11 @@ class Folder(models.Model):
         on_delete=models.CASCADE,
         related_name="subfolders",
     )
-    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="folders")
+    # Null means shared drive
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="folders", null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    folder_type = models.CharField(max_length=10, choices=FolderType.choices, default=FolderType.REGULAR)
+    folder_type = models.CharField(max_length=12, choices=FolderType.choices, default=FolderType.REGULAR)
 
     class Meta:
         ordering = ["-created_at"]
@@ -111,6 +120,32 @@ class SharedFolder(models.Model):
 
     def __str__(self):
         return f"Folder {self.folder.name} shared with {self.user or self.study_group}"
+
+
+class SharedDriveMember(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    drive = models.ForeignKey(Folder, on_delete=models.CASCADE, related_name="shared_drive_users")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="shared_drive_users")
+    role = models.CharField(max_length=12, choices=SharedDriveRole.choices, default=SharedDriveRole.VIEWER)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["drive", "user"], name="unique_shared_drive_user"),
+        ]
+
+    def __str__(self):
+        return f"Shared drive user {self.user.email} in {self.drive.name} with role {self.role}"
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        if self.drive_id and self.drive.folder_type != FolderType.SHARED_DRIVE:
+            raise ValidationError({"drive": "Folder must be of type SHARED_DRIVE."})
 
 
 class Quiz(models.Model):
