@@ -15,6 +15,8 @@ from quizzes.models import (
     Quiz,
     QuizRating,
     QuizSession,
+    SharedDriveMember,
+    SharedDriveRole,
     SharedQuiz,
 )
 from uploads.models import UploadedImage
@@ -684,6 +686,59 @@ class MoveFolderSerializer(serializers.Serializer):
                 current = current.parent
 
         return value
+
+
+class SharedDriveMemberSerializer(serializers.ModelSerializer):
+    user = PublicUserSerializer(read_only=True)
+    role = serializers.ChoiceField(choices=SharedDriveRole.choices)
+
+    class Meta:
+        model = SharedDriveMember
+        fields = ["id", "user", "role", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+
+class SharedDriveMemberCreateSerializer(serializers.ModelSerializer):
+    user_id = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), source="user")
+
+    class Meta:
+        model = SharedDriveMember
+        fields = ["user_id", "role"]
+
+    def validate_user_id(self, value):
+        drive = self.context["drive"]
+        if SharedDriveMember.objects.filter(drive=drive, user=value).exists():
+            raise serializers.ValidationError("This user is already a member of this drive.")
+        return value
+
+    def create(self, validated_data):
+        validated_data["drive"] = self.context["drive"]
+        return super().create(validated_data)
+
+
+class SharedDriveMemberRoleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SharedDriveMember
+        fields = ["role"]
+
+
+class SharedDriveSerializer(serializers.ModelSerializer):
+    members = SharedDriveMemberSerializer(many=True, read_only=True, source="shared_drive_users")
+
+    class Meta:
+        model = Folder
+        fields = ["id", "name", "created_at", "parent", "members"]
+        read_only_fields = ["id", "created_at", "members"]
+
+    def create(self, validated_data):
+        validated_data["folder_type"] = FolderType.SHARED_DRIVE
+        return super().create(validated_data)
+
+
+class SharedDriveUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Folder
+        fields = ["name"]
 
 
 class QuizSearchResultSerializer(serializers.ModelSerializer):

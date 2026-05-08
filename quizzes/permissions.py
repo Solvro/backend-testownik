@@ -4,7 +4,7 @@ from rest_framework import permissions
 
 from users.models import AccountType
 
-from .models import Question, Quiz
+from .models import Question, Quiz, SharedDriveRole
 
 
 def _is_effectively_authenticated(user) -> bool:
@@ -176,3 +176,17 @@ class IsRatingUserOrReadOnly(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
         return obj.user == request.user
+
+
+class IsSharedDriveMember(permissions.BasePermission):
+    """Any member of the shared drive (any role) can access."""
+
+    def has_object_permission(self, request, view, obj):
+        return obj.shared_drive_users.filter(user=request.user).exists()
+
+
+class IsSharedDriveAdmin(permissions.BasePermission):
+    """Only ADMIN members of the shared drive can access."""
+
+    def has_object_permission(self, request, view, obj):
+        return obj.shared_drive_users.filter(user=request.user, role=SharedDriveRole.ADMIN).exists()

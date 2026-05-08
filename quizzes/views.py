@@ -36,6 +36,8 @@ from quizzes.models import (
     Quiz,
     QuizRating,
     QuizSession,
+    SharedDriveMember,
+    SharedDriveRole,
     SharedQuiz,
 )
 from quizzes.permissions import (
@@ -47,6 +49,8 @@ from quizzes.permissions import (
     IsQuizCreatorOrCollaboratorOrReadOnly,
     IsQuizReadable,
     IsRatingUserOrReadOnly,
+    IsSharedDriveAdmin,
+    IsSharedDriveMember,
     IsSharedQuizCreatorOrReadOnly,
     accessible_quizzes_q,
     user_has_quiz_read_access,
@@ -67,6 +71,11 @@ from quizzes.serializers import (
     QuizSerializer,
     QuizSessionSerializer,
     RecordAnswerSerializer,
+    SharedDriveMemberCreateSerializer,
+    SharedDriveMemberRoleSerializer,
+    SharedDriveMemberSerializer,
+    SharedDriveSerializer,
+    SharedDriveUpdateSerializer,
     SharedQuizSerializer,
 )
 from quizzes.services.metadata import get_preview_question
@@ -836,6 +845,66 @@ class QuestionViewSet(
         instance.delete()
 
         return Response({"current_question": new_question.id if new_question else None}, status=status.HTTP_200_OK)
+
+
+class SharedDriveViewSet(viewsets.ModelViewSet):
+    def get_permissions(self):
+        admin_actions = {"partial_update", "update", "destroy", "member_detail"}
+        if self.action in admin_actions:
+            return [IsAuthenticated(), IsSharedDriveAdmin()]
+        return [IsAuthenticated(), IsSharedDriveMember()]
+
+    def get_queryset(self):
+        return Folder.objects.filter(
+            folder_type=FolderType.SHARED_DRIVE,
+            shared_drive_users__user=self.request.user,
+        ).distinct()
+
+    def get_serializer_class(self):
+        if self.action in ("create", "partial_update", "update"):
+            return SharedDriveUpdateSerializer
+        return SharedDriveSerializer
+
+    def perform_create(self, serializer):
+        drive = serializer.save(folder_type=FolderType.SHARED_DRIVE, owner=None)
+        SharedDriveMember.objects.create(drive=drive, user=self.request.user, role=SharedDriveRole.ADMIN)
+
+    def perform_destroy(self, instance):
+        instance.delete()
+
+    @action(detail=True, methods=["get", "post"], url_path="members")
+    def members(self, request, pk=None):
+        drive = self.get_object()
+
+        if request.method == "GET":
+            members = drive.shared_drive_users.select_related("user").all()
+            return Response(SharedDriveMemberSerializer(members, many=True).data)
+
+        if not drive.shared_drive_users.filter(user=request.user, role=SharedDriveRole.ADMIN).exists():
+            raise PermissionDenied("Only admins can add members.")
+
+        serializer = SharedDriveMemberCreateSerializer(data=request.data, context={"drive": drive, "request": request})
+        serializer.is_valid(raise_exception=True)
+        member = serializer.save()
+        return Response(SharedDriveMemberSerializer(member).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["patch", "delete"], url_path=r"members/(?P<member_id>[^/.]+)")
+    def member_detail(self, request, pk=None, member_id=None):
+        drive = self.get_object()
+
+        try:
+            member = drive.shared_drive_users.get(id=member_id)
+        except SharedDriveMember.DoesNotExist:
+            raise NotFound("Member not found.")
+
+        if request.method == "DELETE":
+            member.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        serializer = SharedDriveMemberRoleSerializer(member, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(SharedDriveMemberSerializer(member).data)
 
 
 class FolderViewSet(viewsets.ModelViewSet):
