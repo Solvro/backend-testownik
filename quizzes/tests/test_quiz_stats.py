@@ -622,8 +622,8 @@ class QuizStatsTimelineShapeTestCase(APITestCase):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Window covers `today - days` through `today` inclusive.
-        self.assertEqual(len(response.data), 31)
+        # Default window is 30 days.
+        self.assertEqual(len(response.data), 30)
         for entry in response.data:
             self.assertIn("date", entry)
             self.assertIn("sessions_count", entry)
@@ -638,7 +638,7 @@ class QuizStatsTimelineShapeTestCase(APITestCase):
         response = self.client.get(url, {"days": 7})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 8)
+        self.assertEqual(len(response.data), 7)
 
     def test_timeline_rejects_invalid_days(self):
         url = reverse("quiz-stats-timeline", kwargs={"pk": self.quiz.id})
@@ -655,8 +655,8 @@ class QuizStatsTimelineShapeTestCase(APITestCase):
         response = self.client.get(url, {"days": 9999})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Clamped to 365 → 366 entries.
-        self.assertEqual(len(response.data), 366)
+        # Clamped to 365 days.
+        self.assertEqual(len(response.data), 365)
 
     def test_timeline_includes_per_day_study_time(self):
         now = timezone.now()
