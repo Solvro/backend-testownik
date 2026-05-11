@@ -403,7 +403,7 @@ class QuizStatsTimelineWindowTestCase(APITestCase):
         response = self.client.get(url, {"scope": "me"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        day_key = (now - timedelta(days=1)).date().isoformat()
+        day_key = timezone.localdate(now - timedelta(days=1)).isoformat()
 
         timeline_by_date = {item["date"]: item for item in response.data}
         self.assertIn(day_key, timeline_by_date)
@@ -670,7 +670,7 @@ class QuizStatsTimelineShapeTestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         timeline_by_date = {item["date"]: item for item in response.data}
-        day_key = (now - timedelta(days=1)).date().isoformat()
+        day_key = timezone.localdate(now - timedelta(days=1)).isoformat()
 
         self.assertIn(day_key, timeline_by_date)
         self.assertEqual(timeline_by_date[day_key]["total_study_time_seconds"], 600)

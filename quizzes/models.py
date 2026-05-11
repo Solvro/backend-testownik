@@ -74,7 +74,7 @@ class Folder(models.Model):
 
     def has_edit_permission(self, user):
         """Check if user can edit content in this folder."""
-        if user == self.owner:
+        if user.id == self.owner_id:
             return True
         return self.shares.filter(
             Q(user=user) | Q(study_group__in=user.study_groups.all()),
@@ -156,6 +156,8 @@ class Quiz(models.Model):
         return None
 
     def can_edit(self, user):
+        if not getattr(user, "is_authenticated", False):
+            return False
         return (
             self.folder.has_edit_permission(user)
             or self.sharedquiz_set.filter(user=user, allow_edit=True).exists()
