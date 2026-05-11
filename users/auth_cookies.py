@@ -12,7 +12,7 @@ def set_jwt_cookies(
     refresh_max_age: int | None = None,
 ) -> HttpResponse:
     """Set JWT tokens as cookies on the response."""
-    simple_jwt = getattr(settings, "SIMPLE_JWT", {})
+    simple_jwt = settings.SIMPLE_JWT
 
     if access_max_age is None:
         access_lifetime = simple_jwt.get("ACCESS_TOKEN_LIFETIME")

@@ -300,3 +300,5 @@ SPECTACULAR_SETTINGS = {
 }
 
 TASKS = {"default": {"BACKEND": "django.tasks.backends.immediate.ImmediateBackend"}}
+
+ARCHIVE_TTL_DAYS = 30

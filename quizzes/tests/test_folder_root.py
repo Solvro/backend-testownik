@@ -18,7 +18,7 @@ class RootFolderTests(APITestCase):
         user.refresh_from_db()
         self.assertIsNotNone(user.root_folder)
         self.assertEqual(user.root_folder.owner, user)
-        self.assertEqual(user.root_folder.name, "Moje quizy")
+        self.assertEqual(user.root_folder.name, Folder.DEFAULT_ROOT_NAME)
 
     def test_root_folder_cannot_be_deleted(self):
         """Deleting a root folder raises ProtectedError."""
