@@ -324,8 +324,12 @@ class QuizViewSet(viewsets.ModelViewSet):
         queryset = Quiz.objects.all()
 
         if self.action in ("retrieve", "copy", "metadata", "progress", "record_answer"):
-            queryset = queryset.prefetch_related(
-                "questions__answers",
+            queryset = queryset.select_related("creator", "folder", "folder__owner").prefetch_related(
+                Prefetch("questions", queryset=Question.objects.select_related("image_upload")),
+                Prefetch(
+                    "questions__answers",
+                    queryset=Answer.objects.select_related("image_upload"),
+                ),
                 "sharedquiz_set__user",
             )
 

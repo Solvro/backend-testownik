@@ -184,7 +184,7 @@ def get_quiz_timeline_stats(quiz, user=None, days: int = 30) -> list[dict]:
     )
 
     # Pre-fill every day in the window so charts have a continuous x-axis.
-    today = now.date()
+    today = timezone.localdate(now)
     data_by_date: dict[str, dict] = {}
     for offset in range(days):
         day = today - timedelta(days=offset)

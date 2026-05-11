@@ -1,7 +1,6 @@
 from datetime import timedelta
 
 from django.db import transaction
-from django.db.models import Q
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -258,13 +257,17 @@ class QuizSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_has_external_images(self, obj) -> bool:
-        """Check if any question or answer uses an external image URL (not uploaded)."""
-        external_image_filter = Q(image_url__isnull=False) & ~Q(image_url="") & Q(image_upload__isnull=True)
+        """Check if any question or answer uses an external image URL (not uploaded).
 
-        return (
-            obj.questions.filter(external_image_filter).exists()
-            or Answer.objects.filter(question__quiz=obj).filter(external_image_filter).exists()
-        )
+        Walks the prefetched questions/answers in Python to avoid extra SQL.
+        """
+        for question in obj.questions.all():
+            if question.image_url and question.image_upload_id is None:
+                return True
+            for answer in question.answers.all():
+                if answer.image_url and answer.image_upload_id is None:
+                    return True
+        return False
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
