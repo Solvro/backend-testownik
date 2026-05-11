@@ -762,6 +762,33 @@ class RecordAnswerSerializer(serializers.Serializer):
     selected_answers = serializers.ListField(allow_empty=False)
 
 
+class QuestionStatsSerializer(serializers.Serializer):
+    """Serializer for per-question statistics within a quiz stats response."""
+
+    question_id = serializers.UUIDField()
+    attempts = serializers.IntegerField()
+    correct_attempts = serializers.IntegerField()
+    last_answered_at = serializers.DateTimeField(allow_null=True)
+
+
+class QuizStatsSerializer(serializers.Serializer):
+    """Serializer for aggregated quiz statistics for the current user."""
+
+    quiz_id = serializers.UUIDField()
+    total_answers = serializers.IntegerField()
+    correct_answers = serializers.IntegerField()
+    wrong_answers = serializers.IntegerField()
+    accuracy = serializers.FloatField()
+    first_answer_accuracy = serializers.FloatField()
+    study_time_seconds = serializers.IntegerField(allow_null=True)
+    total_study_time_seconds = serializers.IntegerField()
+    average_study_time_seconds = serializers.IntegerField()
+    sessions_count = serializers.IntegerField()
+    unique_users_count = serializers.IntegerField(allow_null=True, required=False)
+    last_activity_at = serializers.DateTimeField(allow_null=True)
+    per_question = QuestionStatsSerializer(many=True, required=False)
+
+
 class QuizRatingSerializer(serializers.ModelSerializer):
     user = PublicUserSerializer(default=serializers.CurrentUserDefault(), read_only=True)
 

@@ -66,6 +66,7 @@ from quizzes.serializers import (
     QuizSearchResultSerializer,
     QuizSerializer,
     QuizSessionSerializer,
+    QuizStatsSerializer,
     RecordAnswerSerializer,
     SharedQuizSerializer,
 )
@@ -75,11 +76,34 @@ from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
 )
-from quizzes.throttling import CopyQuizThrottle
+from quizzes.services.stats import (
+    get_quiz_hardest_questions,
+    get_quiz_hourly_stats,
+    get_quiz_sessions_stats,
+    get_quiz_stats,
+    get_quiz_timeline_stats,
+)
+from quizzes.throttling import CopyQuizThrottle, QuizStatsThrottle
+from quizzes.utils import parse_include_values, parse_positive_int_query_param
 from testownik_core.emails import send_email
 from users.models import AccountType
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_STATS_SCOPES = {"me", "all"}
+
+
+def resolve_stats_scope_user(request, quiz):
+    scope = request.query_params.get("scope", "me")
+    if scope not in ALLOWED_STATS_SCOPES:
+        raise ValidationError({"scope": "Invalid value. Allowed values are: me, all."})
+
+    if scope == "all":
+        if not quiz.can_edit(request.user):
+            raise PermissionDenied("You do not have permission to view global statistics for this quiz.")
+        return None
+
+    return request.user
 
 
 class RandomQuestionView(APIView):
@@ -172,7 +196,11 @@ class LastUsedQuizzesView(generics.ListAPIView):
         return (
             Quiz.objects.filter(sessions__user=user, sessions__is_active=True)
             .select_related("creator", "folder", "folder__owner")
-            .annotate(avg_rating=Avg("ratings__score"), review_count=Count("ratings", distinct=True))
+            .annotate(
+                questions_count=Count("questions", distinct=True),
+                avg_rating=Avg("ratings__score"),
+                review_count=Count("ratings", distinct=True),
+            )
             .prefetch_related(user_ratings)
             .order_by("-sessions__updated_at")
             .distinct()
@@ -283,7 +311,11 @@ class QuizViewSet(viewsets.ModelViewSet):
             return (
                 Quiz.objects.filter(creator=user)
                 .select_related("creator", "folder", "folder__owner")
-                .annotate(avg_rating=Avg("ratings__score"), review_count=Count("ratings", distinct=True))
+                .annotate(
+                    questions_count=Count("questions", distinct=True),
+                    avg_rating=Avg("ratings__score"),
+                    review_count=Count("ratings", distinct=True),
+                )
                 .prefetch_related(
                     Prefetch("ratings", queryset=QuizRating.objects.filter(user=user), to_attr="_user_rating")
                 )
@@ -348,7 +380,11 @@ class QuizViewSet(viewsets.ModelViewSet):
         """
 
         try:
-            quiz = Quiz.objects.prefetch_related("questions__answers").get(pk=pk)
+            quiz = (
+                Quiz.objects.prefetch_related("questions__answers")
+                .annotate(questions_count=Count("questions", distinct=True))
+                .get(pk=pk)
+            )
         except Quiz.DoesNotExist:
             raise NotFound("Quiz not found")
 
@@ -359,11 +395,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         data = QuizMetaDataSerializer(quiz, context={"request": request}).data
 
-        raw_includes = request.query_params.getlist("include")
-        include_values = set()
-        for value in raw_includes:
-            if value:
-                include_values.update(part.strip() for part in value.split(",") if part.strip())
+        include_values = parse_include_values(request)
         include_preview = "preview_question" in include_values
 
         preview_question = None
@@ -492,6 +524,241 @@ class QuizViewSet(viewsets.ModelViewSet):
             return Response(QuizSessionSerializer(session).data)
 
         raise MethodNotAllowed(request.method)
+
+    @extend_schema(
+        summary="Get quiz statistics",
+        description=(
+            "Returns aggregated quiz statistics. "
+            "By default (`scope=me`) it returns data for the authenticated user across their sessions. "
+            "Use `scope=all` to aggregate data across all users, available only to quiz editors. "
+            "`study_time_seconds` reflects active session time only for `scope=me`; "
+            "for `scope=all` this field is `null` (use total/average fields instead). "
+            "Pass `?include=per_question` to include a per-question breakdown."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Stats scope. Use 'me' for current user, 'all' for all users (quiz editors only).",
+                enum=["me", "all"],
+            ),
+            OpenApiParameter(
+                name="include",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Extra data to include. Accepts CSV (`?include=per_question`) "
+                    "or repeated params (`?include=a&include=b`). "
+                    "Available options: 'per_question'."
+                ),
+                many=True,
+                explode=False,
+                enum=["per_question"],
+            ),
+        ],
+        responses={
+            200: QuizStatsSerializer,
+            400: OpenApiResponse(description="Bad request - invalid query parameters"),
+            401: OpenApiResponse(description="Unauthorized - authentication required"),
+            403: OpenApiResponse(description="Forbidden - no read access to this quiz"),
+            404: OpenApiResponse(description="Quiz not found"),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stats",
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
+        throttle_classes=[QuizStatsThrottle],
+    )
+    def stats(self, request, pk=None):
+        """Return aggregated statistics for the current user and this quiz."""
+        quiz = self.get_object()
+
+        include_values = parse_include_values(request)
+        include_per_question = "per_question" in include_values
+
+        user = resolve_stats_scope_user(request, quiz)
+
+        data = get_quiz_stats(quiz, user, include_per_question=include_per_question)
+        serializer = QuizStatsSerializer(instance=data)
+        return Response(serializer.data)
+
+    @extend_schema(
+        summary="Get quiz timeline statistics",
+        description=(
+            "Per-day breakdown over the last `days` days (default 30, max 365). "
+            "Each entry contains `sessions_count`, `total_answers`, `correct_answers`, "
+            "and `total_study_time_seconds` for that calendar day. "
+            "Use `scope=all` to aggregate across all users (quiz editors only)."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Stats scope. Use 'me' for current user, 'all' for all users (quiz editors only).",
+                enum=["me", "all"],
+            ),
+            OpenApiParameter(
+                name="days",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Number of trailing days to include in the timeline (1-365, default 30).",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(description="Timeline statistics"),
+            400: OpenApiResponse(description="Bad request - invalid query parameters"),
+            401: OpenApiResponse(description="Unauthorized - authentication required"),
+            403: OpenApiResponse(description="Forbidden - no read access to this quiz"),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stats/timeline",
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
+        throttle_classes=[QuizStatsThrottle],
+    )
+    def stats_timeline(self, request, pk=None):
+        """Return timeline statistics (last N days, default 30)."""
+        quiz = self.get_object()
+        user = resolve_stats_scope_user(request, quiz)
+        days = parse_positive_int_query_param(request, "days", default=30, max_value=365)
+
+        data = get_quiz_timeline_stats(quiz, user=user, days=days)
+        return Response(data)
+
+    @extend_schema(
+        summary="Get per-session statistics",
+        description=(
+            "Returns one entry per quiz session within the last `days` days "
+            "(default 30, max 365), in chronological order. Each entry is a single "
+            "data point for line charts of score-over-time and study-time-over-time. "
+            "Use `scope=all` to include sessions from all users (quiz editors only)."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Stats scope. Use 'me' for current user, 'all' for all users (quiz editors only).",
+                enum=["me", "all"],
+            ),
+            OpenApiParameter(
+                name="days",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Number of trailing days to include (1-365, default 30).",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(description="Per-session statistics"),
+            400: OpenApiResponse(description="Bad request - invalid query parameters"),
+            401: OpenApiResponse(description="Unauthorized - authentication required"),
+            403: OpenApiResponse(description="Forbidden - no read access to this quiz"),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stats/sessions",
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
+        throttle_classes=[QuizStatsThrottle],
+    )
+    def stats_sessions(self, request, pk=None):
+        """Return per-session data points for score / study-time line charts."""
+        quiz = self.get_object()
+        user = resolve_stats_scope_user(request, quiz)
+        days = parse_positive_int_query_param(request, "days", default=30, max_value=365)
+
+        data = get_quiz_sessions_stats(quiz, user=user, days=days)
+        return Response(data)
+
+    @extend_schema(
+        summary="Get hardest questions",
+        description=(
+            "Top N questions by wrong-answer count (default 10, max 100). "
+            "Each entry includes `question_id`, `question_text`, `wrong_answers`, and `total_answers`. "
+            "Use `scope=all` to aggregate across all users (quiz editors only)."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Stats scope. Use 'me' for current user, 'all' for all users (quiz editors only).",
+                enum=["me", "all"],
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Number of hardest questions to return (1-100, default 10).",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(description="Hardest questions statistics"),
+            400: OpenApiResponse(description="Bad request - invalid query parameters"),
+            401: OpenApiResponse(description="Unauthorized - authentication required"),
+            403: OpenApiResponse(description="Forbidden - no read access to this quiz"),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stats/hardest-questions",
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
+        throttle_classes=[QuizStatsThrottle],
+    )
+    def stats_hardest_questions(self, request, pk=None):
+        """Return top N hardest questions (default 10)."""
+        quiz = self.get_object()
+        user = resolve_stats_scope_user(request, quiz)
+        limit = parse_positive_int_query_param(request, "limit", default=10, max_value=100)
+
+        data = get_quiz_hardest_questions(quiz, user=user, limit=limit)
+        return Response(data)
+
+    @extend_schema(
+        summary="Get hourly activity statistics",
+        description=(
+            "Number of sessions started per hour-of-day (0-23) in the database timezone. "
+            "Always returns 24 entries; missing hours are filled with 0. "
+            "Use `scope=all` to aggregate across all users (quiz editors only)."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Stats scope. Use 'me' for current user, 'all' for all users (quiz editors only).",
+                enum=["me", "all"],
+            )
+        ],
+        responses={
+            200: OpenApiResponse(description="Hourly statistics"),
+            400: OpenApiResponse(description="Bad request - invalid query parameters"),
+            401: OpenApiResponse(description="Unauthorized - authentication required"),
+            403: OpenApiResponse(description="Forbidden - no read access to this quiz"),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stats/hourly",
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
+        throttle_classes=[QuizStatsThrottle],
+    )
+    def stats_hourly(self, request, pk=None):
+        """Return radar chart data (activity grouped by hour)."""
+        quiz = self.get_object()
+        user = resolve_stats_scope_user(request, quiz)
+
+        data = get_quiz_hourly_stats(quiz, user=user)
+        return Response(data)
 
     @action(
         detail=True,
@@ -696,7 +963,14 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
         )
         if self.request.query_params.get("quiz"):
             _filter &= Q(quiz_id=self.request.query_params.get("quiz"))
-        return SharedQuiz.objects.filter(_filter)
+        return SharedQuiz.objects.filter(_filter).prefetch_related(
+            Prefetch(
+                "quiz",
+                queryset=Quiz.objects.annotate(questions_count=Count("questions", distinct=True)).select_related(
+                    "creator", "folder", "folder__owner"
+                ),
+            )
+        )
 
     def perform_create(self, serializer):
         shared_quiz = serializer.save()
