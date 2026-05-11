@@ -76,7 +76,6 @@ INSTALLED_APPS = [
     "users.apps.UsersConfig",
     "grades.apps.GradesConfig",
     "quizzes.apps.QuizzesConfig",
-    "alerts.apps.AlertsConfig",
     "maintenance.apps.MaintenanceConfig",
     "testownik_core.apps.TestownikCoreConfig",
     "uploads.apps.UploadsConfig",
