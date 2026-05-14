@@ -5,9 +5,9 @@ import uuid
 from datetime import timedelta
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Avg, Count, Prefetch, Q
 from django.utils import timezone
 from django.utils.html import escape
 from drf_spectacular.utils import (
@@ -19,7 +19,7 @@ from drf_spectacular.utils import (
 )
 from rest_framework import generics, mixins, permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed, NotFound, PermissionDenied
+from rest_framework.exceptions import MethodNotAllowed, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -28,34 +28,45 @@ from rest_framework.views import APIView
 from quizzes.models import (
     Answer,
     AnswerRecord,
+    Comment,
     Folder,
+    FolderType,
     Question,
     QuestionType,
     Quiz,
+    QuizRating,
     QuizSession,
     SharedQuiz,
 )
 from quizzes.permissions import (
+    IsCommentAuthorOrReadOnly,
     IsFolderOwner,
     IsInternalApiRequest,
     IsQuestionReadable,
-    IsQuizMaintainer,
-    IsQuizMaintainerOrCollaboratorOrReadOnly,
+    IsQuizCreator,
+    IsQuizCreatorOrCollaboratorOrReadOnly,
     IsQuizReadable,
-    IsSharedQuizMaintainerOrReadOnly,
+    IsRatingUserOrReadOnly,
+    IsSharedQuizCreatorOrReadOnly,
+    accessible_quizzes_q,
+    user_has_quiz_read_access,
 )
 from quizzes.serializers import (
     AnswerRecordSerializer,
     AnswerSerializer,
+    CommentSerializer,
     FolderSerializer,
+    LibraryItemSerializer,
     MoveFolderSerializer,
     MoveQuizSerializer,
     QuestionSerializer,
     QuizMetaDataSerializer,
     QuizMetaDataWithQuestionSerializer,
+    QuizRatingSerializer,
     QuizSearchResultSerializer,
     QuizSerializer,
     QuizSessionSerializer,
+    QuizStatsSerializer,
     RecordAnswerSerializer,
     SharedQuizSerializer,
 )
@@ -65,11 +76,34 @@ from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
 )
-from quizzes.throttling import CopyQuizThrottle
+from quizzes.services.stats import (
+    get_quiz_hardest_questions,
+    get_quiz_hourly_stats,
+    get_quiz_sessions_stats,
+    get_quiz_stats,
+    get_quiz_timeline_stats,
+)
+from quizzes.throttling import CopyQuizThrottle, QuizStatsThrottle
+from quizzes.utils import parse_include_values, parse_positive_int_query_param
 from testownik_core.emails import send_email
 from users.models import AccountType
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_STATS_SCOPES = {"me", "all"}
+
+
+def resolve_stats_scope_user(request, quiz):
+    scope = request.query_params.get("scope", "me")
+    if scope not in ALLOWED_STATS_SCOPES:
+        raise ValidationError({"scope": "Invalid value. Allowed values are: me, all."})
+
+    if scope == "all":
+        if not quiz.can_edit(request.user):
+            raise PermissionDenied("You do not have permission to view global statistics for this quiz.")
+        return None
+
+    return request.user
 
 
 class RandomQuestionView(APIView):
@@ -157,9 +191,17 @@ class LastUsedQuizzesView(generics.ListAPIView):
         return self.list(request, *args, **kwargs)
 
     def get_queryset(self):
+        user = self.request.user
+        user_ratings = Prefetch("ratings", queryset=QuizRating.objects.filter(user=user), to_attr="_user_rating")
         return (
-            Quiz.objects.filter(sessions__user=self.request.user, sessions__is_active=True)
-            .select_related("maintainer")
+            Quiz.objects.filter(sessions__user=user, sessions__is_active=True)
+            .select_related("creator", "folder", "folder__owner")
+            .annotate(
+                questions_count=Count("questions", distinct=True),
+                avg_rating=Avg("ratings__score"),
+                review_count=Count("ratings", distinct=True),
+            )
+            .prefetch_related(user_ratings)
             .order_by("-sessions__updated_at")
             .distinct()
         )
@@ -198,15 +240,15 @@ class SearchQuizzesView(APIView):
         if not query:
             return Response({"error": "Query parameter is required"}, status=400)
 
-        user_quizzes = Quiz.objects.filter(maintainer=request.user, title__icontains=query).select_related("maintainer")
+        user_quizzes = Quiz.objects.filter(creator=request.user, title__icontains=query).select_related("creator")
         shared_quizzes = SharedQuiz.objects.filter(
             user=request.user, quiz__title__icontains=query, quiz__visibility__gte=1
-        ).select_related("quiz__maintainer")
+        ).select_related("quiz__creator")
         group_quizzes = SharedQuiz.objects.filter(
             study_group__in=request.user.study_groups.all(),
             quiz__title__icontains=query,
             quiz__visibility__gte=1,
-        ).select_related("quiz__maintainer")
+        ).select_related("quiz__creator")
 
         result = {
             "user_quizzes": QuizSearchResultSerializer(user_quizzes, many=True, context={"request": request}).data,
@@ -219,7 +261,7 @@ class SearchQuizzesView(APIView):
         }
 
         if request.user.account_type == AccountType.STUDENT:
-            public_quizzes = Quiz.objects.filter(title__icontains=query, visibility__gte=3).select_related("maintainer")
+            public_quizzes = Quiz.objects.filter(title__icontains=query, visibility__gte=3).select_related("creator")
             result["public_quizzes"] = QuizSearchResultSerializer(
                 public_quizzes, many=True, context={"request": request}
             ).data
@@ -233,7 +275,7 @@ class SearchQuizzesView(APIView):
 #   but will allow to view all quizzes when retrieving a single quiz.
 # This is by design, if the user wants to view shared quizzes,
 #   they should use the SharedQuizViewSet and for public quizzes they should use the api_search_quizzes view.
-# It will also allow to create, update and delete quizzes only if the user is the maintainer of the quiz.
+# It will also allow to create, update and delete quizzes only if the user is the creator of the quiz.
 @extend_schema_view(
     retrieve=extend_schema(
         parameters=[
@@ -255,7 +297,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     serializer_class = QuizSerializer
     permission_classes = [
         permissions.IsAuthenticatedOrReadOnly,
-        IsQuizMaintainerOrCollaboratorOrReadOnly,
+        IsQuizCreatorOrCollaboratorOrReadOnly,
         IsQuizReadable,
     ]
 
@@ -266,13 +308,28 @@ class QuizViewSet(viewsets.ModelViewSet):
             if not user.is_authenticated:
                 return Quiz.objects.none()
 
-            return Quiz.objects.filter(maintainer=user)
+            return (
+                Quiz.objects.filter(creator=user)
+                .select_related("creator", "folder", "folder__owner")
+                .annotate(
+                    questions_count=Count("questions", distinct=True),
+                    avg_rating=Avg("ratings__score"),
+                    review_count=Count("ratings", distinct=True),
+                )
+                .prefetch_related(
+                    Prefetch("ratings", queryset=QuizRating.objects.filter(user=user), to_attr="_user_rating")
+                )
+            )
 
         queryset = Quiz.objects.all()
 
         if self.action in ("retrieve", "copy", "metadata", "progress", "record_answer"):
-            queryset = queryset.prefetch_related(
-                "questions__answers",
+            queryset = queryset.select_related("creator", "folder", "folder__owner").prefetch_related(
+                Prefetch("questions", queryset=Question.objects.select_related("image_upload")),
+                Prefetch(
+                    "questions__answers",
+                    queryset=Answer.objects.select_related("image_upload"),
+                ),
                 "sharedquiz_set__user",
             )
 
@@ -317,7 +374,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         Get quiz metadata for Next.js server-side rendering.
 
         Access Rules:
-        - Private (0): Only maintainer
+        - Private (0): Only creator
         - Shared (1): Everyone but without preview question and always anonymous
         - Unlisted/Public (≥2): Everyone
 
@@ -327,22 +384,22 @@ class QuizViewSet(viewsets.ModelViewSet):
         """
 
         try:
-            quiz = Quiz.objects.prefetch_related("questions__answers").get(pk=pk)
+            quiz = (
+                Quiz.objects.prefetch_related("questions__answers")
+                .annotate(questions_count=Count("questions", distinct=True))
+                .get(pk=pk)
+            )
         except Quiz.DoesNotExist:
             raise NotFound("Quiz not found")
 
         user = request.user
 
-        if not (quiz.visibility >= 1 or user == quiz.maintainer):
+        if not (quiz.visibility >= 1 or (user.is_authenticated and user.owns_quiz_via_folder(quiz))):
             raise PermissionDenied("You do not have permission to access this quiz metadata.")
 
         data = QuizMetaDataSerializer(quiz, context={"request": request}).data
 
-        raw_includes = request.query_params.getlist("include")
-        include_values = set()
-        for value in raw_includes:
-            if value:
-                include_values.update(part.strip() for part in value.split(",") if part.strip())
+        include_values = parse_include_values(request)
         include_preview = "preview_question" in include_values
 
         preview_question = None
@@ -358,22 +415,33 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         if quiz.visibility == 1:
             data["is_anonymous"] = True
-            data["maintainer"] = None
+            data["creator"] = None
 
         data["question_count"] = question_count
 
         return Response(data)
 
     def perform_create(self, serializer):
-        serializer.save(maintainer=self.request.user)
+        serializer.save(creator=self.request.user, folder=self.request.user.root_folder)
 
     def perform_update(self, serializer):
         serializer.save(version=serializer.instance.version + 1)
 
     def perform_destroy(self, instance):
-        if instance.maintainer != self.request.user:
-            raise PermissionDenied("Only the maintainer can delete this quiz")
-        instance.delete()
+        if instance.folder.owner != self.request.user:
+            raise PermissionDenied("Only the folder owner can delete this quiz")
+
+        if instance.folder.folder_type != FolderType.ARCHIVE:
+            archive_folder, _ = Folder.objects.get_or_create(
+                owner=self.request.user,
+                folder_type=FolderType.ARCHIVE,
+                defaults={"name": Folder.DEFAULT_ARCHIVE_NAME, "parent": self.request.user.root_folder},
+            )
+            instance.folder = archive_folder
+            instance.archived_at = timezone.now()
+            instance.save(update_fields=["folder", "archived_at", "updated_at"])
+        else:
+            instance.delete()
 
     def get_serializer_class(self):
         action_serializers = {
@@ -398,18 +466,44 @@ class QuizViewSet(viewsets.ModelViewSet):
         detail=True,
         methods=["post"],
         serializer_class=MoveQuizSerializer,
-        permission_classes=[permissions.IsAuthenticated, IsQuizMaintainer],
+        permission_classes=[permissions.IsAuthenticated, IsQuizCreator],
     )
     def move(self, request, pk=None):
         quiz = self.get_object()
 
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
-            quiz.folder_id = serializer.validated_data["folder_id"]
-            quiz.save()
+            new_folder_id = serializer.validated_data["folder_id"]
+            destination = Folder.objects.get(pk=new_folder_id)
+            quiz.folder_id = new_folder_id
+            quiz.archived_at = timezone.now() if destination.folder_type == FolderType.ARCHIVE else None
+            quiz.save(update_fields=["folder_id", "archived_at", "updated_at"])
             return Response({"status": "Quiz moved successfully"})
 
         return Response(serializer.errors, status=400)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="move-to-archive",
+        permission_classes=[permissions.IsAuthenticated, IsQuizCreator],
+    )
+    def move_to_archive(self, request, pk=None):
+        quiz = self.get_object()
+
+        if quiz.folder.folder_type == FolderType.ARCHIVE:
+            return Response({"status": "Quiz already in archive"}, status=status.HTTP_200_OK)
+
+        archive_folder, _ = Folder.objects.get_or_create(
+            owner=request.user,
+            folder_type=FolderType.ARCHIVE,
+            defaults={"name": Folder.DEFAULT_ARCHIVE_NAME, "parent": request.user.root_folder},
+        )
+
+        quiz.folder = archive_folder
+        quiz.archived_at = timezone.now()
+        quiz.save(update_fields=["folder", "archived_at", "updated_at"])
+        return Response({"status": "Quiz moved successfully"}, status=status.HTTP_200_OK)
 
     @action(
         detail=True,
@@ -435,6 +529,241 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         raise MethodNotAllowed(request.method)
 
+    @extend_schema(
+        summary="Get quiz statistics",
+        description=(
+            "Returns aggregated quiz statistics. "
+            "By default (`scope=me`) it returns data for the authenticated user across their sessions. "
+            "Use `scope=all` to aggregate data across all users, available only to quiz editors. "
+            "`study_time_seconds` reflects active session time only for `scope=me`; "
+            "for `scope=all` this field is `null` (use total/average fields instead). "
+            "Pass `?include=per_question` to include a per-question breakdown."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Stats scope. Use 'me' for current user, 'all' for all users (quiz editors only).",
+                enum=["me", "all"],
+            ),
+            OpenApiParameter(
+                name="include",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Extra data to include. Accepts CSV (`?include=per_question`) "
+                    "or repeated params (`?include=a&include=b`). "
+                    "Available options: 'per_question'."
+                ),
+                many=True,
+                explode=False,
+                enum=["per_question"],
+            ),
+        ],
+        responses={
+            200: QuizStatsSerializer,
+            400: OpenApiResponse(description="Bad request - invalid query parameters"),
+            401: OpenApiResponse(description="Unauthorized - authentication required"),
+            403: OpenApiResponse(description="Forbidden - no read access to this quiz"),
+            404: OpenApiResponse(description="Quiz not found"),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stats",
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
+        throttle_classes=[QuizStatsThrottle],
+    )
+    def stats(self, request, pk=None):
+        """Return aggregated statistics for the current user and this quiz."""
+        quiz = self.get_object()
+
+        include_values = parse_include_values(request)
+        include_per_question = "per_question" in include_values
+
+        user = resolve_stats_scope_user(request, quiz)
+
+        data = get_quiz_stats(quiz, user, include_per_question=include_per_question)
+        serializer = QuizStatsSerializer(instance=data)
+        return Response(serializer.data)
+
+    @extend_schema(
+        summary="Get quiz timeline statistics",
+        description=(
+            "Per-day breakdown over the last `days` days (default 30, max 365). "
+            "Each entry contains `sessions_count`, `total_answers`, `correct_answers`, "
+            "and `total_study_time_seconds` for that calendar day. "
+            "Use `scope=all` to aggregate across all users (quiz editors only)."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Stats scope. Use 'me' for current user, 'all' for all users (quiz editors only).",
+                enum=["me", "all"],
+            ),
+            OpenApiParameter(
+                name="days",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Number of trailing days to include in the timeline (1-365, default 30).",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(description="Timeline statistics"),
+            400: OpenApiResponse(description="Bad request - invalid query parameters"),
+            401: OpenApiResponse(description="Unauthorized - authentication required"),
+            403: OpenApiResponse(description="Forbidden - no read access to this quiz"),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stats/timeline",
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
+        throttle_classes=[QuizStatsThrottle],
+    )
+    def stats_timeline(self, request, pk=None):
+        """Return timeline statistics (last N days, default 30)."""
+        quiz = self.get_object()
+        user = resolve_stats_scope_user(request, quiz)
+        days = parse_positive_int_query_param(request, "days", default=30, max_value=365)
+
+        data = get_quiz_timeline_stats(quiz, user=user, days=days)
+        return Response(data)
+
+    @extend_schema(
+        summary="Get per-session statistics",
+        description=(
+            "Returns one entry per quiz session within the last `days` days "
+            "(default 30, max 365), in chronological order. Each entry is a single "
+            "data point for line charts of score-over-time and study-time-over-time. "
+            "Use `scope=all` to include sessions from all users (quiz editors only)."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Stats scope. Use 'me' for current user, 'all' for all users (quiz editors only).",
+                enum=["me", "all"],
+            ),
+            OpenApiParameter(
+                name="days",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Number of trailing days to include (1-365, default 30).",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(description="Per-session statistics"),
+            400: OpenApiResponse(description="Bad request - invalid query parameters"),
+            401: OpenApiResponse(description="Unauthorized - authentication required"),
+            403: OpenApiResponse(description="Forbidden - no read access to this quiz"),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stats/sessions",
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
+        throttle_classes=[QuizStatsThrottle],
+    )
+    def stats_sessions(self, request, pk=None):
+        """Return per-session data points for score / study-time line charts."""
+        quiz = self.get_object()
+        user = resolve_stats_scope_user(request, quiz)
+        days = parse_positive_int_query_param(request, "days", default=30, max_value=365)
+
+        data = get_quiz_sessions_stats(quiz, user=user, days=days)
+        return Response(data)
+
+    @extend_schema(
+        summary="Get hardest questions",
+        description=(
+            "Top N questions by wrong-answer count (default 10, max 100). "
+            "Each entry includes `question_id`, `question_text`, `wrong_answers`, and `total_answers`. "
+            "Use `scope=all` to aggregate across all users (quiz editors only)."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Stats scope. Use 'me' for current user, 'all' for all users (quiz editors only).",
+                enum=["me", "all"],
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                description="Number of hardest questions to return (1-100, default 10).",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(description="Hardest questions statistics"),
+            400: OpenApiResponse(description="Bad request - invalid query parameters"),
+            401: OpenApiResponse(description="Unauthorized - authentication required"),
+            403: OpenApiResponse(description="Forbidden - no read access to this quiz"),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stats/hardest-questions",
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
+        throttle_classes=[QuizStatsThrottle],
+    )
+    def stats_hardest_questions(self, request, pk=None):
+        """Return top N hardest questions (default 10)."""
+        quiz = self.get_object()
+        user = resolve_stats_scope_user(request, quiz)
+        limit = parse_positive_int_query_param(request, "limit", default=10, max_value=100)
+
+        data = get_quiz_hardest_questions(quiz, user=user, limit=limit)
+        return Response(data)
+
+    @extend_schema(
+        summary="Get hourly activity statistics",
+        description=(
+            "Number of sessions started per hour-of-day (0-23) in the database timezone. "
+            "Always returns 24 entries; missing hours are filled with 0. "
+            "Use `scope=all` to aggregate across all users (quiz editors only)."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="scope",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Stats scope. Use 'me' for current user, 'all' for all users (quiz editors only).",
+                enum=["me", "all"],
+            )
+        ],
+        responses={
+            200: OpenApiResponse(description="Hourly statistics"),
+            400: OpenApiResponse(description="Bad request - invalid query parameters"),
+            401: OpenApiResponse(description="Unauthorized - authentication required"),
+            403: OpenApiResponse(description="Forbidden - no read access to this quiz"),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stats/hourly",
+        permission_classes=[permissions.IsAuthenticated, IsQuizReadable],
+        throttle_classes=[QuizStatsThrottle],
+    )
+    def stats_hourly(self, request, pk=None):
+        """Return radar chart data (activity grouped by hour)."""
+        quiz = self.get_object()
+        user = resolve_stats_scope_user(request, quiz)
+
+        data = get_quiz_hourly_stats(quiz, user=user)
+        return Response(data)
+
     @action(
         detail=True,
         methods=["post"],
@@ -457,7 +786,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         try:
             question = Question.objects.prefetch_related("answers").get(id=question_id, quiz=quiz)
-        except (Question.DoesNotExist, ValueError, TypeError, ValidationError):
+        except (Question.DoesNotExist, ValueError, TypeError, DjangoValidationError):
             return Response({"error": "Question not found in this quiz"}, status=404)
 
         if question.question_type == QuestionType.CLOSED:
@@ -530,7 +859,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             if next_question_id is not None:
                 try:
                     exists = Question.objects.filter(id=next_question_id, quiz=quiz).exists()
-                except (ValueError, TypeError, ValidationError):
+                except (ValueError, TypeError, DjangoValidationError):
                     return Response({"error": "next_question must be a valid question in this quiz"}, status=400)
                 if not exists:
                     return Response({"error": "next_question must be a valid question in this quiz"}, status=400)
@@ -575,7 +904,8 @@ class QuizViewSet(viewsets.ModelViewSet):
         new_quiz = Quiz.objects.create(
             title=new_title,
             description=original_quiz.description,
-            maintainer=request.user,
+            creator=request.user,
+            folder=request.user.root_folder,
         )
 
         original_questions = list(original_quiz.questions.all())
@@ -623,7 +953,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 class SharedQuizViewSet(viewsets.ModelViewSet):
     queryset = SharedQuiz.objects.all()
     serializer_class = SharedQuizSerializer
-    permission_classes = [permissions.IsAuthenticated, IsSharedQuizMaintainerOrReadOnly]
+    permission_classes = [permissions.IsAuthenticated, IsSharedQuizCreatorOrReadOnly]
 
     def get_queryset(self):
         _filter = (
@@ -632,11 +962,19 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
                 study_group__in=self.request.user.study_groups.all(),
                 quiz__visibility__gte=1,
             )
-            | Q(quiz__maintainer=self.request.user)
+            | Q(quiz__creator=self.request.user)
+            | Q(quiz__folder__owner=self.request.user)
         )
         if self.request.query_params.get("quiz"):
             _filter &= Q(quiz_id=self.request.query_params.get("quiz"))
-        return SharedQuiz.objects.filter(_filter)
+        return SharedQuiz.objects.filter(_filter).prefetch_related(
+            Prefetch(
+                "quiz",
+                queryset=Quiz.objects.annotate(questions_count=Count("questions", distinct=True)).select_related(
+                    "creator", "folder", "folder__owner"
+                ),
+            )
+        )
 
     def perform_create(self, serializer):
         shared_quiz = serializer.save()
@@ -691,7 +1029,7 @@ class ReportQuestionIssueView(APIView):
         if not quiz:
             return Response({"error": "Quiz not found"}, status=404)
 
-        if request.user == quiz.maintainer:
+        if request.user == quiz.creator:
             return Response(
                 {"error": "You cannot report issues with your own questions"},
                 status=400,
@@ -712,7 +1050,7 @@ class ReportQuestionIssueView(APIView):
             f"{escape(data.get('issue'))}"
         )
 
-        recipient_list = [quiz.maintainer.email]
+        recipient_list = [quiz.creator.email]
         reply_to = [request.user.email]
 
         try:
@@ -742,7 +1080,7 @@ class QuestionViewSet(
 ):
     serializer_class = QuestionSerializer
     queryset = Question.objects.all()
-    permission_classes = [permissions.IsAuthenticated, IsQuizMaintainerOrCollaboratorOrReadOnly, IsQuestionReadable]
+    permission_classes = [permissions.IsAuthenticated, IsQuizCreatorOrCollaboratorOrReadOnly, IsQuestionReadable]
 
     @extend_schema(
         responses={
@@ -787,16 +1125,235 @@ class FolderViewSet(viewsets.ModelViewSet):
         return Folder.objects.filter(owner=self.request.user).order_by("-created_at")
 
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        if not serializer.validated_data.get("parent"):
+            serializer.save(owner=self.request.user, parent=self.request.user.root_folder)
+        else:
+            serializer.save(owner=self.request.user)
+
+    def perform_destroy(self, instance):
+        if hasattr(instance, "root_owner"):
+            raise PermissionDenied("Cannot delete root folder.")
+        if instance.folder_type == FolderType.ARCHIVE:
+            raise PermissionDenied("Cannot delete archive folder.")
+        instance.delete()
 
     @action(detail=True, methods=["post"], serializer_class=MoveFolderSerializer)
     def move(self, request, pk=None):
         folder = self.get_object()
 
+        if folder.folder_type == FolderType.ARCHIVE:
+            return Response({"error": "Cannot move archive folder."}, status=status.HTTP_403_FORBIDDEN)
+
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
             folder.parent_id = serializer.validated_data["parent_id"]
             folder.save()
-            return Response({"status": "Folder moved successfully"})
+            return Response({"status": "Folder moved successfully"}, status=status.HTTP_200_OK)
 
-        return Response(serializer.errors)
+        return Response(serializer.errors, status=400)
+
+
+class QuizRatingViewSet(viewsets.ModelViewSet):
+    """
+    Manages quiz ratings for the authenticated user.
+    A user can only have one rating per quiz (enforced by unique constraint).
+    Users can only rate quizzes they have read access to.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsRatingUserOrReadOnly]
+    serializer_class = QuizRatingSerializer
+    queryset = QuizRating.objects.all()
+    filterset_fields = ["quiz"]
+    ordering_fields = ["created_at", "updated_at", "score"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        user = self.request.user
+        return QuizRating.objects.filter(accessible_quizzes_q(user)).select_related("quiz", "user").distinct()
+
+    def list(self, request, *args, **kwargs):
+        if "quiz" not in request.query_params:
+            raise ValidationError({"quiz": "This query parameter is required when listing ratings."})
+        return super().list(request, *args, **kwargs)
+
+    @action(detail=False, methods=["get"], url_path="me")
+    def me(self, request):
+        queryset = self.filter_queryset(self.get_queryset().filter(user=request.user))
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def perform_create(self, serializer):
+        quiz = serializer.validated_data["quiz"]
+        if not user_has_quiz_read_access(self.request.user, quiz):
+            raise PermissionDenied("You do not have access to this quiz.")
+        serializer.save(user=self.request.user)
+
+
+class CommentViewSet(viewsets.ModelViewSet):
+    """
+    Manages comments on quizzes.
+
+    Access control:
+      - List requires ?quiz= query param; returns comments only for quizzes
+        the user can read (owner, shared, or public).
+      - Create validates quiz read access.
+      - Only the author can modify or delete their own comments.
+
+    DELETE performs a soft delete — the record is kept but content/author are
+    hidden in responses for deleted comments to preserve thread structure.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsCommentAuthorOrReadOnly]
+    serializer_class = CommentSerializer
+    queryset = Comment.objects.all()
+    filterset_fields = ["quiz"]
+    ordering_fields = ["created_at", "updated_at"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        user = self.request.user
+        return Comment.objects.filter(accessible_quizzes_q(user)).select_related("author", "parent").distinct()
+
+    def list(self, request, *args, **kwargs):
+        if "quiz" not in request.query_params:
+            raise ValidationError({"quiz": "This query parameter is required when listing comments."})
+        return super().list(request, *args, **kwargs)
+
+    @action(detail=False, methods=["get"], url_path="me")
+    def me(self, request):
+        queryset = self.filter_queryset(self.get_queryset().filter(author=request.user))
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def perform_create(self, serializer):
+        quiz = serializer.validated_data["quiz"]
+        if not user_has_quiz_read_access(self.request.user, quiz):
+            raise PermissionDenied("You do not have access to this quiz.")
+        serializer.save(author=self.request.user)
+
+    def perform_destroy(self, instance: Comment):
+        if instance.is_deleted:
+            raise ValidationError("Comment is already deleted.")
+
+        instance.mark_as_deleted()
+
+
+class LibraryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _access_predicate(self, user):
+        return Q(owner=user) | Q(shares__user=user) | Q(shares__study_group__in=user.study_groups.all())
+
+    def _has_access(self, user, folder_id):
+        # Precompute IDs of all folders the user can directly access.
+        accessible_folder_ids = set(Folder.objects.filter(self._access_predicate(user)).values_list("id", flat=True))
+
+        # Direct access to this folder.
+        if folder_id in accessible_folder_ids:
+            return True
+
+        # Walk up the ancestor chain using lightweight queries and check access in-memory.
+        folder = Folder.objects.filter(id=folder_id).only("id", "parent_id").first()
+        if not folder:
+            return False
+
+        current_parent_id = folder.parent_id
+        while current_parent_id:
+            if current_parent_id in accessible_folder_ids:
+                return True
+            parent = Folder.objects.filter(id=current_parent_id).only("id", "parent_id").first()
+            if not parent:
+                break
+            current_parent_id = parent.parent_id
+        return False
+
+    def _get_subfolders(self, user, folder_id):
+        return Folder.objects.filter(parent_id=folder_id).distinct().order_by("-created_at")
+
+    def _get_quizzes(self, user, folder_id):
+        return Quiz.objects.filter(folder_id=folder_id).distinct().order_by("-created_at")
+
+    def _build_breadcrumbs(self, user, folder_id):
+        try:
+            folder = Folder.objects.get(id=folder_id)
+        except Folder.DoesNotExist:
+            return []
+
+        chain = []
+        current = folder
+        while current:
+            chain.append(current)
+            current = current.parent
+
+        chain.reverse()
+
+        accessible_ids = set(
+            Folder.objects.filter(
+                self._access_predicate(user),
+                id__in=[f.id for f in chain],
+            ).values_list("id", flat=True)
+        )
+
+        for i, f in enumerate(chain):
+            if f.id in accessible_ids:
+                return [{"id": str(entry.id), "name": entry.name} for entry in chain[i:]]
+
+        return []
+
+    @extend_schema(
+        summary="List library contents",
+        parameters=[
+            OpenApiParameter(
+                name="folder_id",
+                type=str,
+                location=OpenApiParameter.PATH,
+                required=False,
+                description="UUID of the folder to browse. Defaults to the user's root folder.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                description="Folder contents with breadcrumb path",
+                response={
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "string", "format": "uuid"},
+                                    "name": {"type": "string"},
+                                },
+                            },
+                            "description": "Breadcrumb path from the topmost accessible folder to the current folder.",
+                        },
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                            "description": "List of folders and quizzes in the current folder.",
+                        },
+                    },
+                },
+            ),
+            403: OpenApiResponse(description="No permission to access this folder"),
+        },
+    )
+    def get(self, request, folder_id=None):
+        user = request.user
+
+        if folder_id is None:
+            folder_id = user.root_folder_id
+
+        if not self._has_access(user, folder_id):
+            return Response(
+                {"error": "You do not have permission to access this folder"}, status=status.HTTP_403_FORBIDDEN
+            )
+
+        items = list(self._get_subfolders(user, folder_id)) + list(self._get_quizzes(user, folder_id))
+        return Response(
+            {
+                "path": self._build_breadcrumbs(user, folder_id),
+                "items": LibraryItemSerializer(items, many=True, context={"request": request}).data,
+            }
+        )

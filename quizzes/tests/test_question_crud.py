@@ -24,8 +24,9 @@ class QuestionCRUDTestCase(APITestCase):
 
         self.quiz = Quiz.objects.create(
             title="Test quiz",
-            maintainer=self.user,
+            creator=self.user,
             visibility=1,
+            folder=self.user.root_folder,
         )
 
         self.question = Question.objects.create(quiz=self.quiz, order=1, text="Original Question", multiple=False)
@@ -106,7 +107,9 @@ class QuestionCRUDTestCase(APITestCase):
         self.assertTrue(self.question.answers.filter(text="Brand New Answer").exists())
 
     def test_update_security_prevent_moving_quiz(self):
-        other_user_quiz = Quiz.objects.create(title="Other", maintainer=self.other_user)
+        other_user_quiz = Quiz.objects.create(
+            title="Other", creator=self.other_user, folder=self.other_user.root_folder
+        )
 
         data = {"quiz": other_user_quiz.id, "text": "Hacked", "answers": []}
         response = self.client.patch(self.detail_url, data, format="json")

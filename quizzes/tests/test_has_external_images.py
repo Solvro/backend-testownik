@@ -21,7 +21,7 @@ class HasExternalImagesTests(TestCase):
         self.user = User.objects.create_user(
             email="test@example.com", password="password", first_name="Test", last_name="User"
         )
-        self.quiz = Quiz.objects.create(title="Test Quiz", maintainer=self.user)
+        self.quiz = Quiz.objects.create(title="Test Quiz", creator=self.user, folder=self.user.root_folder)
 
         # Create a dummy uploaded image
         self.uploaded_image = UploadedImage.objects.create(

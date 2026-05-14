@@ -199,7 +199,7 @@ class UploadFlowTests(APITestCase):
         image_id = response.data["id"]
 
         # 2. Create Quiz with Question using image_upload
-        quiz = Quiz.objects.create(title="Test Quiz", maintainer=self.user)
+        quiz = Quiz.objects.create(title="Test Quiz", creator=self.user, folder=self.user.root_folder)
 
         question_data = {"order": 1, "text": "Question with image", "image_upload": image_id, "answers": []}
 
@@ -217,7 +217,7 @@ class UploadFlowTests(APITestCase):
 
     def test_link_external_url_to_question(self):
         """Test using external URL for question image."""
-        quiz = Quiz.objects.create(title="Test Quiz", maintainer=self.user)
+        quiz = Quiz.objects.create(title="Test Quiz", creator=self.user, folder=self.user.root_folder)
         external_url = "https://example.com/image.jpg"
 
         quiz_url = reverse("quiz-detail", args=[quiz.id])
@@ -245,7 +245,7 @@ class UploadFlowTests(APITestCase):
         image_id = response.data["id"]
         upload_obj = UploadedImage.objects.get(id=image_id)
 
-        quiz = Quiz.objects.create(title="Original", maintainer=self.user)
+        quiz = Quiz.objects.create(title="Original", creator=self.user, folder=self.user.root_folder)
         q1 = Question.objects.create(quiz=quiz, order=1, text="Q1", image_upload=upload_obj)
 
         # 2. Copy the quiz
@@ -291,7 +291,7 @@ class UploadFlowTests(APITestCase):
         uploaded_img.save()
 
         # Link it to a question
-        quiz = Quiz.objects.create(title="Q", maintainer=self.user)
+        quiz = Quiz.objects.create(title="Q", creator=self.user, folder=self.user.root_folder)
         Question.objects.create(quiz=quiz, order=1, text="Q", image_upload=uploaded_img)
 
         # 2. Run cleanup
@@ -324,7 +324,7 @@ class UploadFlowTests(APITestCase):
         response = self.client.post(self.upload_url, {"image": img}, format="multipart")
         upload_obj = UploadedImage.objects.get(id=response.data["id"])
 
-        quiz = Quiz.objects.create(title="Test", maintainer=self.user)
+        quiz = Quiz.objects.create(title="Test", creator=self.user, folder=self.user.root_folder)
         question = Question.objects.create(
             quiz=quiz,
             order=1,

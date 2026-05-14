@@ -17,8 +17,8 @@ class MetadataActionTestCase(APITestCase):
 
     def setUp(self):
         self.user = User.objects.create(
-            email="maintainer@example.com",
-            first_name="Maintainer",
+            email="creator@example.com",
+            first_name="Creator",
             last_name="User",
             student_number="123456",
         )
@@ -31,7 +31,8 @@ class MetadataActionTestCase(APITestCase):
         # Create a public quiz with questions (needs 3 answers for preview)
         self.public_quiz = Quiz.objects.create(
             title="Public Quiz",
-            maintainer=self.user,
+            creator=self.user,
+            folder=self.user.root_folder,
             visibility=3,  # Public
         )
         q1 = Question.objects.create(
@@ -80,23 +81,25 @@ class MetadataActionTestCase(APITestCase):
         """Test that private quiz returns 403 without user_id."""
         private_quiz = Quiz.objects.create(
             title="Private Quiz",
-            maintainer=self.user,
+            creator=self.user,
+            folder=self.user.root_folder,
             visibility=0,  # Private
         )
         url = self._get_metadata_url(private_quiz.id)
         response = self.client.get(url, HTTP_API_KEY="test-api-key")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_metadata_private_quiz_maintainer(self):
-        """Test that private quiz returns 200 for maintainer."""
+    def test_metadata_private_quiz_creator(self):
+        """Test that private quiz returns 200 for creator."""
         private_quiz = Quiz.objects.create(
             title="Private Quiz",
-            maintainer=self.user,
+            creator=self.user,
+            folder=self.user.root_folder,
             visibility=0,
         )
         url = self._get_metadata_url(private_quiz.id)
 
-        # Authenticate as maintainer
+        # Authenticate as creator
         self.client.force_authenticate(user=self.user)
         response = self.client.get(
             url,
@@ -109,7 +112,8 @@ class MetadataActionTestCase(APITestCase):
         """Test that shared quiz allows access to shared user."""
         shared_quiz = Quiz.objects.create(
             title="Shared Quiz",
-            maintainer=self.user,
+            creator=self.user,
+            folder=self.user.root_folder,
             visibility=1,  # Shared
         )
         SharedQuiz.objects.create(quiz=shared_quiz, user=self.other_user)
@@ -137,7 +141,8 @@ class MetadataActionTestCase(APITestCase):
         """Test that shared quiz returns NO preview question even if requested."""
         shared_quiz = Quiz.objects.create(
             title="Shared Quiz",
-            maintainer=self.user,
+            creator=self.user,
+            folder=self.user.root_folder,
             visibility=1,
         )
         # Create valid question
@@ -163,7 +168,8 @@ class MetadataActionTestCase(APITestCase):
         """Test that preview question must have at least 3 answers."""
         quiz = Quiz.objects.create(
             title="Criteria Quiz",
-            maintainer=self.user,
+            creator=self.user,
+            folder=self.user.root_folder,
             visibility=3,
         )
 
@@ -189,7 +195,8 @@ class MetadataActionTestCase(APITestCase):
         """Test that preview question must not have images."""
         quiz = Quiz.objects.create(
             title="Image Quiz",
-            maintainer=self.user,
+            creator=self.user,
+            folder=self.user.root_folder,
             visibility=3,
         )
 

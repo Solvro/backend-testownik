@@ -12,7 +12,7 @@ class QuizSerializerExtrasTestCase(APITestCase):
             email="test@example.com", password="password", first_name="Test", last_name="User"
         )
         self.settings = UserSettings.objects.create(user=self.user, initial_reoccurrences=3)
-        self.quiz = Quiz.objects.create(title="Test Quiz", maintainer=self.user)
+        self.quiz = Quiz.objects.create(title="Test Quiz", creator=self.user, folder=self.user.root_folder)
         self.question = Question.objects.create(quiz=self.quiz, order=1, text="Test Question")
         self.url = reverse("quiz-detail", kwargs={"pk": self.quiz.id})
 

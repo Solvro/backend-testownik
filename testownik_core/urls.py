@@ -64,7 +64,6 @@ base_urlpatterns = [
     path("", include("quizzes.urls")),
     path("", include("grades.urls")),
     path("", include("feedback.urls")),
-    path("", include("alerts.urls")),
     path("", include("uploads.urls")),
 ]
 

@@ -5,7 +5,9 @@ permissions:
 
 on:
   push:
-    branches: [ "master" ]
+    branches:
+      - 'main'
+      - 'dev'
   pull_request:
 
 jobs:

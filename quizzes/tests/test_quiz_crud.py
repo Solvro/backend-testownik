@@ -6,7 +6,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quizzes.models import Answer, Question, Quiz
+from quizzes.models import Answer, Folder, FolderType, Question, Quiz
 from users.models import User
 
 
@@ -64,7 +64,7 @@ class QuizCRUDTestCase(APITestCase):
         # Verify quiz created
         quiz = Quiz.objects.get(id=response.data["id"])
         self.assertEqual(quiz.title, "Test Quiz")
-        self.assertEqual(quiz.maintainer, self.user)
+        self.assertEqual(quiz.creator, self.user)
 
         # Verify questions
         self.assertEqual(quiz.questions.count(), 2)
@@ -124,8 +124,8 @@ class QuizCRUDTestCase(APITestCase):
     # --- READ ---
     def test_list_own_quizzes(self):
         """Test listing only returns user's own quizzes."""
-        Quiz.objects.create(title="My Quiz", maintainer=self.user)
-        Quiz.objects.create(title="Other Quiz", maintainer=self.other_user)
+        Quiz.objects.create(title="My Quiz", creator=self.user, folder=self.user.root_folder)
+        Quiz.objects.create(title="Other Quiz", creator=self.other_user, folder=self.other_user.root_folder)
 
         url = reverse("quiz-list")
         response = self.client.get(url)
@@ -136,7 +136,7 @@ class QuizCRUDTestCase(APITestCase):
 
     def test_retrieve_quiz_with_questions(self):
         """Test retrieving a single quiz includes nested questions."""
-        quiz = Quiz.objects.create(title="My Quiz", maintainer=self.user)
+        quiz = Quiz.objects.create(title="My Quiz", creator=self.user, folder=self.user.root_folder)
         q = Question.objects.create(quiz=quiz, order=1, text="Q1")
         Answer.objects.create(question=q, order=1, text="A1", is_correct=True)
 
@@ -150,7 +150,7 @@ class QuizCRUDTestCase(APITestCase):
     # --- UPDATE ---
     def test_update_quiz_title(self):
         """Test updating quiz title."""
-        quiz = Quiz.objects.create(title="Old Title", maintainer=self.user)
+        quiz = Quiz.objects.create(title="Old Title", creator=self.user, folder=self.user.root_folder)
         url = reverse("quiz-detail", kwargs={"pk": quiz.id})
 
         response = self.client.patch(url, {"title": "New Title"}, format="json")
@@ -161,7 +161,7 @@ class QuizCRUDTestCase(APITestCase):
 
     def test_update_quiz_add_question(self):
         """Test adding a question to an existing quiz."""
-        quiz = Quiz.objects.create(title="Quiz", maintainer=self.user)
+        quiz = Quiz.objects.create(title="Quiz", creator=self.user, folder=self.user.root_folder)
         url = reverse("quiz-detail", kwargs={"pk": quiz.id})
 
         data = {
@@ -179,7 +179,7 @@ class QuizCRUDTestCase(APITestCase):
 
     def test_update_quiz_modify_existing_question(self):
         """Test modifying an existing question."""
-        quiz = Quiz.objects.create(title="Quiz", maintainer=self.user)
+        quiz = Quiz.objects.create(title="Quiz", creator=self.user, folder=self.user.root_folder)
         question = Question.objects.create(quiz=quiz, order=1, text="Old Text")
 
         url = reverse("quiz-detail", kwargs={"pk": quiz.id})
@@ -190,10 +190,22 @@ class QuizCRUDTestCase(APITestCase):
         question.refresh_from_db()
         self.assertEqual(question.text, "Updated Text")
 
-    # --- DELETE ---
-    def test_delete_quiz(self):
-        """Test deleting a quiz."""
-        quiz = Quiz.objects.create(title="To Delete", maintainer=self.user)
+    def test_delete_quiz_moves_to_archive(self):
+        """Test deleting a quiz moves it to the archive folder instead of complete deletion."""
+        quiz = Quiz.objects.create(title="To Trash", creator=self.user, folder=self.user.root_folder)
+        url = reverse("quiz-detail", kwargs={"pk": quiz.id})
+
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        quiz.refresh_from_db()
+        archive_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.ARCHIVE)
+        self.assertEqual(quiz.folder, archive_folder)
+
+    def test_delete_quiz_permanently(self):
+        """Test deleting a quiz already in the archive folder permanently deletes it."""
+        archive_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.ARCHIVE)
+        quiz = Quiz.objects.create(title="In Trash", creator=self.user, folder=archive_folder)
         url = reverse("quiz-detail", kwargs={"pk": quiz.id})
 
         response = self.client.delete(url)
@@ -202,7 +214,7 @@ class QuizCRUDTestCase(APITestCase):
 
     def test_cannot_delete_other_users_quiz(self):
         """Test that user cannot delete another user's quiz."""
-        quiz = Quiz.objects.create(title="Other's Quiz", maintainer=self.other_user)
+        quiz = Quiz.objects.create(title="Other's Quiz", creator=self.other_user, folder=self.other_user.root_folder)
         url = reverse("quiz-detail", kwargs={"pk": quiz.id})
 
         response = self.client.delete(url)
@@ -216,6 +228,26 @@ class QuizCRUDTestCase(APITestCase):
         response = self.client.post(url, {"title": "Test", "questions": []}, format="json")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_create_quiz_lands_in_root_folder(self):
+        """Quiz created via API is assigned to creator's root folder."""
+        url = reverse("quiz-list")
+        data = {"title": "Auto Folder Quiz", "questions": []}
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        quiz = Quiz.objects.get(id=response.data["id"])
+        self.assertEqual(quiz.folder_id, self.user.root_folder_id)
+
+    def test_quiz_response_includes_folder(self):
+        """GET /quizzes/{id}/ response contains folder field."""
+        quiz = Quiz.objects.create(title="Folder Quiz", creator=self.user, folder=self.user.root_folder)
+        url = reverse("quiz-detail", kwargs={"pk": quiz.id})
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("folder", response.data)
+        self.assertEqual(str(response.data["folder"]["id"]), str(self.user.root_folder_id))
+
 
 class QuizQuestionAnswerTestCase(APITestCase):
     """Comprehensive tests for question and answer management."""
@@ -228,7 +260,7 @@ class QuizQuestionAnswerTestCase(APITestCase):
             student_number="123456",
         )
         self.client.force_authenticate(user=self.user)
-        self.quiz = Quiz.objects.create(title="Test Quiz", maintainer=self.user)
+        self.quiz = Quiz.objects.create(title="Test Quiz", creator=self.user, folder=self.user.root_folder)
 
     # --- ANSWER CORRECTNESS ---
     def test_change_answer_correctness(self):
