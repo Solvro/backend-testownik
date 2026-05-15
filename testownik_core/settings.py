@@ -87,6 +87,7 @@ INSTALLED_APPS = [
     "grades.apps.GradesConfig",
     "quizzes.apps.QuizzesConfig",
     "maintenance.apps.MaintenanceConfig",
+    "notifications.apps.NotificationsConfig",
     "testownik_core.apps.TestownikCoreConfig",
     "oauth_integrations.apps.OAuthIntegrationsConfig",
     "uploads.apps.UploadsConfig",
