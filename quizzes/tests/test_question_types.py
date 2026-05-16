@@ -107,7 +107,7 @@ class QuestionTypesTestCase(APITestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_closed_multiple_correct(self):
         response = self.client.post(

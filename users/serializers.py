@@ -132,6 +132,7 @@ class UserSettingsSerializer(serializers.ModelSerializer):
             "sync_progress",
             "initial_reoccurrences",
             "wrong_answer_reoccurrences",
+            "ai_disabled",
             "notify_quiz_shared",
             "notify_bug_reported",
             "notify_marketing",
