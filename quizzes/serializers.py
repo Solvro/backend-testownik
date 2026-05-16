@@ -4,6 +4,7 @@ from django.db import transaction
 from django.db.models import Q
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
 
 from quizzes.models import (
     Answer,
@@ -291,7 +292,7 @@ class QuizSerializer(serializers.ModelSerializer):
             else:
                 data.pop("current_session", None)
 
-            if user.owns_quiz_via_folder(instance):
+            if user.owns_quiz_via_folder(instance) or instance.folder.get_shared_drive_root() is not None:
                 data["folder"] = FolderSerializer(instance.folder).data
             else:
                 data.pop("folder", None)
@@ -669,9 +670,14 @@ class MoveFolderSerializer(serializers.Serializer):
             try:
                 target_parent = Folder.objects.get(id=value, owner=user)
             except Folder.DoesNotExist:
-                raise serializers.ValidationError(
-                    "The destination folder does not exist or you do not have access to it."
-                )
+                try:
+                    target_parent = Folder.objects.get(id=value)
+                except Folder.DoesNotExist:
+                    raise serializers.ValidationError(
+                        "The destination folder does not exist or you do not have access to it."
+                    )
+                if not target_parent.has_shared_drive_permission(user, SharedDriveRole.CONTRIBUTOR):
+                    raise PermissionDenied("You need contributor or higher role to move folders to this location.")
 
             if str(value) == str(folder_to_move.id):
                 raise serializers.ValidationError("You cannot move a folder into itself.")
@@ -724,15 +730,28 @@ class SharedDriveMemberRoleSerializer(serializers.ModelSerializer):
 
 class SharedDriveSerializer(serializers.ModelSerializer):
     members = SharedDriveMemberSerializer(many=True, read_only=True, source="shared_drive_users")
+    my_role = serializers.SerializerMethodField()
 
     class Meta:
         model = Folder
-        fields = ["id", "name", "created_at", "parent", "members"]
-        read_only_fields = ["id", "created_at", "members"]
+        fields = ["id", "name", "created_at", "members", "my_role"]
+        read_only_fields = ["id", "created_at", "members", "my_role"]
+
+    def get_my_role(self, obj) -> str | None:
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return None
+        member = obj.shared_drive_users.filter(user=request.user).first()
+        return member.role if member else None
 
     def create(self, validated_data):
         validated_data["folder_type"] = FolderType.SHARED_DRIVE
         return super().create(validated_data)
+
+
+class SharedDriveFolderCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=128)
+    parent_id = serializers.UUIDField(required=False, allow_null=True)
 
 
 class SharedDriveUpdateSerializer(serializers.ModelSerializer):
@@ -774,10 +793,18 @@ class MoveQuizSerializer(serializers.Serializer):
         if not value:
             return user.root_folder_id
 
-        if not Folder.objects.filter(id=value, owner=user).exists():
+        try:
+            folder = Folder.objects.get(id=value)
+        except Folder.DoesNotExist:
             raise serializers.ValidationError("The folder does not exist or you do not have access to it.")
 
-        return value
+        if folder.owner == user:
+            return value
+
+        if folder.has_shared_drive_permission(user, SharedDriveRole.CONTRIBUTOR):
+            return value
+
+        raise serializers.ValidationError("The folder does not exist or you do not have access to it.")
 
 
 class LibraryItemSerializer(serializers.Serializer):

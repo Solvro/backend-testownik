@@ -49,10 +49,9 @@ from quizzes.permissions import (
     IsQuizCreatorOrCollaboratorOrReadOnly,
     IsQuizReadable,
     IsRatingUserOrReadOnly,
-    IsSharedDriveAdmin,
-    IsSharedDriveMember,
     IsSharedQuizCreatorOrReadOnly,
     accessible_quizzes_q,
+    require_drive_role,
     user_has_quiz_read_access,
 )
 from quizzes.serializers import (
@@ -71,6 +70,7 @@ from quizzes.serializers import (
     QuizSerializer,
     QuizSessionSerializer,
     RecordAnswerSerializer,
+    SharedDriveFolderCreateSerializer,
     SharedDriveMemberCreateSerializer,
     SharedDriveMemberRoleSerializer,
     SharedDriveMemberSerializer,
@@ -395,16 +395,37 @@ class QuizViewSet(viewsets.ModelViewSet):
         return Response(data)
 
     def perform_create(self, serializer):
-        serializer.save(creator=self.request.user, folder=self.request.user.root_folder)
+        folder_id = self.request.data.get("folder_id")
+        if folder_id:
+            try:
+                folder = Folder.objects.get(pk=folder_id)
+            except (Folder.DoesNotExist, ValueError):
+                raise ValidationError({"folder_id": "Folder does not exist."})
+            if folder.get_shared_drive_root() is not None:
+                if not folder.has_shared_drive_permission(self.request.user, SharedDriveRole.CONTRIBUTOR):
+                    raise PermissionDenied("Adding a quiz to a shared drive requires contributor role or higher.")
+            elif folder.owner != self.request.user:
+                raise PermissionDenied("You do not have permission to add a quiz to this folder.")
+            serializer.save(creator=self.request.user, folder=folder)
+        else:
+            serializer.save(creator=self.request.user, folder=self.request.user.root_folder)
 
     def perform_update(self, serializer):
         serializer.save(version=serializer.instance.version + 1)
 
     def perform_destroy(self, instance):
-        if instance.folder.owner != self.request.user:
+        folder = instance.folder
+
+        if folder.get_shared_drive_root() is not None:
+            if not folder.has_shared_drive_permission(self.request.user, SharedDriveRole.QUIZ_MANAGER):
+                raise PermissionDenied("Deleting a quiz from a shared drive requires quiz_manager role or higher.")
+            instance.delete()
+            return
+
+        if folder.owner != self.request.user:
             raise PermissionDenied("Only the folder owner can delete this quiz")
 
-        if instance.folder.folder_type != FolderType.ARCHIVE:
+        if folder.folder_type != FolderType.ARCHIVE:
             archive_folder, _ = Folder.objects.get_or_create(
                 owner=self.request.user,
                 folder_type=FolderType.ARCHIVE,
@@ -463,6 +484,12 @@ class QuizViewSet(viewsets.ModelViewSet):
     )
     def move_to_archive(self, request, pk=None):
         quiz = self.get_object()
+
+        if quiz.folder.get_shared_drive_root() is not None:
+            return Response(
+                {"error": "Quizzes in shared drives cannot be archived. Use delete instead."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         if quiz.folder.folder_type == FolderType.ARCHIVE:
             return Response({"status": "Quiz already in archive"}, status=status.HTTP_200_OK)
@@ -849,10 +876,9 @@ class QuestionViewSet(
 
 class SharedDriveViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
-        admin_actions = {"partial_update", "update", "destroy", "member_detail"}
-        if self.action in admin_actions:
-            return [IsAuthenticated(), IsSharedDriveAdmin()]
-        return [IsAuthenticated(), IsSharedDriveMember()]
+        if self.action in {"partial_update", "update", "destroy", "member_detail"}:
+            return [IsAuthenticated(), require_drive_role(SharedDriveRole.ADMIN)()]
+        return [IsAuthenticated(), require_drive_role(SharedDriveRole.VIEWER)()]
 
     def get_queryset(self):
         return Folder.objects.filter(
@@ -861,7 +887,7 @@ class SharedDriveViewSet(viewsets.ModelViewSet):
         ).distinct()
 
     def get_serializer_class(self):
-        if self.action in ("create", "partial_update", "update"):
+        if self.action in ("partial_update", "update"):
             return SharedDriveUpdateSerializer
         return SharedDriveSerializer
 
@@ -870,6 +896,10 @@ class SharedDriveViewSet(viewsets.ModelViewSet):
         SharedDriveMember.objects.create(drive=drive, user=self.request.user, role=SharedDriveRole.ADMIN)
 
     def perform_destroy(self, instance):
+        folder_ids = list(
+            Folder.objects.filter(Q(id=instance.id) | Q(shared_drive=instance)).values_list("id", flat=True)
+        )
+        Quiz.objects.filter(folder_id__in=folder_ids).delete()
         instance.delete()
 
     @action(detail=True, methods=["get", "post"], url_path="members")
@@ -880,7 +910,7 @@ class SharedDriveViewSet(viewsets.ModelViewSet):
             members = drive.shared_drive_users.select_related("user").all()
             return Response(SharedDriveMemberSerializer(members, many=True).data)
 
-        if not drive.shared_drive_users.filter(user=request.user, role=SharedDriveRole.ADMIN).exists():
+        if not drive.has_shared_drive_permission(request.user, SharedDriveRole.ADMIN):
             raise PermissionDenied("Only admins can add members.")
 
         serializer = SharedDriveMemberCreateSerializer(data=request.data, context={"drive": drive, "request": request})
@@ -906,6 +936,66 @@ class SharedDriveViewSet(viewsets.ModelViewSet):
         serializer.save()
         return Response(SharedDriveMemberSerializer(member).data)
 
+    @action(detail=True, methods=["post"], url_path="leave")
+    def leave(self, request, pk=None):
+        drive = self.get_object()
+
+        try:
+            member = drive.shared_drive_users.get(user=request.user)
+        except SharedDriveMember.DoesNotExist:
+            raise NotFound("You are not a member of this drive.")
+
+        if member.role == SharedDriveRole.ADMIN:
+            remaining_admins = drive.shared_drive_users.filter(role=SharedDriveRole.ADMIN).count()
+            if remaining_admins <= 1:
+                raise PermissionDenied(
+                    "Cannot leave as the last admin. "
+                    "Transfer the admin role to another member first, or delete the drive."
+                )
+
+        member.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="folders")
+    def create_folder(self, request, pk=None):
+        drive = self.get_object()
+
+        if not drive.has_shared_drive_permission(request.user, SharedDriveRole.CONTRIBUTOR):
+            raise PermissionDenied("Creating folders in a shared drive requires contributor role or higher.")
+
+        serializer = SharedDriveFolderCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        parent_id = serializer.validated_data.get("parent_id")
+        if parent_id:
+            try:
+                parent = Folder.objects.get(pk=parent_id)
+            except Folder.DoesNotExist:
+                raise ValidationError({"parent_id": "Folder does not exist."})
+            if parent.get_shared_drive_root() != drive:
+                raise ValidationError({"parent_id": "Parent folder must be within this shared drive."})
+        else:
+            parent = drive
+
+        folder = Folder.objects.create(
+            name=serializer.validated_data["name"],
+            parent=parent,
+            owner=None,
+            shared_drive=drive,
+            folder_type=FolderType.REGULAR,
+        )
+        return Response(FolderSerializer(folder).data, status=status.HTTP_201_CREATED)
+
+
+def _cascade_shared_drive(folder: Folder, shared_drive: Folder | None) -> None:
+    """Recursively update shared_drive on all descendant folders of ``folder``."""
+    children = list(folder.subfolders.only("id"))
+    if not children:
+        return
+    Folder.objects.filter(id__in=[c.id for c in children]).update(shared_drive=shared_drive)
+    for child in children:
+        _cascade_shared_drive(child, shared_drive)
+
 
 class FolderViewSet(viewsets.ModelViewSet):
     serializer_class = FolderSerializer
@@ -916,10 +1006,8 @@ class FolderViewSet(viewsets.ModelViewSet):
         return Folder.objects.filter(owner=self.request.user).order_by("-created_at")
 
     def perform_create(self, serializer):
-        if not serializer.validated_data.get("parent"):
-            serializer.save(owner=self.request.user, parent=self.request.user.root_folder)
-        else:
-            serializer.save(owner=self.request.user)
+        parent = serializer.validated_data.get("parent") or self.request.user.root_folder
+        serializer.save(owner=self.request.user, parent=parent, shared_drive=parent.get_shared_drive_root())
 
     def perform_destroy(self, instance):
         if hasattr(instance, "root_owner"):
@@ -937,8 +1025,16 @@ class FolderViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
-            folder.parent_id = serializer.validated_data["parent_id"]
-            folder.save()
+            new_parent_id = serializer.validated_data["parent_id"]
+            new_parent = Folder.objects.get(pk=new_parent_id) if new_parent_id else None
+            new_shared_drive = new_parent.get_shared_drive_root() if new_parent else None
+
+            folder.parent_id = new_parent_id
+            folder.shared_drive = new_shared_drive
+            folder.save(update_fields=["parent_id", "shared_drive", "updated_at"])
+
+            _cascade_shared_drive(folder, new_shared_drive)
+
             return Response({"status": "Folder moved successfully"}, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=400)
@@ -1033,7 +1129,12 @@ class LibraryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def _access_predicate(self, user):
-        return Q(owner=user) | Q(shares__user=user) | Q(shares__study_group__in=user.study_groups.all())
+        return (
+            Q(owner=user)
+            | Q(shares__user=user)
+            | Q(shares__study_group__in=user.study_groups.all())
+            | Q(shared_drive_users__user=user)
+        )
 
     def _has_access(self, user, folder_id):
         # Precompute IDs of all folders the user can directly access.

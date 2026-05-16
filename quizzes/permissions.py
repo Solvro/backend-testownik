@@ -4,7 +4,7 @@ from rest_framework import permissions
 
 from users.models import AccountType
 
-from .models import Question, Quiz, SharedDriveRole
+from .models import Folder, Question, Quiz, SharedDriveRole
 
 
 def _is_effectively_authenticated(user) -> bool:
@@ -61,12 +61,15 @@ class IsSharedQuizCreatorOrReadOnly(permissions.BasePermission):
 
 class IsQuizCreator(permissions.BasePermission):
     """
-    Custom permission for critical actions like Move or Delete.
-    Only the folder owner can perform these actions.
+    Custom permission for critical actions like Move.
+    For personal folders: only the folder owner.
+    For shared drives: requires at least CONTRIBUTOR role.
     """
 
     def has_object_permission(self, request, view, obj):
-        return obj.folder.owner == request.user
+        if obj.folder.owner == request.user:
+            return True
+        return obj.folder.has_shared_drive_permission(request.user, SharedDriveRole.CONTRIBUTOR)
 
 
 def accessible_quizzes_q(user) -> Q:
@@ -82,7 +85,16 @@ def accessible_quizzes_q(user) -> Q:
         Q(sharedquiz__user=user) | Q(sharedquiz__study_group__in=user.study_groups.all()),
         visibility__gte=1,
     ).values_list("id", flat=True)
-    return Q(quiz__folder__owner=user) | Q(quiz_id__in=shared_quiz_ids) | Q(quiz__visibility__gte=2)
+
+    return (
+        Q(quiz__folder__owner=user)
+        | Q(quiz_id__in=shared_quiz_ids)
+        | Q(quiz__visibility__gte=2)
+        # Quizzes directly in a shared drive root
+        | Q(quiz__folder__shared_drive_users__user=user)
+        # Quizzes in subfolders of a shared drive (any depth via shared_drive FK)
+        | Q(quiz__folder__shared_drive__shared_drive_users__user=user)
+    )
 
 
 def user_has_quiz_read_access(user, quiz) -> bool:
@@ -97,10 +109,12 @@ def user_has_quiz_read_access(user, quiz) -> bool:
         return True
     if _is_effectively_authenticated(user) and quiz.sharedquiz_set.filter(user=user).exists():
         return True
-    return (
+    if (
         _is_effectively_authenticated(user)
         and quiz.sharedquiz_set.filter(study_group__in=user.study_groups.all()).exists()
-    )
+    ):
+        return True
+    return _is_effectively_authenticated(user) and quiz.folder.has_shared_drive_permission(user, SharedDriveRole.VIEWER)
 
 
 class IsQuizReadable(permissions.BasePermission):
@@ -178,15 +192,23 @@ class IsRatingUserOrReadOnly(permissions.BasePermission):
         return obj.user == request.user
 
 
-class IsSharedDriveMember(permissions.BasePermission):
-    """Any member of the shared drive (any role) can access."""
+def require_drive_role(min_role: str):
+    """
+    Permission class factory for shared drive role checks.
 
-    def has_object_permission(self, request, view, obj):
-        return obj.shared_drive_users.filter(user=request.user).exists()
+    Returns a permission class that grants access only if the requesting user
+    has at least ``min_role`` in the shared drive (``obj`` must be a Folder
+    with folder_type=SHARED_DRIVE).
 
+    Usage::
 
-class IsSharedDriveAdmin(permissions.BasePermission):
-    """Only ADMIN members of the shared drive can access."""
+        permission_classes = [IsAuthenticated, require_drive_role(SharedDriveRole.ADMIN)]
+    """
 
-    def has_object_permission(self, request, view, obj):
-        return obj.shared_drive_users.filter(user=request.user, role=SharedDriveRole.ADMIN).exists()
+    class Permission(permissions.BasePermission):
+        def has_object_permission(self, request, view, obj: Folder):
+            return obj.has_shared_drive_permission(request.user, min_role)
+
+    Permission.__name__ = f"HasDriveRole_{min_role}"
+    Permission.__qualname__ = f"HasDriveRole_{min_role}"
+    return Permission

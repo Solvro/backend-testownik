@@ -23,10 +23,10 @@ class FolderType(models.TextChoices):
 
 
 class SharedDriveRole(models.TextChoices):
-    ADMIN = "admin", "Admin"
-    QUIZ_MANAGER = "quiz_manager", "Quiz Manager"
-    CONTRIBUTOR = "contributor", "Contributor"
     VIEWER = "viewer", "Viewer"
+    CONTRIBUTOR = "contributor", "Contributor"
+    QUIZ_MANAGER = "quiz_manager", "Quiz Manager"
+    ADMIN = "admin", "Admin"
 
 
 class Folder(models.Model):
@@ -41,6 +41,16 @@ class Folder(models.Model):
         blank=True,
         on_delete=models.CASCADE,
         related_name="subfolders",
+    )
+    # Denormalized pointer to the shared drive root. Set for every folder that
+    # lives inside a shared drive (including nested subfolders). Null for
+    # personal folders and for the shared drive root itself.
+    shared_drive = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="drive_folders",
     )
     # Null means shared drive
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="folders", null=True, blank=True)
@@ -81,9 +91,46 @@ class Folder(models.Model):
             )
         super().delete(*args, **kwargs)
 
+    def get_shared_drive_root(self):
+        """Return the shared drive root this folder belongs to, or None.
+
+        For the drive root itself returns self. For subfolders returns the
+        drive root via the denormalized ``shared_drive`` FK (O(1) lookup).
+        Falls back to tree traversal only when ``shared_drive`` is not
+        populated (e.g. during migrations or legacy data).
+        """
+        if self.folder_type == FolderType.SHARED_DRIVE:
+            return self
+        if self.shared_drive_id:
+            return self.shared_drive
+        # Fallback: traverse up (handles unpopulated shared_drive)
+        node = self.parent
+        while node is not None:
+            if node.folder_type == FolderType.SHARED_DRIVE:
+                return node
+            node = node.parent
+        return None
+
+    def get_shared_drive_role(self, user) -> str | None:
+        """Return the user's role in the containing shared drive, or None."""
+        drive = self.get_shared_drive_root()
+        if drive is None:
+            return None
+        member = drive.shared_drive_users.filter(user=user).first()
+        return member.role if member else None
+
+    def has_shared_drive_permission(self, user, min_role: str) -> bool:
+        """Check if user has at least min_role in the containing shared drive."""
+        role = self.get_shared_drive_role(user)
+        if role is None:
+            return False
+        return SharedDriveRole.values.index(role) >= SharedDriveRole.values.index(min_role)
+
     def has_edit_permission(self, user):
         """Check if user can edit content in this folder."""
-        if user == self.owner:
+        if self.owner and user == self.owner:
+            return True
+        if self.has_shared_drive_permission(user, SharedDriveRole.CONTRIBUTOR):
             return True
         return self.shares.filter(
             Q(user=user) | Q(study_group__in=user.study_groups.all()),
