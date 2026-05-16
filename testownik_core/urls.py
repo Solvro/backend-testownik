@@ -74,7 +74,3 @@ urlpatterns = [
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-
-# Admin site settings
-admin.site.site_url = settings.FRONTEND_URL
-admin.site.site_header = "Testownik Solvro"

@@ -1,7 +1,8 @@
 import logging
 
-from django.contrib import messages
+from django.contrib import admin, messages
 from django.shortcuts import redirect, render
+from django.urls import reverse
 
 from .utils import is_safe_redirect_url
 
@@ -16,4 +17,18 @@ def admin_login(request):
         next_url = "admin:index"
     if request.user.is_authenticated and request.user.is_superuser:
         return redirect(next_url)
-    return render(request, "users/admin_login.html", {"next": next_url, "username": request.user})
+
+    usos_login_url = reverse("login_usos") + f"?redirect={next_url}"
+    solvro_login_url = reverse("login") + f"?redirect={next_url}"
+
+    context = {
+        **admin.site.each_context(request),
+        "next": next_url,
+        "username": request.user,
+        "usos_login_url": usos_login_url,
+        "solvro_login_url": solvro_login_url,
+        "usos_login_url_confirm": usos_login_url + "&confirm_user=true",
+        "solvro_login_url_confirm": solvro_login_url + "&confirm_user=true",
+    }
+
+    return render(request, "users/admin_login.html", context)

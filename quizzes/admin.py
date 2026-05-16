@@ -4,6 +4,7 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
+from unfold.admin import ModelAdmin, StackedInline, TabularInline
 
 from .models import (
     Answer,
@@ -16,24 +17,20 @@ from .models import (
 )
 
 
-class FolderAdmin(admin.ModelAdmin):
-    search_fields = ["name", "owner__first_name", "owner__last_name", "owner__email"]
-    autocomplete_fields = ["owner", "parent"]
-
-
-class AnswerInline(admin.TabularInline):
+class AnswerInline(TabularInline):
     model = Answer
     extra = 1
 
 
-class QuestionInline(admin.StackedInline):
+class QuestionInline(StackedInline):
     model = Question
     extra = 0
     show_change_link = True
     autocomplete_fields = ["image_upload"]
 
 
-class QuestionAdmin(admin.ModelAdmin):
+@admin.register(Question)
+class QuestionAdmin(ModelAdmin):
     list_display = ["quiz", "order", "text", "multiple", "is_ai_generated"]
     list_filter = ["multiple", "is_ai_generated"]
     search_fields = ["text", "quiz__title"]
@@ -44,7 +41,6 @@ class QuestionAdmin(admin.ModelAdmin):
         queryset, use_distinct = super().get_search_results(request, queryset, search_term)
 
         referer = request.META.get("HTTP_REFERER", "")
-        # Check if we are editing a QuizSession
         match = re.search(r"/quizzes/quizsession/([^/]+)/change/", referer)
 
         if match:
@@ -53,13 +49,12 @@ class QuestionAdmin(admin.ModelAdmin):
                 session = QuizSession.objects.get(id=session_id)
                 queryset = queryset.filter(quiz=session.quiz)
             except (QuizSession.DoesNotExist, ValueError):
-                # Session not found or invalid ID - fall back to unfiltered queryset
                 pass
 
         return queryset, use_distinct
 
 
-class AnswerRecordInline(admin.TabularInline):
+class AnswerRecordInline(TabularInline):
     model = AnswerRecord
     extra = 0
     readonly_fields = ["answered_at", "was_correct", "selected_answers"]
@@ -70,7 +65,8 @@ class AnswerRecordInline(admin.TabularInline):
         return False
 
 
-class QuizSessionAdmin(admin.ModelAdmin):
+@admin.register(QuizSession)
+class QuizSessionAdmin(ModelAdmin):
     list_display = [
         "quiz",
         "user",
@@ -97,7 +93,8 @@ class QuizSessionAdmin(admin.ModelAdmin):
     wrong_count_display.short_description = "Wrong"
 
 
-class QuizAdmin(admin.ModelAdmin):
+@admin.register(Quiz)
+class QuizAdmin(ModelAdmin):
     change_form_template = "admin/quizzes/quiz/change_form.html"
 
     def render_change_form(self, request, context, add=False, change=False, form_url="", obj=None):
@@ -142,7 +139,8 @@ class QuizAdmin(admin.ModelAdmin):
     view_sessions_link.short_description = "Sessions"
 
 
-class SharedQuizAdmin(admin.ModelAdmin):
+@admin.register(SharedQuiz)
+class SharedQuizAdmin(ModelAdmin):
     list_display = ["quiz", "user", "study_group", "allow_edit"]
     list_filter = ["allow_edit"]
     search_fields = [
@@ -156,8 +154,7 @@ class SharedQuizAdmin(admin.ModelAdmin):
     autocomplete_fields = ["quiz", "user", "study_group"]
 
 
-admin.site.register(Quiz, QuizAdmin)
-admin.site.register(Question, QuestionAdmin)
-admin.site.register(QuizSession, QuizSessionAdmin)
-admin.site.register(SharedQuiz, SharedQuizAdmin)
-admin.site.register(Folder, FolderAdmin)
+@admin.register(Folder)
+class FolderAdmin(ModelAdmin):
+    search_fields = ["name", "owner__first_name", "owner__last_name", "owner__email"]
+    autocomplete_fields = ["owner", "parent"]
