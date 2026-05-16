@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from django.db import transaction
+from django.db import models, transaction
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -63,6 +63,7 @@ class AnswerSerializer(serializers.ModelSerializer):
 
 class QuestionSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(required=False)
+    order = serializers.IntegerField(required=False)
     answers = AnswerSerializer(many=True)
     quiz = serializers.PrimaryKeyRelatedField(queryset=Quiz.objects.all(), required=False)
 
@@ -110,6 +111,10 @@ class QuestionSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def create(self, validated_data):
         answers_data = validated_data.pop("answers")
+        if "order" not in validated_data:
+            quiz = validated_data["quiz"]
+            max_order = quiz.questions.aggregate(models.Max("order"))["order__max"]
+            validated_data["order"] = (max_order or 0) + 1
         question = Question.objects.create(**validated_data)
 
         for answer_data in answers_data:
