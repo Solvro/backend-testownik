@@ -34,8 +34,8 @@ class QuestionInline(admin.StackedInline):
 
 
 class QuestionAdmin(admin.ModelAdmin):
-    list_display = ["quiz", "order", "text", "multiple"]
-    list_filter = ["multiple"]
+    list_display = ["quiz", "order", "text", "multiple", "is_ai_generated"]
+    list_filter = ["multiple", "is_ai_generated"]
     search_fields = ["text", "quiz__title"]
     inlines = [AnswerInline]
     autocomplete_fields = ["quiz"]

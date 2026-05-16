@@ -192,6 +192,7 @@ class Question(models.Model):
     )
     tf_answer = models.BooleanField(null=True, blank=True)  # true/false answer
 
+    is_ai_generated = models.BooleanField(default=False)
     is_flashcard = models.BooleanField(default=False)
     is_markdown_enabled = models.BooleanField(
         default=True, help_text="Określa, czy tekst pytania ma wspierać formatowanie Markdown"

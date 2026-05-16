@@ -68,7 +68,6 @@ base_urlpatterns = [
 ]
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
     path("api/", include(base_urlpatterns)),
     path("", ApiIndexView.as_view(), name="index"),
 ]

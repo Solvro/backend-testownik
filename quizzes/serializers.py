@@ -92,6 +92,7 @@ class QuestionSerializer(serializers.ModelSerializer):
             "answers",
             "quiz",
             "question_type",
+            "is_ai_generated",
             "is_flashcard",
             "is_markdown_enabled",
         ]
@@ -174,6 +175,51 @@ class QuestionSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(url)
             return url
         return obj.image_url
+
+
+class BulkCreateQuestionsSerializer(serializers.Serializer):
+    quiz = serializers.PrimaryKeyRelatedField(queryset=Quiz.objects.all())
+    questions = QuestionSerializer(many=True)
+
+    def validate(self, data):
+        user = self.context["request"].user
+        quiz = data["quiz"]
+        if not quiz.can_edit(user):
+            raise serializers.ValidationError({"quiz": "You do not have permission to add questions to this quiz."})
+        if not data["questions"]:
+            raise serializers.ValidationError({"questions": "At least one question is required."})
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        quiz = validated_data["quiz"]
+        questions_data = validated_data["questions"]
+        max_order = quiz.questions.aggregate(models.Max("order"))["order__max"] or 0
+
+        questions_to_create = []
+        questions_answers_data = []
+
+        for q_data in questions_data:
+            answers_data = q_data.pop("answers", [])
+            q_data.pop("id", None)
+            q_data.pop("quiz", None)
+            max_order += 1
+            q_data.setdefault("order", max_order)
+            questions_to_create.append(Question(quiz=quiz, **q_data))
+            questions_answers_data.append(answers_data)
+
+        created_questions = Question.objects.bulk_create(questions_to_create)
+
+        all_answers = []
+        for question, answers_data in zip(created_questions, questions_answers_data):
+            for a_data in answers_data:
+                a_data.pop("id", None)
+                all_answers.append(Answer(question=question, **a_data))
+
+        if all_answers:
+            Answer.objects.bulk_create(all_answers)
+
+        return created_questions
 
 
 @extend_schema_field(serializers.FloatField())
@@ -767,7 +813,7 @@ class LibraryItemSerializer(serializers.Serializer):
 
 class RecordAnswerSerializer(serializers.Serializer):
     question_id = serializers.UUIDField()
-    selected_answers = serializers.ListField(allow_empty=False)
+    selected_answers = serializers.ListField(allow_empty=True)
 
 
 class QuestionStatsSerializer(serializers.Serializer):

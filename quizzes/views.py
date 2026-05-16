@@ -54,6 +54,7 @@ from quizzes.permissions import (
 from quizzes.serializers import (
     AnswerRecordSerializer,
     AnswerSerializer,
+    BulkCreateQuestionsSerializer,
     CommentSerializer,
     FolderSerializer,
     LibraryItemSerializer,
@@ -1081,6 +1082,20 @@ class QuestionViewSet(
     serializer_class = QuestionSerializer
     queryset = Question.objects.all()
     permission_classes = [permissions.IsAuthenticated, IsQuizCreatorOrCollaboratorOrReadOnly, IsQuestionReadable]
+
+    @extend_schema(
+        request=BulkCreateQuestionsSerializer,
+        responses={201: QuestionSerializer(many=True)},
+    )
+    @action(detail=False, methods=["post"], url_path="bulk-create")
+    def bulk_create(self, request):
+        serializer = BulkCreateQuestionsSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        questions = serializer.save()
+        return Response(
+            QuestionSerializer(questions, many=True, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     @extend_schema(
         responses={

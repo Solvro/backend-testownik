@@ -206,6 +206,9 @@ class UserSettings(models.Model):
         validators=[MinValueValidator(1)],
     )
 
+    # ai settings
+    ai_disabled = models.BooleanField(default=False)
+
     # user notification preferences
     notify_quiz_shared = models.BooleanField(default=True)
     notify_bug_reported = models.BooleanField(default=True)

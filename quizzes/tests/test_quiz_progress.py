@@ -245,7 +245,7 @@ class RecordAnswerTestCase(APITestCase):
         }
         response = self.client.post(url, data, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_record_answer_invalid_answer_ids(self):
         """Test that invalid answer IDs return 400."""
