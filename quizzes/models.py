@@ -28,6 +28,19 @@ class SharedDriveRole(models.TextChoices):
     QUIZ_MANAGER = "quiz_manager", "Quiz Manager"
     ADMIN = "admin", "Admin"
 
+    @classmethod
+    def satisfies(cls, role: str, min_role: str) -> bool:
+        """Return True if role has at least the privilege level of min_role.
+
+        Order is explicit here — do not rely on declaration order or list index
+        elsewhere. Add new roles to this list in the correct position.
+        """
+        order = [cls.VIEWER, cls.CONTRIBUTOR, cls.QUIZ_MANAGER, cls.ADMIN]
+        try:
+            return order.index(role) >= order.index(min_role)
+        except ValueError:
+            return False
+
 
 class Folder(models.Model):
     DEFAULT_ROOT_NAME = "Moje quizy"
@@ -124,7 +137,7 @@ class Folder(models.Model):
         role = self.get_shared_drive_role(user)
         if role is None:
             return False
-        return SharedDriveRole.values.index(role) >= SharedDriveRole.values.index(min_role)
+        return SharedDriveRole.satisfies(role, min_role)
 
     def has_edit_permission(self, user):
         """Check if user can edit content in this folder."""

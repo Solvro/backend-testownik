@@ -895,6 +895,7 @@ class SharedDriveViewSet(viewsets.ModelViewSet):
         drive = serializer.save(folder_type=FolderType.SHARED_DRIVE, owner=None)
         SharedDriveMember.objects.create(drive=drive, user=self.request.user, role=SharedDriveRole.ADMIN)
 
+    @transaction.atomic
     def perform_destroy(self, instance):
         folder_ids = list(
             Folder.objects.filter(Q(id=instance.id) | Q(shared_drive=instance)).values_list("id", flat=True)
@@ -988,13 +989,20 @@ class SharedDriveViewSet(viewsets.ModelViewSet):
 
 
 def _cascade_shared_drive(folder: Folder, shared_drive: Folder | None) -> None:
-    """Recursively update shared_drive on all descendant folders of ``folder``."""
-    children = list(folder.subfolders.only("id"))
-    if not children:
-        return
-    Folder.objects.filter(id__in=[c.id for c in children]).update(shared_drive=shared_drive)
-    for child in children:
-        _cascade_shared_drive(child, shared_drive)
+    """
+    Bulk-update shared_drive FK on all descendants of folder.
+
+    Uses BFS level-by-level: one SELECT per depth level to collect all
+    descendant IDs, then a single UPDATE — O(depth) queries instead of
+    O(total folders) from the naive recursive approach.
+    """
+    all_ids = []
+    current_level = list(Folder.objects.filter(parent=folder).values_list("id", flat=True))
+    while current_level:
+        all_ids.extend(current_level)
+        current_level = list(Folder.objects.filter(parent_id__in=current_level).values_list("id", flat=True))
+    if all_ids:
+        Folder.objects.filter(id__in=all_ids).update(shared_drive=shared_drive)
 
 
 class FolderViewSet(viewsets.ModelViewSet):
