@@ -64,7 +64,6 @@ base_urlpatterns = [
     path("", include("quizzes.urls")),
     path("", include("grades.urls")),
     path("", include("feedback.urls")),
-    path("", include("alerts.urls")),
     path("", include("uploads.urls")),
 ]
 
@@ -75,7 +74,3 @@ urlpatterns = [
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-
-# Admin site settings
-admin.site.site_url = settings.FRONTEND_URL
-admin.site.site_header = "Testownik Solvro"

@@ -141,7 +141,7 @@ class Folder(models.Model):
 
     def has_edit_permission(self, user):
         """Check if user can edit content in this folder."""
-        if self.owner and user == self.owner:
+        if user.id == self.owner_id:
             return True
         if self.has_shared_drive_permission(user, SharedDriveRole.CONTRIBUTOR):
             return True
@@ -251,6 +251,8 @@ class Quiz(models.Model):
         return None
 
     def can_edit(self, user):
+        if not getattr(user, "is_authenticated", False):
+            return False
         return (
             self.folder.has_edit_permission(user)
             or self.sharedquiz_set.filter(user=user, allow_edit=True).exists()
@@ -285,6 +287,7 @@ class Question(models.Model):
     )
     tf_answer = models.BooleanField(null=True, blank=True)  # true/false answer
 
+    is_ai_generated = models.BooleanField(default=False)
     is_flashcard = models.BooleanField(default=False)
     is_markdown_enabled = models.BooleanField(
         default=True, help_text="Określa, czy tekst pytania ma wspierać formatowanie Markdown"
@@ -413,6 +416,12 @@ class AnswerRecord(models.Model):
 
     class Meta:
         ordering = ["-answered_at"]
+        indexes = [
+            models.Index(
+                fields=["session", "question", "answered_at"],
+                name="answerrec_session_q_at_idx",
+            ),
+        ]
 
     def __str__(self):
         result = "✓" if self.was_correct else "✗"

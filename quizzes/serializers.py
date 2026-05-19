@@ -1,7 +1,6 @@
 from datetime import timedelta
 
-from django.db import transaction
-from django.db.models import Q
+from django.db import models, transaction
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
@@ -67,6 +66,7 @@ class AnswerSerializer(serializers.ModelSerializer):
 
 class QuestionSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(required=False)
+    order = serializers.IntegerField(required=False)
     answers = AnswerSerializer(many=True)
     quiz = serializers.PrimaryKeyRelatedField(queryset=Quiz.objects.all(), required=False)
 
@@ -95,6 +95,7 @@ class QuestionSerializer(serializers.ModelSerializer):
             "answers",
             "quiz",
             "question_type",
+            "is_ai_generated",
             "is_flashcard",
             "is_markdown_enabled",
         ]
@@ -114,6 +115,10 @@ class QuestionSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def create(self, validated_data):
         answers_data = validated_data.pop("answers")
+        if "order" not in validated_data:
+            quiz = validated_data["quiz"]
+            max_order = quiz.questions.aggregate(models.Max("order"))["order__max"]
+            validated_data["order"] = (max_order or 0) + 1
         question = Question.objects.create(**validated_data)
 
         for answer_data in answers_data:
@@ -173,6 +178,51 @@ class QuestionSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(url)
             return url
         return obj.image_url
+
+
+class BulkCreateQuestionsSerializer(serializers.Serializer):
+    quiz = serializers.PrimaryKeyRelatedField(queryset=Quiz.objects.all())
+    questions = QuestionSerializer(many=True)
+
+    def validate(self, data):
+        user = self.context["request"].user
+        quiz = data["quiz"]
+        if not quiz.can_edit(user):
+            raise serializers.ValidationError({"quiz": "You do not have permission to add questions to this quiz."})
+        if not data["questions"]:
+            raise serializers.ValidationError({"questions": "At least one question is required."})
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        quiz = validated_data["quiz"]
+        questions_data = validated_data["questions"]
+        max_order = quiz.questions.aggregate(models.Max("order"))["order__max"] or 0
+
+        questions_to_create = []
+        questions_answers_data = []
+
+        for q_data in questions_data:
+            answers_data = q_data.pop("answers", [])
+            q_data.pop("id", None)
+            q_data.pop("quiz", None)
+            max_order += 1
+            q_data.setdefault("order", max_order)
+            questions_to_create.append(Question(quiz=quiz, **q_data))
+            questions_answers_data.append(answers_data)
+
+        created_questions = Question.objects.bulk_create(questions_to_create)
+
+        all_answers = []
+        for question, answers_data in zip(created_questions, questions_answers_data):
+            for a_data in answers_data:
+                a_data.pop("id", None)
+                all_answers.append(Answer(question=question, **a_data))
+
+        if all_answers:
+            Answer.objects.bulk_create(all_answers)
+
+        return created_questions
 
 
 @extend_schema_field(serializers.FloatField())
@@ -261,13 +311,17 @@ class QuizSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_has_external_images(self, obj) -> bool:
-        """Check if any question or answer uses an external image URL (not uploaded)."""
-        external_image_filter = Q(image_url__isnull=False) & ~Q(image_url="") & Q(image_upload__isnull=True)
+        """Check if any question or answer uses an external image URL (not uploaded).
 
-        return (
-            obj.questions.filter(external_image_filter).exists()
-            or Answer.objects.filter(question__quiz=obj).filter(external_image_filter).exists()
-        )
+        Walks the prefetched questions/answers in Python to avoid extra SQL.
+        """
+        for question in obj.questions.all():
+            if question.image_url and question.image_upload_id is None:
+                return True
+            for answer in question.answers.all():
+                if answer.image_url and answer.image_upload_id is None:
+                    return True
+        return False
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -841,7 +895,34 @@ class LibraryItemSerializer(serializers.Serializer):
 
 class RecordAnswerSerializer(serializers.Serializer):
     question_id = serializers.UUIDField()
-    selected_answers = serializers.ListField(allow_empty=False)
+    selected_answers = serializers.ListField(allow_empty=True)
+
+
+class QuestionStatsSerializer(serializers.Serializer):
+    """Serializer for per-question statistics within a quiz stats response."""
+
+    question_id = serializers.UUIDField()
+    attempts = serializers.IntegerField()
+    correct_attempts = serializers.IntegerField()
+    last_answered_at = serializers.DateTimeField(allow_null=True)
+
+
+class QuizStatsSerializer(serializers.Serializer):
+    """Serializer for aggregated quiz statistics for the current user."""
+
+    quiz_id = serializers.UUIDField()
+    total_answers = serializers.IntegerField()
+    correct_answers = serializers.IntegerField()
+    wrong_answers = serializers.IntegerField()
+    accuracy = serializers.FloatField()
+    first_answer_accuracy = serializers.FloatField()
+    study_time_seconds = serializers.IntegerField(allow_null=True)
+    total_study_time_seconds = serializers.IntegerField()
+    average_study_time_seconds = serializers.IntegerField()
+    sessions_count = serializers.IntegerField()
+    unique_users_count = serializers.IntegerField(allow_null=True, required=False)
+    last_activity_at = serializers.DateTimeField(allow_null=True)
+    per_question = QuestionStatsSerializer(many=True, required=False)
 
 
 class QuizRatingSerializer(serializers.ModelSerializer):

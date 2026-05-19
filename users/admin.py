@@ -1,17 +1,19 @@
 from django.contrib import admin
 from django.contrib.auth.models import Group
+from unfold.admin import ModelAdmin, StackedInline
 
 from .models import EmailLoginToken, StudyGroup, Term, User, UserSettings
 
 
-class UserSettingsInline(admin.StackedInline):
+class UserSettingsInline(StackedInline):
     model = UserSettings
     can_delete = False
     verbose_name_plural = "User settings"
     fk_name = "user"
 
 
-class UserAdmin(admin.ModelAdmin):
+@admin.register(User)
+class UserAdmin(ModelAdmin):
     list_display = [
         "id",
         "first_name",
@@ -98,21 +100,24 @@ class UserAdmin(admin.ModelAdmin):
         self.message_user(request, f"Successfully unbanned {count} user(s).")
 
 
-class StudyGroupAdmin(admin.ModelAdmin):
+@admin.register(StudyGroup)
+class StudyGroupAdmin(ModelAdmin):
     list_display = ["id", "name", "term"]
     list_filter = ["term"]
     search_fields = ["id", "name", "term__name"]
     filter_horizontal = ["members"]
 
 
-class TermAdmin(admin.ModelAdmin):
+@admin.register(Term)
+class TermAdmin(ModelAdmin):
     list_display = ["id", "name", "start_date", "end_date", "finish_date"]
     list_filter = ["start_date", "end_date", "finish_date"]
     search_fields = ["id", "name"]
     date_hierarchy = "start_date"
 
 
-class EmailLoginTokenAdmin(admin.ModelAdmin):
+@admin.register(EmailLoginToken)
+class EmailLoginTokenAdmin(ModelAdmin):
     list_display = ["user", "created_at", "expires_at", "retry_count"]
     list_filter = ["created_at", "expires_at"]
     search_fields = [
@@ -128,8 +133,4 @@ class EmailLoginTokenAdmin(admin.ModelAdmin):
         return False
 
 
-admin.site.register(User, UserAdmin)
 admin.site.unregister(Group)
-admin.site.register(StudyGroup, StudyGroupAdmin)
-admin.site.register(Term, TermAdmin)
-admin.site.register(EmailLoginToken, EmailLoginTokenAdmin)
