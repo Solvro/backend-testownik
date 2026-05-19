@@ -59,7 +59,7 @@ class IsSharedQuizCreatorOrReadOnly(permissions.BasePermission):
                 return False
             try:
                 quiz = Quiz.objects.get(id=quiz_id)
-                return quiz.maintainer == request.user
+                return quiz.can_edit(request.user)
             except Quiz.DoesNotExist:
                 return False
 
@@ -69,7 +69,7 @@ class IsSharedQuizCreatorOrReadOnly(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
 
-        return obj.quiz.folder.owner == request.user
+        return obj.quiz.can_edit(request.user)
 
 
 class IsQuizCreator(permissions.BasePermission):
