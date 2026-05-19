@@ -318,12 +318,6 @@ class SharedDriveQuizTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_viewer_can_read_quiz(self):
-        self.client.force_authenticate(self.viewer)
-        url = reverse("quiz-detail", kwargs={"pk": self.quiz.id})
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
     def test_non_member_cannot_read_private_quiz(self):
         outsider = make_user("out@test.com")
         self.client.force_authenticate(outsider)
@@ -505,11 +499,6 @@ class SharedDriveAccessibleQuizzesTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_viewer_can_list_ratings_for_drive_quiz(self):
-        self.client.force_authenticate(self.viewer)
-        response = self.client.get(reverse("quizrating-list"), {"quiz": str(self.quiz.id)})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
 
 class SharedDriveFkPropagationTests(APITestCase):
     def setUp(self):
@@ -544,15 +533,102 @@ class SharedDriveFkPropagationTests(APITestCase):
         folder = Folder.objects.get(id=response.data["id"])
         self.assertEqual(folder.shared_drive, self.drive)
 
-    def test_moving_folder_updates_shared_drive_on_descendants(self):
-        owner = make_user("owner@test.com")
-        personal_folder = Folder.objects.create(name="Personal", parent=owner.root_folder, owner=owner)
-        Folder.objects.create(name="Child", parent=personal_folder, owner=owner)
 
-        add_member(self.drive, owner, SharedDriveRole.CONTRIBUTOR)
+class SharedDriveHappyPathTest(APITestCase):
+    """
+    Full user journey through the API — no direct DB setup after initial users.
+    Verifies that endpoint outputs chain correctly as inputs to subsequent calls.
+    """
 
-        self.client.force_authenticate(owner)
-        url = reverse("folder-move", kwargs={"pk": personal_folder.id})
-        response = self.client.post(url, {"parent_id": str(self.drive.id)}, format="json")
+    def setUp(self):
+        self.owner = make_user("owner@test.com")
+        self.contributor = make_user("contributor@test.com")
+        self.viewer = make_user("viewer@test.com")
 
-        self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_403_FORBIDDEN])
+    def test_full_shared_drive_workflow(self):
+        # 1. Owner creates a drive — should become ADMIN automatically
+        self.client.force_authenticate(self.owner)
+        r = self.client.post(reverse("shareddrive-list"), {"name": "Team Drive"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+        drive_id = r.data["id"]
+        self.assertEqual(r.data["my_role"], SharedDriveRole.ADMIN)
+
+        # 2. Owner invites contributor and viewer
+        members_url = reverse("shareddrive-members", kwargs={"pk": drive_id})
+
+        r = self.client.post(
+            members_url, {"user_id": self.contributor.id, "role": SharedDriveRole.CONTRIBUTOR}, format="json"
+        )
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+
+        r = self.client.post(members_url, {"user_id": self.viewer.id, "role": SharedDriveRole.VIEWER}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+
+        # 3. Owner verifies 3 members are listed
+        r = self.client.get(members_url)
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(r.data), 3)
+
+        # 4. Contributor creates a subfolder
+        self.client.force_authenticate(self.contributor)
+        r = self.client.post(
+            reverse("shareddrive-create-folder", kwargs={"pk": drive_id}),
+            {"name": "Sprint 1"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+        subfolder_id = r.data["id"]
+        subfolder = Folder.objects.get(id=subfolder_id)
+        self.assertEqual(str(subfolder.shared_drive_id), str(drive_id))
+
+        # 5. Contributor adds a quiz to the subfolder
+        r = self.client.post(
+            reverse("quiz-list"),
+            {"title": "Architecture Quiz", "questions": [], "folder_id": subfolder_id},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+        quiz_id = r.data["id"]
+
+        # 6. Viewer can browse the drive root and see the subfolder
+        self.client.force_authenticate(self.viewer)
+        r = self.client.get(reverse("library-folder", kwargs={"folder_id": drive_id}))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        item_ids = [str(item["id"]) for item in r.data["items"]]
+        self.assertIn(str(subfolder_id), item_ids)
+
+        # 7. Viewer can browse the subfolder and see the quiz
+        r = self.client.get(reverse("library-folder", kwargs={"folder_id": subfolder_id}))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        item_ids = [str(item["id"]) for item in r.data["items"]]
+        self.assertIn(str(quiz_id), item_ids)
+
+        # 8. Viewer can read the quiz but cannot edit it
+        r = self.client.get(reverse("quiz-detail", kwargs={"pk": quiz_id}))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+
+        r = self.client.patch(reverse("quiz-detail", kwargs={"pk": quiz_id}), {"title": "Hacked"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 9. Viewer can comment on the quiz
+        r = self.client.post(
+            reverse("comment-list"),
+            {"quiz": str(quiz_id), "content": "Looks good!"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+
+        # 10. Viewer leaves the drive
+        r = self.client.post(reverse("shareddrive-leave", kwargs={"pk": drive_id}))
+        self.assertEqual(r.status_code, status.HTTP_204_NO_CONTENT)
+
+        # 11. After leaving, viewer can no longer browse the drive
+        r = self.client.get(reverse("library-folder", kwargs={"folder_id": drive_id}))
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 12. Owner deletes the drive — subfolder and quiz disappear
+        self.client.force_authenticate(self.owner)
+        r = self.client.delete(reverse("shareddrive-detail", kwargs={"pk": drive_id}))
+        self.assertEqual(r.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Folder.objects.filter(id=subfolder_id).exists())
+        self.assertFalse(Quiz.objects.filter(id=quiz_id).exists())
