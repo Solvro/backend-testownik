@@ -190,6 +190,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     def get_short_name(self):
         return self.first_name
 
+    def get_full_name(self):
+        return self.full_name
+
 
 class UserSettings(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="settings", primary_key=True)
@@ -205,6 +208,9 @@ class UserSettings(models.Model):
         blank=True,
         validators=[MinValueValidator(1)],
     )
+
+    # ai settings
+    ai_disabled = models.BooleanField(default=False)
 
     # user notification preferences
     notify_quiz_shared = models.BooleanField(default=True)

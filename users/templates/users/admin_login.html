@@ -1,76 +1,46 @@
-{% extends "admin/base_site.html" %}
-{% load i18n static %}
+{% extends 'unfold/layouts/unauthenticated.html' %}
 
-{% block extrastyle %}{{ block.super }}
-    <link rel="stylesheet" href="{% static "admin/css/login.css" %}">
-    {{ form.media }}
+{% load i18n unfold %}
+
+{% block title %}
+    Admin Login | {{ site_title|default:"Testownik Solvro" }}
 {% endblock %}
-
-{% block title %}Admin login{% endblock %}
-
-{% block branding %}
-    <h1 id="site-name"><a href="/">< Back</a> | <a href="{% url 'admin:index' %}">Django administration</a></h1>
-{% endblock %}
-
-{% block bodyclass %}{{ block.super }} login{% endblock %}
-
-{% block usertools %}{% endblock %}
-
-{% block nav-global %}{% endblock %}
-
-{% block nav-sidebar %}{% endblock %}
-
-{% block content_title %}{% endblock %}
-
-{% block nav-breadcrumbs %}{% endblock %}
 
 {% block content %}
+    {% include "unfold/helpers/unauthenticated_title.html" with title=site_title|default:"Testownik Solvro" subtitle=_('Welcome back to') %}
 
-    <div id="content-main">
+    {% include "unfold/helpers/messages.html" %}
 
-        {% if user.is_authenticated %}
-            <p class="errornote">
-                {% blocktranslate trimmed %}
-                    You are authenticated as {{ username }}, but are not authorized to
-                    access this page. Would you like to login to a different account?
-                {% endblocktranslate %}
-            </p>
-        {% endif %}
-
-        <div class="submit-row">
-            {% if not user.is_authenticated %}
-                <div class="flex-column my-4">
-                    <a class="button" href="{% url 'login_usos' %}?redirect={{ next }}">Log in with USOS</a>
-                    <a class="button" href="{% url 'login' %}?redirect={{ next }}">Log in with Solvro Auth</a>
-                </div>
-            {% else %}
-                <div class="flex-column my-4">
-                    <a class="button" href="{% url 'login_usos' %}?confirm_user=true&redirect={{ next }}">Log in with a
-                        different USOS account</a>
-                    <a class="button" href="{% url 'login' %}?confirm_user=true&redirect={{ next }}">Log in with a different Solvro Auth
-                        account</a>
-                </div>
-            {% endif %}
+    {% if user.is_authenticated %}
+        <div class="mb-8 rounded-md border border-red-600/20 bg-red-600/5 px-4 py-3 text-sm text-red-600 dark:border-red-500/20 dark:bg-red-500/5 dark:text-red-500">
+            {% blocktranslate trimmed %}
+                You are authenticated as {{ username }}, but are not authorized to
+                access this page. Would you like to login to a different account?
+            {% endblocktranslate %}
         </div>
 
-    </div>
-    <style>
-        a.button {
-            display: inline-block;
-            padding: 10px 20px;
-            text-decoration: none;
-            border-radius: 5px;
-        }
+        <div class="flex flex-col gap-3">
+            {% component "unfold/components/button.html" with href=usos_login_url_confirm variant="primary" class="w-full" include_context %}
+                {% translate 'Log in with a different USOS account' %}
+                <span class="material-symbols-outlined relative right-0 transition-all group-hover:-right-1 text-sm">arrow_forward</span>
+            {% endcomponent %}
 
-        .flex-column {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
+            {% component "unfold/components/button.html" with href=solvro_login_url_confirm variant="secondary" class="w-full" include_context %}
+                {% translate 'Log in with a different Solvro Auth account' %}
+                <span class="material-symbols-outlined relative right-0 transition-all group-hover:-right-1 text-sm">arrow_forward</span>
+            {% endcomponent %}
+        </div>
+    {% else %}
+        <div class="flex flex-col gap-3">
+            {% component "unfold/components/button.html" with href=usos_login_url variant="primary" class="w-full" include_context %}
+                {% translate 'Log in with USOS' %}
+                <span class="material-symbols-outlined relative right-0 transition-all group-hover:-right-1 text-sm">arrow_forward</span>
+            {% endcomponent %}
 
-        .my-4 {
-            margin-top: 10px;
-            margin-bottom: 10px;
-        }
-    </style>
+            {% component "unfold/components/button.html" with href=solvro_login_url variant="secondary" class="w-full" include_context %}
+                {% translate 'Log in with Solvro Auth' %}
+                <span class="material-symbols-outlined relative right-0 transition-all group-hover:-right-1 text-sm">arrow_forward</span>
+            {% endcomponent %}
+        </div>
+    {% endif %}
 {% endblock %}
