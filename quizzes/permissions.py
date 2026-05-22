@@ -60,7 +60,7 @@ class IsSharedQuizCreatorOrReadOnly(permissions.BasePermission):
             try:
                 quiz = Quiz.objects.get(id=quiz_id)
                 return quiz.can_edit(request.user)
-            except Quiz.DoesNotExist:
+            except (Quiz.DoesNotExist, ValueError, TypeError):
                 return False
 
         return True
