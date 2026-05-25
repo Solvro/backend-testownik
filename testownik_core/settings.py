@@ -93,6 +93,7 @@ INSTALLED_APPS = [
     "adrf",
     "drf_spectacular",
     "django_filters",
+    "drf_standardized_errors",
 ]
 
 CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
@@ -141,6 +142,7 @@ REST_FRAMEWORK = {
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.OrderingFilter",
     ],
+    "EXCEPTION_HANDLER": "drf_standardized_errors.handler.exception_handler",
 }
 
 if os.getenv("JWT_SECRET") is None:

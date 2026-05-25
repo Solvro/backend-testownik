@@ -19,3 +19,4 @@ nh3==0.3.5
 Pillow==12.2.0
 django-storages[s3]==1.14.6
 django-unfold==0.93.0
+drf-standardized-errors==0.16.0
