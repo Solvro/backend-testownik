@@ -50,13 +50,26 @@ class IsSharedQuizCreatorOrReadOnly(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return account_type in self.CAN_VIEW_SHARED
 
-        return account_type in self.CAN_SHARE
+        if account_type not in self.CAN_SHARE:
+            return False
+
+        if request.method == "POST":
+            quiz_id = request.data.get("quiz")
+            if not quiz_id:
+                return False
+            try:
+                quiz = Quiz.objects.get(id=quiz_id)
+                return quiz.can_edit(request.user)
+            except (Quiz.DoesNotExist, ValueError, TypeError):
+                return False
+
+        return True
 
     def has_object_permission(self, request, view, obj):
         if request.method in permissions.SAFE_METHODS:
             return True
 
-        return obj.quiz.folder.owner == request.user
+        return obj.quiz.can_edit(request.user)
 
 
 class IsQuizCreator(permissions.BasePermission):
