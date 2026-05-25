@@ -2,9 +2,13 @@ import re
 
 from django.conf import settings
 from django.contrib import admin
+from django.db.models import Count
+from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
+from unfold.decorators import action
+from unfold.enums import ActionVariant
 
 from .models import (
     Answer,
@@ -20,6 +24,7 @@ from .models import (
 class AnswerInline(TabularInline):
     model = Answer
     extra = 1
+    autocomplete_fields = ["image_upload"]
 
 
 class QuestionInline(StackedInline):
@@ -35,7 +40,7 @@ class QuestionAdmin(ModelAdmin):
     list_filter = ["multiple", "is_ai_generated"]
     search_fields = ["text", "quiz__title"]
     inlines = [AnswerInline]
-    autocomplete_fields = ["quiz"]
+    autocomplete_fields = ["quiz", "image_upload"]
 
     def get_search_results(self, request, queryset, search_term):
         queryset, use_distinct = super().get_search_results(request, queryset, search_term)
@@ -95,19 +100,14 @@ class QuizSessionAdmin(ModelAdmin):
 
 @admin.register(Quiz)
 class QuizAdmin(ModelAdmin):
-    change_form_template = "admin/quizzes/quiz/change_form.html"
-
-    def render_change_form(self, request, context, add=False, change=False, form_url="", obj=None):
-        context = context or {}
-        context["frontend_url"] = settings.FRONTEND_URL
-        return super().render_change_form(request, context, add, change, form_url, obj)
-
+    actions_detail = ["open_in_app"]
     list_display = [
         "title",
         "creator",
         "visibility",
         "is_anonymous",
         "version",
+        "created_at",
         "view_questions_link",
         "view_sessions_link",
     ]
@@ -124,6 +124,21 @@ class QuizAdmin(ModelAdmin):
     autocomplete_fields = ["creator", "folder"]
     date_hierarchy = "created_at"
 
+    # noinspection PyCallingNonCallable
+    @action(
+        description="Open in App",
+        icon="open_in_new",
+        variant=ActionVariant.DEFAULT,
+        attrs={"target": "_blank", "rel": "noopener noreferrer"},
+    )
+    def open_in_app(self, request, object_id):
+        frontend_url = settings.FRONTEND_URL.rstrip("/")
+        return redirect(f"{frontend_url}/quiz/{object_id}")
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.annotate(sessions_count=Count("sessions"))
+
     def view_questions_link(self, obj):
         count = obj.questions.count()
         url = reverse("admin:quizzes_question_changelist") + f"?quiz__id__exact={obj.id}"
@@ -132,11 +147,14 @@ class QuizAdmin(ModelAdmin):
     view_questions_link.short_description = "Questions"
 
     def view_sessions_link(self, obj):
-        count = obj.sessions.count()
+        count = getattr(obj, "sessions_count", None)
+        if count is None:
+            count = obj.sessions.count()
         url = reverse("admin:quizzes_quizsession_changelist") + f"?quiz__id__exact={obj.id}"
         return format_html('<a href="{}">View {} Sessions</a>', url, count)
 
     view_sessions_link.short_description = "Sessions"
+    view_sessions_link.admin_order_field = "sessions_count"
 
 
 @admin.register(SharedQuiz)
