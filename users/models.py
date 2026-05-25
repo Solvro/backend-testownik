@@ -86,8 +86,20 @@ class User(AbstractBaseUser, PermissionsMixin):
     sex = models.CharField(max_length=1, choices=[(x.value, x.name) for x in Sex], null=True, blank=True)
     student_status = models.IntegerField(choices=[(x.value, x.name) for x in StudentStatus], null=True, blank=True)
     staff_status = models.IntegerField(choices=[(x.value, x.name) for x in StaffStatus], null=True, blank=True)
-    photo_url = models.URLField(null=True, blank=True)
-    overriden_photo_url = models.URLField(null=True, blank=True)
+    photo_image = models.ForeignKey(
+        "uploads.UploadedImage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="user_photos",
+    )
+    custom_photo_image = models.ForeignKey(
+        "uploads.UploadedImage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="user_custom_photos",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -167,7 +179,17 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def photo(self) -> str | None:
-        return self.overriden_photo_url or self.photo_url
+        import os
+
+        img = self.custom_photo_image or self.photo_image
+        if not img:
+            return None
+
+        url = img.image.url
+        if not url.startswith(("http://", "https://")):
+            backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000").rstrip("/")
+            return f"{backend_url}{url}"
+        return url
 
     @property
     def gender(self) -> str | None:
