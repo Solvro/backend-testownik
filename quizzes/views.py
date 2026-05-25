@@ -19,7 +19,13 @@ from drf_spectacular.utils import (
 )
 from rest_framework import generics, mixins, permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed, NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import (
+    AuthenticationFailed,
+    MethodNotAllowed,
+    NotFound,
+    PermissionDenied,
+    ValidationError,
+)
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -41,7 +47,6 @@ from quizzes.models import (
 from quizzes.permissions import (
     IsCommentAuthorOrReadOnly,
     IsFolderOwner,
-    IsInternalApiRequest,
     IsQuestionReadable,
     IsQuizCreator,
     IsQuizCreatorOrCollaboratorOrReadOnly,
@@ -49,6 +54,7 @@ from quizzes.permissions import (
     IsRatingUserOrReadOnly,
     IsSharedQuizCreatorOrReadOnly,
     accessible_quizzes_q,
+    is_internal_api_request,
     user_has_quiz_read_access,
 )
 from quizzes.serializers import (
@@ -339,15 +345,17 @@ class QuizViewSet(viewsets.ModelViewSet):
     @extend_schema(
         summary="Get quiz metadata",
         description=(
-            "Returns quiz metadata with optional preview question. Requires Api-Key header for authentication. "
+            "Returns quiz metadata with optional preview question. "
+            "Requests with a valid Api-Key use internal server-side access rules. "
+            "Requests without Api-Key use normal quiz read permissions."
         ),
         parameters=[
             OpenApiParameter(
                 name="Api-Key",
-                required=True,
+                required=False,
                 type=str,
                 location=OpenApiParameter.HEADER,
-                description="Api-Key header for authentication",
+                description="Optional internal Api-Key header for server-to-server access",
             ),
             OpenApiParameter(
                 name="include",
@@ -367,7 +375,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=["get"],
-        permission_classes=[IsInternalApiRequest],
+        permission_classes=[permissions.AllowAny],
         serializer_class=QuizMetaDataWithQuestionSerializer,
     )
     def metadata(self, request, pk=None):
@@ -393,9 +401,17 @@ class QuizViewSet(viewsets.ModelViewSet):
         except Quiz.DoesNotExist:
             raise NotFound("Quiz not found")
 
+        api_key = request.headers.get("Api-Key")
+        has_internal_access = is_internal_api_request(request)
+        if api_key and not has_internal_access:
+            raise AuthenticationFailed("Invalid Api-Key.")
+
         user = request.user
 
-        if not (quiz.visibility >= 1 or (user.is_authenticated and user.owns_quiz_via_folder(quiz))):
+        if has_internal_access:
+            if not (quiz.visibility >= 1 or (user.is_authenticated and user.owns_quiz_via_folder(quiz))):
+                raise PermissionDenied("You do not have permission to access this quiz metadata.")
+        elif not user_has_quiz_read_access(user, quiz):
             raise PermissionDenied("You do not have permission to access this quiz metadata.")
 
         data = QuizMetaDataSerializer(quiz, context={"request": request}).data
