@@ -64,8 +64,8 @@ class UserAdmin(ModelAdmin):
                     "first_name",
                     "last_name",
                     "sex",
-                    "photo_url",
-                    "overriden_photo_url",
+                    "photo_image",
+                    "custom_photo_image",
                     "hide_profile",
                 )
             },

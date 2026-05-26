@@ -123,7 +123,7 @@ class CurrentUserView(GenericAPIView):
         description="Update limited fields in the user's profile.",
     )
     def patch(self, request):
-        allowed_fields_patch = {"overriden_photo_url", "hide_profile"}
+        allowed_fields_patch = {"hide_profile"}
         data = request.data
 
         disallowed = set(data) - allowed_fields_patch
@@ -140,8 +140,68 @@ class CurrentUserView(GenericAPIView):
         return Response(serializer.errors, status=400)
 
 
+class UserPhotoView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Upload custom profile photo",
+        description="Uploads a custom profile photo, compresses it to AVIF, and sets it for the user.",
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "photo": {
+                        "type": "string",
+                        "format": "binary",
+                    }
+                },
+                "required": ["photo"],
+            }
+        },
+        responses={200: OpenApiResponse(description="Photo uploaded successfully")},
+    )
+    def post(self, request):
+        if "photo" not in request.FILES:
+            return Response({"error": "No photo provided"}, status=400)
+
+        from django.core.exceptions import ValidationError
+
+        from uploads.models import UploadedImage
+        from uploads.utils import process_uploaded_image
+
+        try:
+            processed_file, width, height, content_type = process_uploaded_image(request.FILES["photo"])
+        except ValidationError as e:
+            return Response({"error": str(e)}, status=400)
+
+        img = UploadedImage.objects.create(
+            image=processed_file,
+            original_filename=request.FILES["photo"].name,
+            content_type=content_type,
+            file_size=processed_file.size,
+            width=width,
+            height=height,
+            uploaded_by=request.user,
+        )
+
+        request.user.custom_photo_image = img
+        request.user.save(update_fields=["custom_photo_image"])
+
+        return Response({"message": "Photo uploaded successfully"})
+
+    @extend_schema(
+        summary="Delete custom profile photo",
+        description="Removes the custom profile photo, reverting to the USOS/DiceBear photo.",
+        responses={200: OpenApiResponse(description="Photo removed successfully")},
+    )
+    def delete(self, request):
+        request.user.custom_photo_image = None
+        request.user.save(update_fields=["custom_photo_image"])
+        return Response({"message": "Photo removed successfully"})
+
+
 class UserViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
-    queryset = User.objects.all()
+    queryset = User.objects.select_related("photo_image", "custom_photo_image").all()
     serializer_class = PublicUserSerializer
     permission_classes = [permissions.IsAuthenticated]
 
