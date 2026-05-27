@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('quizzes', '0028_backfill_archive_folders'),
+        ('quizzes', '0030_add_ai_fields'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

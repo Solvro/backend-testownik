@@ -5,8 +5,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("quizzes", "0029_alter_folder_folder_type_alter_folder_owner_and_more"),
-        ("quizzes", "0030_add_ai_fields"),
+        ("quizzes", "0031_alter_folder_folder_type_alter_folder_owner_and_more"),
     ]
 
     operations = [
