@@ -346,7 +346,11 @@ class QuizSerializer(serializers.ModelSerializer):
             else:
                 data.pop("current_session", None)
 
-            if user.owns_quiz_via_folder(instance) or instance.folder.get_shared_drive_root() is not None:
+            can_view_folder = user.owns_quiz_via_folder(instance) or (
+                instance.folder is not None
+                and instance.folder.has_shared_drive_permission(user, SharedDriveRole.VIEWER)
+            )
+            if can_view_folder:
                 data["folder"] = FolderSerializer(instance.folder).data
             else:
                 data.pop("folder", None)

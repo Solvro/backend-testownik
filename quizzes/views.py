@@ -436,7 +436,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         if folder_id:
             try:
                 folder = Folder.objects.get(pk=folder_id)
-            except (Folder.DoesNotExist, ValueError):
+            except (Folder.DoesNotExist, ValueError, DjangoValidationError):
                 raise ValidationError({"folder_id": "Folder does not exist."})
             if folder.get_shared_drive_root() is not None:
                 if not folder.has_shared_drive_permission(self.request.user, SharedDriveRole.CONTRIBUTOR):
@@ -1222,11 +1222,23 @@ class SharedDriveViewSet(viewsets.ModelViewSet):
             raise NotFound("Member not found.")
 
         if request.method == "DELETE":
+            if member.role == SharedDriveRole.ADMIN:
+                remaining_admins = drive.shared_drive_users.filter(role=SharedDriveRole.ADMIN).count()
+                if remaining_admins <= 1:
+                    raise PermissionDenied(
+                        "Cannot remove the last admin. "
+                        "Assign the admin role to another member first, or delete the drive."
+                    )
             member.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
 
         serializer = SharedDriveMemberRoleSerializer(member, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+        new_role = serializer.validated_data.get("role")
+        if member.role == SharedDriveRole.ADMIN and new_role and new_role != SharedDriveRole.ADMIN:
+            remaining_admins = drive.shared_drive_users.filter(role=SharedDriveRole.ADMIN).count()
+            if remaining_admins <= 1:
+                raise PermissionDenied("Cannot demote the last admin. Assign the admin role to another member first.")
         serializer.save()
         return Response(SharedDriveMemberSerializer(member).data)
 
