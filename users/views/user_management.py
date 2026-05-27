@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
@@ -8,8 +9,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from quizzes.models import QuizSession, SharedQuiz
+from quizzes.models import Quiz, QuizSession, SharedQuiz
 from quizzes.permissions import IsInternalApiRequest
+from uploads.models import UploadedImage
+from uploads.utils import process_uploaded_image
 from users.auth_cookies import set_jwt_cookies
 from users.models import StudyGroup, User, UserSettings
 from users.serializers import (
@@ -163,11 +166,6 @@ class UserPhotoView(APIView):
     def post(self, request):
         if "photo" not in request.FILES:
             return Response({"error": "No photo provided"}, status=400)
-
-        from django.core.exceptions import ValidationError
-
-        from uploads.models import UploadedImage
-        from uploads.utils import process_uploaded_image
 
         try:
             processed_file, width, height, content_type = process_uploaded_image(request.FILES["photo"])
@@ -345,8 +343,6 @@ class DeleteAccountView(APIView):
         ],
     )
     def post(self, request):
-        from quizzes.models import Quiz
-
         transfer_to_user_id = request.data.get("transfer_to_user_id")
         transfer_to_user = None
 
