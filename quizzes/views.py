@@ -113,6 +113,14 @@ def resolve_stats_scope_user(request, quiz):
     return request.user
 
 
+def resolve_session_stats_user(request):
+    scope = request.query_params.get("scope", "me")
+    if scope != "me":
+        raise ValidationError({"scope": "Invalid value. Sessions statistics only support scope=me."})
+
+    return request.user
+
+
 class RandomQuestionView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -658,15 +666,15 @@ class QuizViewSet(viewsets.ModelViewSet):
             "Returns one entry per quiz session within the last `days` days "
             "(default 30, max 365), in chronological order. Each entry is a single "
             "data point for line charts of score-over-time and study-time-over-time. "
-            "Use `scope=all` to include sessions from all users (quiz editors only)."
+            "This endpoint only returns sessions for the authenticated user."
         ),
         parameters=[
             OpenApiParameter(
                 name="scope",
                 type=str,
                 location=OpenApiParameter.QUERY,
-                description="Stats scope. Use 'me' for current user, 'all' for all users (quiz editors only).",
-                enum=["me", "all"],
+                description="Stats scope. Only 'me' is supported for this endpoint.",
+                enum=["me"],
             ),
             OpenApiParameter(
                 name="days",
@@ -692,7 +700,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     def stats_sessions(self, request, pk=None):
         """Return per-session data points for score / study-time line charts."""
         quiz = self.get_object()
-        user = resolve_stats_scope_user(request, quiz)
+        user = resolve_session_stats_user(request)
         days = parse_positive_int_query_param(request, "days", default=30, max_value=365)
 
         data = get_quiz_sessions_stats(quiz, user=user, days=days)
