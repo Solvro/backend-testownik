@@ -1,6 +1,9 @@
 import io
+import ipaddress
 import os
+import socket
 import uuid
+from urllib.parse import urlparse
 
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import InMemoryUploadedFile
@@ -117,3 +120,54 @@ def process_uploaded_image(image_file):
         height,
         content_type,
     )
+
+
+_PRIVATE_RANGES = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+]
+
+
+def _is_private_ip(host: str) -> bool:
+    """Check if a hostname resolves to a private/internal IP address."""
+    try:
+        addr = ipaddress.ip_address(host)
+        return any(addr in net for net in _PRIVATE_RANGES)
+    except ValueError:
+        pass
+
+    try:
+        addrs = socket.getaddrinfo(host, None)
+        for family, _, _, _, sockaddr in addrs:
+            try:
+                addr = ipaddress.ip_address(sockaddr[0])
+                if any(addr in net for net in _PRIVATE_RANGES):
+                    return True
+            except ValueError:
+                continue
+    except OSError:
+        return True
+
+    return False
+
+
+def validate_image_source_url(url: str) -> None:
+    """
+    Validate that a URL is safe to fetch as an image source.
+
+    Raises ValidationError if the URL is an SSRF risk (private IP, internal hostname,
+    non-http scheme, etc.).
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValidationError(f"URL scheme '{parsed.scheme}' is not allowed. Only http and https are supported.")
+    if not parsed.netloc:
+        raise ValidationError("URL is missing a hostname.")
+    if _is_private_ip(parsed.hostname):
+        raise ValidationError("URL points to a private or internal network address.")
