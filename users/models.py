@@ -2,6 +2,7 @@ import secrets
 import uuid
 from datetime import date, timedelta
 
+from django.conf import settings
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.core.validators import MinValueValidator
@@ -179,15 +180,13 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def photo(self) -> str | None:
-        import os
-
         img = self.custom_photo_image or self.photo_image
         if not img:
             return None
 
         url = img.image.url
         if not url.startswith(("http://", "https://")):
-            backend_url = os.environ.get("BACKEND_URL", "http://localhost:8000").rstrip("/")
+            backend_url = settings.BACKEND_URL
             return f"{backend_url}{url}"
         return url
 

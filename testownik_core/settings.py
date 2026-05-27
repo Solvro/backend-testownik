@@ -53,6 +53,7 @@ if ALLOW_PREVIEW_ENVIRONMENTS:
 CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:3000").split(",")
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000").rstrip("/")
 
 # Internal API key for server-to-server authentication (e.g., Next.js server-side)
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
