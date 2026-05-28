@@ -57,7 +57,7 @@ class UserTokenRefreshSerializer(TokenRefreshSerializer):
 
         if user_id:
             try:
-                user = User.objects.get(pk=user_id)
+                user = User.objects.select_related("photo_image", "custom_photo_image").get(pk=user_id)
                 if user.is_banned:
                     raise InvalidToken(
                         {
@@ -76,7 +76,7 @@ class UserTokenRefreshSerializer(TokenRefreshSerializer):
 
         if user_id:
             try:
-                user = User.objects.get(pk=user_id)
+                user = User.objects.select_related("photo_image", "custom_photo_image").get(pk=user_id)
                 new_access = UserTokenObtainPairSerializer.get_token(user).access_token
                 data["access"] = str(new_access)
             except User.DoesNotExist:
