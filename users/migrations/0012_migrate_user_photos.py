@@ -21,75 +21,56 @@ def migrate_photos(apps, schema_editor):
         logger.error("Could not import process_uploaded_image, skipping photo migration.")
         return
 
-    from django.db.models import Q
-
-    users = User.objects.filter(Q(photo_url__isnull=False) | Q(overriden_photo_url__isnull=False))
+    max_file_size = 10 * 1024 * 1024
+    users = User.objects.filter(overriden_photo_url__isnull=False).exclude(overriden_photo_url="")
 
     for user in users:
         # Migrate overriden_photo_url -> custom_photo_image
         if user.overriden_photo_url:
             try:
-                response = requests.get(user.overriden_photo_url, timeout=5)
-                if response.status_code == 200:
-                    file_name = user.overriden_photo_url.split("/")[-1] or "custom_photo.jpg"
-                    if not file_name.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
-                        file_name += ".jpg"
+                with requests.get(user.overriden_photo_url, timeout=5, stream=True) as response:
+                    response.raise_for_status()
+                    if response.status_code == 200:
+                        content_length = response.headers.get("Content-Length")
+                        if content_length:
+                            try:
+                                content_length_value = int(content_length)
+                            except ValueError:
+                                content_length_value = None
+                            if content_length_value and content_length_value > max_file_size:
+                                raise ValueError("Custom photo exceeds max file size")
 
-                    uploaded_file = SimpleUploadedFile(
-                        name=file_name,
-                        content=response.content,
-                        content_type=response.headers.get("Content-Type", "image/jpeg"),
-                    )
-                    processed_file, width, height, content_type = process_uploaded_image(uploaded_file)
+                        content = bytearray()
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if not chunk:
+                                continue
+                            content.extend(chunk)
+                            if len(content) > max_file_size:
+                                raise ValueError("Custom photo exceeds max file size")
 
-                    img = UploadedImage.objects.create(
-                        image=processed_file,
-                        original_filename=file_name,
-                        content_type=content_type,
-                        file_size=processed_file.size,
-                        width=width,
-                        height=height,
-                        uploaded_by_id=user.id,
-                    )
-                    user.custom_photo_image_id = img.id
+                        file_name = user.overriden_photo_url.split("/")[-1] or "custom_photo.jpg"
+                        if not file_name.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
+                            file_name += ".jpg"
+
+                        uploaded_file = SimpleUploadedFile(
+                            name=file_name,
+                            content=bytes(content),
+                            content_type=response.headers.get("Content-Type", "image/jpeg"),
+                        )
+                        processed_file, width, height, content_type = process_uploaded_image(uploaded_file)
+
+                        img = UploadedImage.objects.create(
+                            image=processed_file,
+                            original_filename=file_name,
+                            content_type=content_type,
+                            file_size=processed_file.size,
+                            width=width,
+                            height=height,
+                            uploaded_by_id=user.id,
+                        )
+                        user.custom_photo_image_id = img.id
             except Exception as e:
                 logger.warning(f"Failed to migrate custom photo for user {user.id}: {e}")
-
-        # Migrate photo_url -> photo_image
-        if user.photo_url:
-            try:
-                # Replace svg with png for dicebear avatars
-                url = user.photo_url
-                if "dicebear.com" in url and "/svg" in url:
-                    url = url.replace("/svg", "/png")
-
-                response = requests.get(url, timeout=5)
-                if response.status_code == 200:
-                    file_name = url.split("/")[-1] or "photo.jpg"
-                    if "?" in file_name:
-                        file_name = file_name.split("?")[0]
-                    if not file_name.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
-                        file_name += ".png" if "dicebear.com" in url else ".jpg"
-
-                    uploaded_file = SimpleUploadedFile(
-                        name=file_name,
-                        content=response.content,
-                        content_type=response.headers.get("Content-Type", "image/jpeg"),
-                    )
-                    processed_file, width, height, content_type = process_uploaded_image(uploaded_file)
-
-                    img = UploadedImage.objects.create(
-                        image=processed_file,
-                        original_filename=file_name,
-                        content_type=content_type,
-                        file_size=processed_file.size,
-                        width=width,
-                        height=height,
-                        uploaded_by_id=user.id,
-                    )
-                    user.photo_image_id = img.id
-            except Exception as e:
-                logger.warning(f"Failed to migrate USOS/DiceBear photo for user {user.id}: {e}")
 
         if user.photo_image_id or user.custom_photo_image_id:
             user.save(update_fields=["photo_image_id", "custom_photo_image_id"])
