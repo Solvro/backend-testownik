@@ -173,9 +173,11 @@ class UserPhotoView(APIView):
 
         try:
             processed_file, width, height, content_type = process_uploaded_image(request.FILES["photo"])
-        except ValidationError as e:
-            logger.exception("Photo upload failed for user %s: %s", request.user.id, e)
-            return Response({"error": str(e)}, status=400)
+        except ValidationError:
+            logger.exception("Photo upload failed for user %s", request.user.id)
+            return Response(
+                {"error": "Invalid image file. Accepted formats: JPEG, PNG, GIF, WEBP, AVIF (max 10MB)."}, status=400
+            )
 
         img = UploadedImage.objects.create(
             image=processed_file,

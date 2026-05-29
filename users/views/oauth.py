@@ -2,7 +2,7 @@ import logging
 import os
 from asyncio import CancelledError, sleep
 from datetime import timedelta
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import aiohttp
 import dotenv
@@ -536,7 +536,8 @@ def _process_and_save_photo_file(user, url, raw_content: bytes, content_type: st
     if "?" in file_name:
         file_name = file_name.split("?")[0]
     if not file_name.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
-        file_name += ".png" if "dicebear.com" in url else ".jpg"
+        hostname = urlparse(url).hostname
+        file_name += ".png" if hostname == "api.dicebear.com" else ".jpg"
 
     uploaded_file = SimpleUploadedFile(
         name=file_name,
