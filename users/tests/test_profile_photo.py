@@ -1,16 +1,15 @@
 """Tests for profile photo feature: model property, upload/delete endpoint, SSRF validation."""
 
 import io
-import uuid
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from PIL import Image as PILImage
 from rest_framework import status
 from rest_framework.test import APITestCase
-from PIL import Image as PILImage
 
 from uploads.models import UploadedImage
 from uploads.utils import validate_image_source_url
