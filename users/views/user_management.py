@@ -1,3 +1,5 @@
+import logging
+
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
@@ -22,6 +24,8 @@ from users.serializers import (
     UserSettingsSerializer,
     UserTokenObtainPairSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SettingsViewSet(
@@ -170,6 +174,7 @@ class UserPhotoView(APIView):
         try:
             processed_file, width, height, content_type = process_uploaded_image(request.FILES["photo"])
         except ValidationError as e:
+            logger.exception("Photo upload failed for user %s: %s", request.user.id, e)
             return Response({"error": str(e)}, status=400)
 
         img = UploadedImage.objects.create(

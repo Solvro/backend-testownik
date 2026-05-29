@@ -1,7 +1,6 @@
 """Tests for profile photo feature: model property, upload/delete endpoint, SSRF validation."""
 
 import io
-from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -192,57 +191,68 @@ class UserPhotoUploadEndpointTests(APITestCase):
 
 
 class ValidateImageSourceUrlTests(TestCase):
-    """Tests for validate_image_source_url SSRF protection."""
+    """Tests for validate_image_source_url allowlist-based SSRF protection."""
 
-    def test_allows_https_url(self):
-        validate_image_source_url("https://example.com/photo.jpg")
+    ALLOWED = ["example.com", "api.dicebear.com", "apps.usos.pwr.edu.pl"]
 
-    def test_allows_http_url(self):
-        validate_image_source_url("http://example.com/photo.jpg")
+    def test_allows_known_host_https(self):
+        validate_image_source_url("https://example.com/photo.jpg", allowed_hosts=self.ALLOWED)
+
+    def test_allows_known_host_http(self):
+        validate_image_source_url("http://example.com/photo.jpg", allowed_hosts=self.ALLOWED)
+
+    def test_rejects_unknown_host(self):
+        with self.assertRaises(ValidationError):
+            validate_image_source_url("https://evil.com/photo.jpg", allowed_hosts=self.ALLOWED)
 
     def test_rejects_ftp_url(self):
         with self.assertRaises(ValidationError):
-            validate_image_source_url("ftp://example.com/photo.jpg")
+            validate_image_source_url("ftp://example.com/photo.jpg", allowed_hosts=self.ALLOWED)
 
     def test_rejects_file_url(self):
         with self.assertRaises(ValidationError):
-            validate_image_source_url("file:///etc/passwd")
+            validate_image_source_url("file:///etc/passwd", allowed_hosts=self.ALLOWED)
 
     def test_rejects_data_url(self):
         with self.assertRaises(ValidationError):
-            validate_image_source_url("data:image/png;base64,abc123")
+            validate_image_source_url("data:image/png;base64,abc123", allowed_hosts=self.ALLOWED)
 
     def test_rejects_empty_url(self):
         with self.assertRaises(ValidationError):
-            validate_image_source_url("")
+            validate_image_source_url("", allowed_hosts=self.ALLOWED)
 
-    def test_rejects_loopback_ip(self):
+    def test_rejects_host_not_in_allowlist(self):
         with self.assertRaises(ValidationError):
-            validate_image_source_url("http://127.0.0.1:8000/photo.jpg")
-
-    def test_rejects_private_ip_10_dot(self):
-        with self.assertRaises(ValidationError):
-            validate_image_source_url("http://10.0.0.1/photo.jpg")
-
-    def test_rejects_private_ip_192_dot(self):
-        with self.assertRaises(ValidationError):
-            validate_image_source_url("http://192.168.1.1/photo.jpg")
-
-    def test_rejects_link_local(self):
-        with self.assertRaises(ValidationError):
-            validate_image_source_url("http://169.254.169.254/latest/meta-data/")
-
-    @patch("uploads.utils.socket.getaddrinfo")
-    def test_rejects_hostname_resolving_to_private_ip(self, mock_getaddrinfo):
-        mock_getaddrinfo.return_value = [
-            (0, 0, 0, "", ("10.0.0.1", 80)),
-        ]
-        with self.assertRaises(ValidationError):
-            validate_image_source_url("http://internal-secret.example.com/photo.jpg")
+            validate_image_source_url("http://127.0.0.1:8000/photo.jpg", allowed_hosts=self.ALLOWED)
 
     def test_rejects_url_without_hostname(self):
         with self.assertRaises(ValidationError):
-            validate_image_source_url("http:///path/to/file")
+            validate_image_source_url("http:///path/to/file", allowed_hosts=self.ALLOWED)
+
+    def test_rejects_no_allowed_hosts_configured(self):
+        with self.assertRaises(ValidationError):
+            validate_image_source_url("https://example.com/photo.jpg", allowed_hosts=[])
+
+    @override_settings(ALLOWED_IMAGE_SOURCE_HOSTS=["test.pwr.edu.pl"])
+    def test_reads_allowed_hosts_from_settings(self):
+        validate_image_source_url("https://test.pwr.edu.pl/photo.jpg")
+
+    @override_settings(ALLOWED_IMAGE_SOURCE_HOSTS=[])
+    def test_rejects_when_settings_empty(self):
+        with self.assertRaises(ValidationError):
+            validate_image_source_url("https://test.pwr.edu.pl/photo.jpg")
+
+    def test_allows_dicebear_host(self):
+        validate_image_source_url(
+            "https://api.dicebear.com/9.x/adventurer/png?seed=test@example.com",
+            allowed_hosts=["api.dicebear.com"],
+        )
+
+    def test_allows_usos_host(self):
+        validate_image_source_url(
+            "https://apps.usos.pwr.edu.pl/photo/user123.jpg",
+            allowed_hosts=["apps.usos.pwr.edu.pl"],
+        )
 
 
 class PublicUserPhotoFieldTests(APITestCase):
