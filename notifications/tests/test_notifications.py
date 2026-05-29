@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from notifications.models import Notification
+from notifications.models import Notification, NotificationType
 
 
 class NotificationCreationTestCase(TestCase):
@@ -15,12 +15,15 @@ class NotificationCreationTestCase(TestCase):
     def test_notification_creation(self):
         """Test basic notification creation."""
         notification = Notification.objects.create(
-            user=self.user, content="Test notification message", notification_type="info"
+            user=self.user,
+            title="Test notification",
+            content="Test notification message",
+            notification_type=NotificationType.IN_APP,
         )
 
         self.assertEqual(notification.user, self.user)
         self.assertEqual(notification.content, "Test notification message")
-        self.assertEqual(notification.notification_type, "info")
+        self.assertEqual(notification.notification_type, NotificationType.IN_APP)
         self.assertFalse(notification.is_read)
 
 
@@ -34,13 +37,27 @@ class NotificationRetrievalTestCase(TestCase):
         self.user2 = User.objects.create_user(email="user2@example.com", password="pass123")
 
         # Create notifications for user1
-        Notification.objects.create(user=self.user1, content="Notification 1", notification_type="info")
         Notification.objects.create(
-            user=self.user1, content="Notification 2", notification_type="warning", is_read=True
+            user=self.user1,
+            title="Notification 1",
+            content="Notification 1",
+            notification_type=NotificationType.IN_APP,
+        )
+        Notification.objects.create(
+            user=self.user1,
+            title="Notification 2",
+            content="Notification 2",
+            notification_type=NotificationType.EMAIL,
+            is_read=True,
         )
 
         # Create notification for user2
-        Notification.objects.create(user=self.user2, content="User 2 Notification", notification_type="info")
+        Notification.objects.create(
+            user=self.user2,
+            title="User 2 Notification",
+            content="User 2 Notification",
+            notification_type=NotificationType.IN_APP,
+        )
 
     def test_get_user_notifications(self):
         """Test filtering notifications by user."""
@@ -71,7 +88,10 @@ class NotificationUpdateTestCase(TestCase):
         User = get_user_model()
         self.user = User.objects.create_user(email="test@example.com", password="testpass123")
         self.notification = Notification.objects.create(
-            user=self.user, content="Test notification", notification_type="info"
+            user=self.user,
+            title="Test notification",
+            content="Test notification",
+            notification_type=NotificationType.IN_APP,
         )
 
     def test_mark_notification_as_read(self):
@@ -102,7 +122,10 @@ class NotificationDeletionTestCase(TestCase):
         User = get_user_model()
         self.user = User.objects.create_user(email="test@example.com", password="testpass123")
         self.notification = Notification.objects.create(
-            user=self.user, content="Test notification", notification_type="info"
+            user=self.user,
+            title="Test notification",
+            content="Test notification",
+            notification_type=NotificationType.IN_APP,
         )
 
     def test_delete_notification(self):

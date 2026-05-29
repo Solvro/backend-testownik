@@ -1,7 +1,8 @@
 from django.conf import settings
 from django.utils.html import strip_tags
 
-from testownik_core.emails import send_email
+from notifications.models import NotificationType
+from notifications.utils import send_notification
 from users.models import EmailLoginToken
 
 
@@ -22,11 +23,11 @@ def send_login_email_to_user(user):
         f"Ten kod i link wygasną za 10 minut."
     )
 
-    send_email(
-        subject=subject,
-        recipient_list=[user.email],
+    send_notification(
+        user=user,
         title=subject,
         content=content,
+        notification_type=NotificationType.EMAIL,
         cta_url=login_link,
         cta_text="Zaloguj się",
         fail_silently=True,

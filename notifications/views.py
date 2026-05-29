@@ -1,5 +1,5 @@
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import status, viewsets
+from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -8,14 +8,18 @@ from .models import Notification
 from .serializers import NotificationSerializer
 
 
-# Create your views here.
-class NotificationViewSet(viewsets.ModelViewSet):
+class NotificationViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
     """
     ViewSet for managing user notifications.
 
     This ViewSet allows authenticated frontend users to read and manage their notifications.
-    Notifications are created by other apps and this endpoint provides read-only access
-    (with the ability to mark them as read).
+    Notifications are created by other apps via :func:`notifications.utils.send_notification`
+    and this endpoint provides read-only access (with the ability to mark them as read).
 
     Available actions:
     - GET: Retrieve user's notifications
@@ -30,12 +34,11 @@ class NotificationViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_read", "created_at", "notification_type"]
 
-    # Only allow read and partial update
+    # Disable full updates (PUT) — only partial updates (PATCH) are supported.
     http_method_names = ["get", "patch", "head", "options"]
 
     def get_queryset(self):
-        user = self.request.user
-        return Notification.objects.filter(user=user)
+        return Notification.objects.filter(user=self.request.user)
 
     @action(detail=False, methods=["patch"], url_path="mark-all-read")
     def mark_all_read(self, request):

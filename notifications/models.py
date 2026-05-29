@@ -10,15 +10,14 @@ class NotificationType(models.TextChoices):
     Enumeration of notification types available in the system.
 
     Attributes:
-        EMAIL: Email notification type.
-        IN_APP: In-app notification type.
+        EMAIL: Delivered via e-mail.
+        IN_APP: Visible only inside the application's notification list.
+        PUSH: Delivered via Web Push to subscribed devices (future delivery).
     """
 
-    EMAIL = (
-        "email",
-        "Email",
-    )
+    EMAIL = "email", "Email"
     IN_APP = "in_app", "In App"
+    PUSH = "push", "Push"
 
 
 class Notification(models.Model):
@@ -37,6 +36,9 @@ class Notification(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notifications")
+
+    class Meta:
+        ordering = ["-created_at"]
 
     def __str__(self):
         return f"Notification(id={self.id}, title={self.title}, user={self.user_id})"
