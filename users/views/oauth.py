@@ -2,7 +2,9 @@ import logging
 import os
 from asyncio import CancelledError, sleep
 from datetime import timedelta
+from urllib.parse import quote
 
+import aiohttp
 import dotenv
 import requests
 from adrf.views import APIView as AsyncAPIView
@@ -20,6 +22,7 @@ from usos_api import USOSAPIException, USOSClient
 from usos_api.models import StaffStatus, StudentStatus
 
 from testownik_core.settings import oauth
+from uploads.utils import validate_image_source_url
 from users.models import AccountType, StudyGroup, Term, User
 
 from .auth_helpers import (
@@ -286,7 +289,9 @@ class SolvroAuthorizeView(APIView):
             },
         )
 
-        _sync_process_and_save_photo(user, f"https://api.dicebear.com/9.x/adventurer/png?seed={profile['email']}")
+        _sync_process_and_save_photo(
+            user, f"https://api.dicebear.com/9.x/adventurer/png?seed={quote(profile['email'])}"
+        )
 
         return handle_oauth_login_result(request, user, jwt=jwt, redirect_url=redirect_url, guest_id=guest_id)
 
@@ -519,46 +524,123 @@ async def _sync_usos_user(client, access_token, access_token_secret):
     return user_obj, created
 
 
+MAX_PHOTO_FILE_SIZE = 10 * 1024 * 1024
+
+
+def _process_and_save_photo_file(user, url, raw_content: bytes, content_type: str) -> None:
+    """Process raw image bytes through AVIF pipeline and save as UploadedImage. Sync (PIL + ORM)."""
+    from uploads.models import UploadedImage
+    from uploads.utils import process_uploaded_image
+
+    file_name = url.split("/")[-1] or "photo.jpg"
+    if "?" in file_name:
+        file_name = file_name.split("?")[0]
+    if not file_name.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
+        file_name += ".png" if "dicebear.com" in url else ".jpg"
+
+    uploaded_file = SimpleUploadedFile(
+        name=file_name,
+        content=raw_content,
+        content_type=content_type,
+    )
+    processed_file, width, height, out_content_type = process_uploaded_image(uploaded_file)
+
+    img = UploadedImage.objects.create(
+        image=processed_file,
+        original_filename=file_name,
+        content_type=out_content_type,
+        file_size=processed_file.size,
+        width=width,
+        height=height,
+        uploaded_by_id=user.id,
+    )
+    user.photo_image = img
+    user.save(update_fields=["photo_image"])
+
+
+def _sync_download_photo(url: str, max_size: int) -> tuple[bytes, str]:
+    """Download photo synchronously with streaming + size cap. Returns (content, content_type)."""
+    with requests.get(url, timeout=5, stream=True) as response:
+        response.raise_for_status()
+        content_type = response.headers.get("Content-Type", "image/jpeg")
+
+        content_length = response.headers.get("Content-Length")
+        if content_length:
+            try:
+                content_length_value = int(content_length)
+            except ValueError:
+                content_length_value = None
+            if content_length_value and content_length_value > max_size:
+                raise ValueError("Photo exceeds max file size")
+
+        content = bytearray()
+        for chunk in response.iter_content(chunk_size=8192):
+            if not chunk:
+                continue
+            content.extend(chunk)
+            if len(content) > max_size:
+                raise ValueError("Photo exceeds max file size")
+
+        return bytes(content), content_type
+
+
+async def _async_download_photo(url: str, max_size: int) -> tuple[bytes, str]:
+    """Download photo asynchronously via aiohttp with streaming + size cap. Returns (content, content_type)."""
+    timeout = aiohttp.ClientTimeout(total=5)
+    async with aiohttp.ClientSession(timeout=timeout) as session, session.get(url) as response:
+        response.raise_for_status()
+        content_type = response.headers.get("Content-Type", "image/jpeg")
+
+        content_length = response.headers.get("Content-Length")
+        if content_length:
+            try:
+                content_length_value = int(content_length)
+            except ValueError:
+                content_length_value = None
+            if content_length_value and content_length_value > max_size:
+                raise ValueError("Photo exceeds max file size")
+
+        content = bytearray()
+        async for chunk in response.content.iter_chunked(8192):
+            content.extend(chunk)
+            if len(content) > max_size:
+                raise ValueError("Photo exceeds max file size")
+
+        return bytes(content), content_type
+
+
 def _sync_process_and_save_photo(user, url):
+    """Synchronous photo download + save. Used by SolvroAuthorizeView (sync APIView)."""
     try:
+        validate_image_source_url(url)
+
         if user.photo_image_id:
-            # Avoid hitting DB unless necessary, but we might need to check uploaded_at
-            # Actually, to check uploaded_at safely, we just use user.photo_image
             photo_image = user.photo_image
             if photo_image and (timezone.now() - photo_image.uploaded_at < timedelta(hours=24)):
                 return
 
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            from uploads.models import UploadedImage
-            from uploads.utils import process_uploaded_image
-
-            file_name = url.split("/")[-1] or "photo.jpg"
-            if "?" in file_name:
-                file_name = file_name.split("?")[0]
-            if not file_name.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
-                file_name += ".png" if "dicebear.com" in url else ".jpg"
-
-            uploaded_file = SimpleUploadedFile(
-                name=file_name,
-                content=response.content,
-                content_type=response.headers.get("Content-Type", "image/jpeg"),
-            )
-            processed_file, width, height, content_type = process_uploaded_image(uploaded_file)
-
-            img = UploadedImage.objects.create(
-                image=processed_file,
-                original_filename=file_name,
-                content_type=content_type,
-                file_size=processed_file.size,
-                width=width,
-                height=height,
-                uploaded_by_id=user.id,
-            )
-            user.photo_image = img
-            user.save(update_fields=["photo_image"])
+        raw_content, content_type = _sync_download_photo(url, MAX_PHOTO_FILE_SIZE)
+        _process_and_save_photo_file(user, url, raw_content, content_type)
     except Exception as e:
         logger.warning(f"Failed to download and process photo from {url} for user {user.id}: {e}")
 
 
-_async_process_and_save_photo = sync_to_async(_sync_process_and_save_photo)
+async def _async_process_and_save_photo(user, url):
+    """Asynchronous photo download + save. Used by UsosAuthorizeView (async AsyncAPIView).
+
+    The HTTP download runs on the async event loop via aiohttp; the PIL processing
+    and ORM writes are offloaded to the thread pool via sync_to_async, avoiding
+    thread pool exhaustion from long network waits.
+    """
+    try:
+        validate_image_source_url(url)
+
+        if user.photo_image_id:
+            photo_image = user.photo_image
+            if photo_image and (timezone.now() - photo_image.uploaded_at < timedelta(hours=24)):
+                return
+
+        raw_content, content_type = await _async_download_photo(url, MAX_PHOTO_FILE_SIZE)
+        await sync_to_async(_process_and_save_photo_file)(user, url, raw_content, content_type)
+    except Exception as e:
+        logger.warning(f"Failed to download and process photo from {url} for user {user.id}: {e}")
