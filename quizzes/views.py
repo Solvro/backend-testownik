@@ -19,7 +19,13 @@ from drf_spectacular.utils import (
 )
 from rest_framework import generics, mixins, permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed, NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import (
+    AuthenticationFailed,
+    MethodNotAllowed,
+    NotFound,
+    PermissionDenied,
+    ValidationError,
+)
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -41,7 +47,6 @@ from quizzes.models import (
 from quizzes.permissions import (
     IsCommentAuthorOrReadOnly,
     IsFolderOwner,
-    IsInternalApiRequest,
     IsQuestionReadable,
     IsQuizCreator,
     IsQuizCreatorOrCollaboratorOrReadOnly,
@@ -49,6 +54,7 @@ from quizzes.permissions import (
     IsRatingUserOrReadOnly,
     IsSharedQuizCreatorOrReadOnly,
     accessible_quizzes_q,
+    is_internal_api_request,
     user_has_quiz_read_access,
 )
 from quizzes.serializers import (
@@ -103,6 +109,14 @@ def resolve_stats_scope_user(request, quiz):
         if not quiz.can_edit(request.user):
             raise PermissionDenied("You do not have permission to view global statistics for this quiz.")
         return None
+
+    return request.user
+
+
+def resolve_session_stats_user(request):
+    scope = request.query_params.get("scope", "me")
+    if scope != "me":
+        raise ValidationError({"scope": "Invalid value. Sessions statistics only support scope=me."})
 
     return request.user
 
@@ -367,15 +381,17 @@ class QuizViewSet(viewsets.ModelViewSet):
     @extend_schema(
         summary="Get quiz metadata",
         description=(
-            "Returns quiz metadata with optional preview question. Requires Api-Key header for authentication. "
+            "Returns quiz metadata with optional preview question. "
+            "Requests with a valid Api-Key use internal server-side access rules. "
+            "Requests without Api-Key use normal quiz read permissions."
         ),
         parameters=[
             OpenApiParameter(
                 name="Api-Key",
-                required=True,
+                required=False,
                 type=str,
                 location=OpenApiParameter.HEADER,
-                description="Api-Key header for authentication",
+                description="Optional internal Api-Key header for server-to-server access",
             ),
             OpenApiParameter(
                 name="include",
@@ -395,7 +411,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=["get"],
-        permission_classes=[IsInternalApiRequest],
+        permission_classes=[permissions.AllowAny],
         serializer_class=QuizMetaDataWithQuestionSerializer,
     )
     def metadata(self, request, pk=None):
@@ -421,9 +437,17 @@ class QuizViewSet(viewsets.ModelViewSet):
         except Quiz.DoesNotExist:
             raise NotFound("Quiz not found")
 
+        api_key = request.headers.get("Api-Key")
+        has_internal_access = is_internal_api_request(request)
+        if api_key and not has_internal_access:
+            raise AuthenticationFailed("Invalid Api-Key.")
+
         user = request.user
 
-        if not (quiz.visibility >= 1 or (user.is_authenticated and user.owns_quiz_via_folder(quiz))):
+        if has_internal_access:
+            if not (quiz.visibility >= 1 or (user.is_authenticated and user.owns_quiz_via_folder(quiz))):
+                raise PermissionDenied("You do not have permission to access this quiz metadata.")
+        elif not user_has_quiz_read_access(user, quiz):
             raise PermissionDenied("You do not have permission to access this quiz metadata.")
 
         data = QuizMetaDataSerializer(quiz, context={"request": request}).data
@@ -670,15 +694,15 @@ class QuizViewSet(viewsets.ModelViewSet):
             "Returns one entry per quiz session within the last `days` days "
             "(default 30, max 365), in chronological order. Each entry is a single "
             "data point for line charts of score-over-time and study-time-over-time. "
-            "Use `scope=all` to include sessions from all users (quiz editors only)."
+            "This endpoint only returns sessions for the authenticated user."
         ),
         parameters=[
             OpenApiParameter(
                 name="scope",
                 type=str,
                 location=OpenApiParameter.QUERY,
-                description="Stats scope. Use 'me' for current user, 'all' for all users (quiz editors only).",
-                enum=["me", "all"],
+                description="Stats scope. Only 'me' is supported for this endpoint.",
+                enum=["me"],
             ),
             OpenApiParameter(
                 name="days",
@@ -704,7 +728,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     def stats_sessions(self, request, pk=None):
         """Return per-session data points for score / study-time line charts."""
         quiz = self.get_object()
-        user = resolve_stats_scope_user(request, quiz)
+        user = resolve_session_stats_user(request)
         days = parse_positive_int_query_param(request, "days", default=30, max_value=365)
 
         data = get_quiz_sessions_stats(quiz, user=user, days=days)

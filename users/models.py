@@ -23,6 +23,7 @@ class AccountType(models.TextChoices):
 
 class AccountLevel(models.TextChoices):
     BASIC = "basic", "Basic"
+    SILVER = "silver", "Silver"
     GOLD = "gold", "Gold"
 
 
@@ -143,7 +144,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def full_name(self) -> str:
-        return f"{self.first_name} {self.last_name}"
+        return f"{self.first_name} {self.last_name}".strip()
 
     @property
     def is_active(self) -> bool:
