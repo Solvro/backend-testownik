@@ -23,10 +23,14 @@ class IsInternalApiRequest(permissions.BasePermission):
     """
 
     def has_permission(self, request, view):
-        api_key = request.headers.get("Api-Key")
-        if not api_key or not settings.INTERNAL_API_KEY:
-            return False
-        return api_key == settings.INTERNAL_API_KEY
+        return is_internal_api_request(request)
+
+
+def is_internal_api_request(request) -> bool:
+    api_key = request.headers.get("Api-Key")
+    if not api_key or not settings.INTERNAL_API_KEY:
+        return False
+    return api_key == settings.INTERNAL_API_KEY
 
 
 class IsSharedQuizCreatorOrReadOnly(permissions.BasePermission):

@@ -1,5 +1,5 @@
 """
-Tests for the metadata action with API key authentication and visibility-based access control.
+Tests for the metadata action with optional API key authentication and visibility-based access control.
 """
 
 from django.test import override_settings
@@ -47,17 +47,37 @@ class MetadataActionTestCase(APITestCase):
     def _get_metadata_url(self, quiz_id):
         return reverse("quiz-metadata", kwargs={"pk": quiz_id})
 
-    def test_metadata_requires_api_key(self):
-        """Test that metadata endpoint returns 401 without valid API key."""
+    def test_metadata_without_api_key_uses_normal_quiz_permissions(self):
+        """Unauthenticated users cannot read public quiz metadata unless anonymous access is enabled."""
         url = self._get_metadata_url(self.public_quiz.id)
         response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_metadata_invalid_api_key(self):
         """Test that metadata endpoint returns 401 with invalid API key."""
         url = self._get_metadata_url(self.public_quiz.id)
         response = self.client.get(url, HTTP_API_KEY="wrong-key")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_metadata_without_api_key_allows_authenticated_public_quiz_access(self):
+        """Authenticated users can read public quiz metadata without internal API key."""
+        self.client.force_authenticate(user=self.other_user)
+        url = self._get_metadata_url(self.public_quiz.id)
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["title"], "Public Quiz")
+
+    def test_metadata_without_api_key_allows_anonymous_when_quiz_allows_anonymous(self):
+        """Anonymous users can read public quiz metadata when the quiz allows anonymous access."""
+        self.public_quiz.allow_anonymous = True
+        self.public_quiz.save(update_fields=["allow_anonymous"])
+
+        url = self._get_metadata_url(self.public_quiz.id)
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["title"], "Public Quiz")
 
     def test_metadata_public_quiz_default_no_preview(self):
         """Test that public quiz returns metadata WITHOUT preview question by default."""
@@ -90,7 +110,7 @@ class MetadataActionTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_metadata_private_quiz_creator(self):
-        """Test that private quiz returns 200 for creator."""
+        """Private quiz metadata returns 200 for creator with internal API key."""
         private_quiz = Quiz.objects.create(
             title="Private Quiz",
             creator=self.user,
@@ -108,8 +128,24 @@ class MetadataActionTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["title"], "Private Quiz")
 
-    def test_metadata_shared_quiz_access(self):
-        """Test that shared quiz allows access to shared user."""
+    def test_metadata_private_quiz_creator_without_api_key(self):
+        """Private quiz metadata returns 200 for creator without internal API key."""
+        private_quiz = Quiz.objects.create(
+            title="Private Quiz",
+            creator=self.user,
+            folder=self.user.root_folder,
+            visibility=0,
+        )
+        url = self._get_metadata_url(private_quiz.id)
+
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["title"], "Private Quiz")
+
+    def test_metadata_shared_quiz_internal_api_key_keeps_existing_visibility_behavior(self):
+        """Internal API key keeps existing behavior for shared-visibility metadata."""
         shared_quiz = Quiz.objects.create(
             title="Shared Quiz",
             creator=self.user,
@@ -136,6 +172,33 @@ class MetadataActionTestCase(APITestCase):
         self.client.force_authenticate(user=non_shared_user)
         response = self.client.get(url, HTTP_API_KEY="test-api-key")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_metadata_shared_quiz_without_api_key_uses_normal_quiz_permissions(self):
+        """Without API key, shared quiz metadata follows normal quiz read permissions."""
+        shared_quiz = Quiz.objects.create(
+            title="Shared Quiz",
+            creator=self.user,
+            folder=self.user.root_folder,
+            visibility=1,
+        )
+        SharedQuiz.objects.create(quiz=shared_quiz, user=self.other_user)
+
+        url = self._get_metadata_url(shared_quiz.id)
+
+        self.client.force_authenticate(user=self.other_user)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.client.logout()
+        non_shared_user = User.objects.create(
+            email="rando-normal@example.com",
+            first_name="Rando",
+            last_name="Normal",
+            student_number="000001",
+        )
+        self.client.force_authenticate(user=non_shared_user)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_metadata_shared_quiz_no_preview(self):
         """Test that shared quiz returns NO preview question even if requested."""

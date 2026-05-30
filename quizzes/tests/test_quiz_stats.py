@@ -586,9 +586,12 @@ class QuizStatsPermissionsTestCase(APITestCase):
         hardest_url = reverse("quiz-stats-hardest-questions", kwargs={"pk": self.public_quiz.id})
         hourly_url = reverse("quiz-stats-hourly", kwargs={"pk": self.public_quiz.id})
 
-        for url in (timeline_url, sessions_url, hardest_url, hourly_url):
+        for url in (timeline_url, hardest_url, hourly_url):
             response = self.client.get(url, {"scope": "all"})
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        response = self.client.get(sessions_url, {"scope": "all"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_scope_all_allowed_for_chart_endpoints_for_quiz_creator_on_public_quiz(self):
         self.client.force_authenticate(user=self.owner)
@@ -597,9 +600,12 @@ class QuizStatsPermissionsTestCase(APITestCase):
         hardest_url = reverse("quiz-stats-hardest-questions", kwargs={"pk": self.public_quiz.id})
         hourly_url = reverse("quiz-stats-hourly", kwargs={"pk": self.public_quiz.id})
 
-        for url in (timeline_url, sessions_url, hardest_url, hourly_url):
+        for url in (timeline_url, hardest_url, hourly_url):
             response = self.client.get(url, {"scope": "all"})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get(sessions_url, {"scope": "all"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_stats_for_nonexistent_quiz_returns_404(self):
         self.client.force_authenticate(user=self.owner)
@@ -751,7 +757,7 @@ class QuizStatsSessionsTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data, [])
 
-    def test_scope_all_includes_other_users_sessions(self):
+    def test_scope_all_is_rejected(self):
         QuizSession.objects.create(quiz=self.quiz, user=self.owner, is_active=True)
         QuizSession.objects.create(quiz=self.quiz, user=self.other, is_active=True)
 
@@ -759,8 +765,10 @@ class QuizStatsSessionsTestCase(APITestCase):
         me_response = self.client.get(url, {"scope": "me"})
         all_response = self.client.get(url, {"scope": "all"})
 
+        self.assertEqual(me_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(all_response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(len(me_response.data), 1)
-        self.assertEqual(len(all_response.data), 2)
+        self.assertIn("scope", all_response.data)
 
     def test_session_with_no_answers_has_zero_accuracy(self):
         QuizSession.objects.create(quiz=self.quiz, user=self.owner, is_active=True)
