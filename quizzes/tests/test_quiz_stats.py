@@ -370,7 +370,8 @@ class QuizStatsScopeTestCase(APITestCase):
         response = self.client.get(url, {"scope": "invalid"})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("scope", response.data)
+        self.assertEqual(response.data["type"], "validation_error")
+        self.assertIn("scope", [e.get("attr") for e in response.data.get("errors", [])])
 
 
 class QuizStatsTimelineWindowTestCase(APITestCase):
@@ -502,7 +503,8 @@ class QuizStatsChartsScopeTestCase(APITestCase):
         for url in (self.timeline_url, self.sessions_url, self.hardest_url, self.hourly_url):
             response = self.client.get(url, {"scope": "invalid"})
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertIn("scope", response.data)
+            self.assertEqual(response.data["type"], "validation_error")
+            self.assertIn("scope", [e.get("attr") for e in response.data.get("errors", [])])
 
 
 class QuizStatsPermissionsTestCase(APITestCase):
@@ -648,7 +650,8 @@ class QuizStatsTimelineShapeTestCase(APITestCase):
             self.assertEqual(
                 response.status_code, status.HTTP_400_BAD_REQUEST, msg=f"days={bad_value!r} should be rejected"
             )
-            self.assertIn("days", response.data)
+            self.assertEqual(response.data["type"], "validation_error")
+            self.assertIn("days", [e.get("attr") for e in response.data.get("errors", [])])
 
     def test_timeline_clamps_days_to_max(self):
         url = reverse("quiz-stats-timeline", kwargs={"pk": self.quiz.id})
@@ -775,7 +778,8 @@ class QuizStatsSessionsTestCase(APITestCase):
         response = self.client.get(url, {"days": "abc"})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("days", response.data)
+        self.assertEqual(response.data["type"], "validation_error")
+        self.assertIn("days", [e.get("attr") for e in response.data.get("errors", [])])
 
 
 class QuizStatsQueryCountTestCase(APITestCase):
@@ -873,7 +877,8 @@ class QuizStatsHardestQuestionsShapeTestCase(APITestCase):
             self.assertEqual(
                 response.status_code, status.HTTP_400_BAD_REQUEST, msg=f"limit={bad_value!r} should be rejected"
             )
-            self.assertIn("limit", response.data)
+            self.assertEqual(response.data["type"], "validation_error")
+            self.assertIn("limit", [e.get("attr") for e in response.data.get("errors", [])])
 
 
 class QuizStatsPerQuestionOrderingTestCase(APITestCase):
