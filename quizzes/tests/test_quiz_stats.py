@@ -768,7 +768,8 @@ class QuizStatsSessionsTestCase(APITestCase):
         self.assertEqual(me_response.status_code, status.HTTP_200_OK)
         self.assertEqual(all_response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(len(me_response.data), 1)
-        self.assertIn("scope", all_response.data)
+        self.assertEqual(all_response.data["type"], "validation_error")
+        self.assertIn("scope", [e.get("attr") for e in all_response.data.get("errors", [])])
 
     def test_session_with_no_answers_has_zero_accuracy(self):
         QuizSession.objects.create(quiz=self.quiz, user=self.owner, is_active=True)
