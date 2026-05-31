@@ -142,5 +142,6 @@ def validate_image_source_url(url: str, allowed_hosts: list[str] | None = None) 
         raise ValidationError(f"URL scheme '{parsed.scheme}' is not allowed. Only http and https are supported.")
     if not parsed.netloc:
         raise ValidationError("URL is missing a hostname.")
-    if parsed.hostname not in allowed_hosts:
+    hostname = (parsed.hostname or "").lower()
+    if hostname not in {h.lower() for h in allowed_hosts}:
         raise ValidationError(f"URL host '{parsed.hostname}' is not in the allowed image source hosts.")
