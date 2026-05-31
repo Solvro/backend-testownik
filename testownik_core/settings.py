@@ -54,10 +54,14 @@ CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:3000"
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000").rstrip("/")
-ALLOWED_IMAGE_SOURCE_HOSTS = os.environ.get(
-    "ALLOWED_IMAGE_SOURCE_HOSTS",
-    "api.dicebear.com,apps.usos.pwr.edu.pl",
-).split(",")
+ALLOWED_IMAGE_SOURCE_HOSTS = [
+    h.strip()
+    for h in os.environ.get(
+        "ALLOWED_IMAGE_SOURCE_HOSTS",
+        "api.dicebear.com,apps.usos.pwr.edu.pl",
+    ).split(",")
+    if h.strip()
+]
 
 # Internal API key for server-to-server authentication (e.g., Next.js server-side)
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
