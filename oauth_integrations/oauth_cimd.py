@@ -120,7 +120,8 @@ def _validate_fetch_url(client_id_url: str) -> str:
             if _is_blocked_ip(hostname):
                 raise CIMDError("CIMD metadata URL must not resolve to a private address.")
         except ValueError:
-            pass
+            # Hostname is not an IP literal; continue with DNS resolution below.
+            hostname = hostname
 
         try:
             infos = socket.getaddrinfo(hostname, parsed.port or 443, type=socket.SOCK_STREAM)

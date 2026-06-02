@@ -3,197 +3,434 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Authorize — Testownik</title>
+    <title>Authorize - Testownik</title>
     {% load static %}
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <style type="text/tailwindcss">
-      @custom-variant dark (&:is(.dark *));
-      
-      @theme inline {
-        --radius: 0.625rem;
-        --radius-md: calc(var(--radius));
-        --radius-lg: calc(var(--radius) + 2px);
-        --radius-xl: calc(var(--radius) + 4px);
-        --color-background: var(--background);
-        --color-foreground: var(--foreground);
-        --color-card: var(--card);
-        --color-card-foreground: var(--card-foreground);
-        --color-primary: var(--primary);
-        --color-primary-foreground: var(--primary-foreground);
-        --color-secondary: var(--secondary);
-        --color-secondary-foreground: var(--secondary-foreground);
-        --color-muted: var(--muted);
-        --color-muted-foreground: var(--muted-foreground);
-        --color-border: var(--border);
-        --color-input: var(--input);
-        --color-ring: var(--ring);
-        --color-destructive: var(--destructive);
-        --color-destructive-foreground: var(--destructive-foreground);
-      }
-      
+    <style>
       :root {
-        --radius: 0.625rem;
-        --background: oklch(1 0 0);
-        --foreground: oklch(0.2044 0.0215 263.92);
-        --card: oklch(0.99 0 286.38);
-        --card-foreground: oklch(0.253 0.0321 265.95);
-        --primary: oklch(0.6068 0.172 258.85);
-        --primary-foreground: oklch(0.9695 0.0045 258.32);
-        --secondary: oklch(0.9374 0.0076 241.67);
-        --secondary-foreground: oklch(0.2988 0.0404 266.18);
-        --muted: oklch(0.9167 0.0219 250.22);
-        --muted-foreground: oklch(0.437 0.0638 260.33);
-        --border: oklch(0.8689 0.0358 258.87);
-        --input: oklch(0.9597 0.0052 247.88);
-        --ring: oklch(0.69 0.0882 257.92);
-        --destructive: oklch(0.577 0.245 27.325);
-        --destructive-foreground: oklch(0.577 0.245 27.325);
+        color-scheme: light dark;
+        --background: #f7f9fc;
+        --foreground: #172033;
+        --card: #ffffff;
+        --muted: #60708a;
+        --border: #d8e0ec;
+        --primary: #2563eb;
+        --primary-hover: #1d4ed8;
+        --primary-soft: #eff5ff;
+        --danger: #dc2626;
+        --danger-soft: #fef2f2;
+        --shadow: 0 22px 60px rgb(15 23 42 / 18%);
       }
-      
-      .dark {
-        --background: oklch(0.177 0.025 262.114);
-        --foreground: oklch(0.985 0 0);
-        --card: oklch(0.1877 0.0283 264.85);
-        --card-foreground: oklch(0.985 0 0);
-        --primary: oklch(0.553 0.18 259.121);
-        --primary-foreground: oklch(0.969 0.005 258.325);
-        --secondary: oklch(0.278 0.052 262.021);
-        --secondary-foreground: oklch(0.985 0 0);
-        --muted: oklch(0.245 0.043 262.55);
-        --muted-foreground: oklch(0.708 0 0);
-        --border: oklch(0.82 0.084 261.375 / 10%);
-        --input: oklch(0.82 0.084 261.375 / 15%);
-        --ring: oklch(0.3663 0.0748 261.57);
-        --destructive: oklch(0.704 0.191 22.216);
-        --destructive-foreground: oklch(0.704 0.191 22.216);
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --background: #111827;
+          --foreground: #f8fafc;
+          --card: #182235;
+          --muted: #a9b5c7;
+          --border: #334155;
+          --primary: #3b82f6;
+          --primary-hover: #60a5fa;
+          --primary-soft: rgb(59 130 246 / 12%);
+          --danger: #f87171;
+          --danger-soft: rgb(248 113 113 / 12%);
+          --shadow: 0 22px 60px rgb(0 0 0 / 32%);
+        }
       }
-      
-      @layer base {
-        * {
-          @apply border-border;
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 16px;
+        background: var(--background);
+        color: var(--foreground);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .shell {
+        width: min(100%, 448px);
+      }
+
+      .card {
+        overflow: hidden;
+        border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+        border-radius: 14px;
+        background: var(--card);
+        box-shadow: var(--shadow);
+      }
+
+      .section {
+        padding: 24px;
+      }
+
+      .header {
+        text-align: center;
+      }
+
+      .logos {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+      }
+
+      .logo-box {
+        width: 64px;
+        height: 64px;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: var(--background);
+      }
+
+      .logo-box img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        padding: 8px;
+      }
+
+      .testownik-logo-dark {
+        display: none;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        .testownik-logo-light {
+          display: none;
         }
-      
-        body {
-          @apply bg-background text-foreground antialiased;
+
+        .testownik-logo-dark {
+          display: block;
         }
+      }
+
+      .client-initial {
+        color: var(--primary);
+        font-size: 20px;
+        font-weight: 700;
+      }
+
+      .connector {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        color: var(--primary);
+      }
+
+      .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: currentColor;
+        opacity: 0.65;
+      }
+
+      .link-icon {
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        border-radius: 999px;
+        background: var(--primary);
+        color: #ffffff;
+      }
+
+      h1 {
+        margin: 20px 0 0;
+        font-size: 18px;
+        line-height: 1.35;
+      }
+
+      .accent {
+        color: var(--primary);
+      }
+
+      .client-uri,
+      .muted {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .client-uri {
+        margin: 6px 0 0;
+        overflow-wrap: anywhere;
+      }
+
+      .alert {
+        margin: 0 24px 16px;
+        border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+        border-radius: 10px;
+        background: var(--danger-soft);
+        color: var(--danger);
+        padding: 12px 14px;
+        font-size: 14px;
+      }
+
+      .user {
+        margin: 0 24px 18px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--background);
+        padding: 10px 14px;
+      }
+
+      .avatar {
+        width: 32px;
+        height: 32px;
+        flex: 0 0 32px;
+        display: grid;
+        place-items: center;
+        border-radius: 999px;
+        background: var(--primary-soft);
+        color: var(--primary);
+        font-size: 12px;
+        font-weight: 700;
+        object-fit: cover;
+      }
+
+      .user-name {
+        min-width: 0;
+        margin: 2px 0 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .scopes {
+        padding: 0 24px 18px;
+      }
+
+      .scopes-title {
+        margin: 0 0 12px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .scope-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .scope-option {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--background);
+        padding: 12px 14px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+
+      .scope-option:has(input:checked) {
+        border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+        background: var(--primary-soft);
+      }
+
+      .scope-option input {
+        width: 16px;
+        height: 16px;
+        flex: 0 0 16px;
+        accent-color: var(--primary);
+      }
+
+      .scope-icon {
+        flex: 0 0 16px;
+        color: var(--primary);
+      }
+
+      .hint {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        padding: 0 24px 24px;
+      }
+
+      button {
+        width: 100%;
+        height: 40px;
+        border-radius: 8px;
+        font: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .secondary-button {
+        border: 1px solid var(--border);
+        background: var(--background);
+        color: var(--foreground);
+      }
+
+      .primary-button {
+        border: 1px solid var(--primary);
+        background: var(--primary);
+        color: #ffffff;
+      }
+
+      .primary-button:hover {
+        border-color: var(--primary-hover);
+        background: var(--primary-hover);
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
+      .redirect {
+        border-top: 1px solid var(--border);
+        padding: 18px 24px 24px;
+        text-align: center;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .redirect-target {
+        color: var(--foreground);
+        font-weight: 600;
+        overflow-wrap: anywhere;
       }
     </style>
-    <script>
-      ;(function () {
-        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-          document.documentElement.classList.add('dark')
-        }
-        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
-          document.documentElement.classList.toggle('dark', e.matches)
-        })
-      })()
-    </script>
   </head>
-  <body class="flex min-h-screen items-center justify-center p-4">
-    <div class="w-full max-w-md">
-      <div class="bg-card text-card-foreground ring-foreground/10 flex flex-col gap-6 overflow-hidden rounded-xl py-7 text-sm shadow-lg ring-1">
-        <div class="px-6">
-          <div class="flex items-center justify-center gap-3">
-            <div class="bg-background ring-border flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl p-3 ring-1">
-              <img src="{% static 'logo.svg' %}" alt="Testownik" class="size-full object-contain dark:hidden" />
-              <img src="{% static 'logo-dark.svg' %}" alt="Testownik" class="hidden size-full object-contain dark:block" />
+  <body>
+    <main class="shell">
+      <section class="card">
+        <div class="section header">
+          <div class="logos">
+            <div class="logo-box">
+              <img src="{% static 'logo.svg' %}" alt="Testownik" class="testownik-logo-light" />
+              <img src="{% static 'logo-dark.svg' %}" alt="Testownik" class="testownik-logo-dark" />
             </div>
 
-            <div class="flex items-center gap-1" aria-hidden="true">
-              <span class="bg-primary/60 size-1.5 animate-pulse rounded-full [animation-delay:-0.3s]"></span>
-              <span class="bg-primary/80 size-1.5 animate-pulse rounded-full [animation-delay:-0.15s]"></span>
-              <span class="bg-primary text-primary-foreground flex size-7 items-center justify-center rounded-full shadow-sm">
-                <svg class="size-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <div class="connector" aria-hidden="true">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="link-icon">
+                <svg width="16" height="16" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
                   <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
                 </svg>
               </span>
-              <span class="bg-primary/80 size-1.5 animate-pulse rounded-full [animation-delay:-0.15s]"></span>
-              <span class="bg-primary/60 size-1.5 animate-pulse rounded-full [animation-delay:-0.3s]"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
             </div>
 
-            <div class="bg-background ring-border flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl ring-1">
+            <div class="logo-box">
               {% if client_logo_uri %}
-                <img src="{{ client_logo_uri }}" alt="{{ client_display_name }}" class="size-full object-contain p-2" referrerpolicy="no-referrer" />
+                <img src="{{ client_logo_uri }}" alt="{{ client_display_name }}" referrerpolicy="no-referrer" />
               {% else %}
-                <span class="text-primary text-xl font-semibold">{{ client_display_name|first|upper|default:'?' }}</span>
+                <span class="client-initial">{{ client_display_name|first|upper|default:'?' }}</span>
               {% endif %}
             </div>
           </div>
 
-          <div class="mt-5 text-center">
-            {% if authorization_error %}
-              <h1 class="text-card-foreground text-lg font-semibold">{{ error_title }}</h1>
-            {% else %}
-              <h1 class="text-card-foreground text-lg font-semibold leading-snug">Connect <span class="text-primary">{{ client_display_name }}</span><br />to your Testownik account</h1>
-              {% if client_uri %}
-                <p class="text-muted-foreground mt-1.5 text-xs break-all">{{ client_uri }}</p>
-              {% endif %}
+          {% if authorization_error %}
+            <h1>{{ error_title }}</h1>
+          {% else %}
+            <h1>Connect <span class="accent">{{ client_display_name }}</span><br />to your Testownik account</h1>
+            {% if client_uri %}
+              <p class="client-uri">{{ client_uri }}</p>
             {% endif %}
-          </div>
+          {% endif %}
         </div>
 
         {% if authorization_error %}
-          <div class="mx-6 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{{ error_message }}</div>
-        {% endif %} {% if error %}
-          <div class="mx-6 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{{ error }}</div>
-        {% endif %} {% if not authorization_error and request.user.is_authenticated %}
-          <div class="mx-6 flex items-center gap-3 rounded-lg border border-border bg-background px-4 py-2.5">
+          <div class="alert">{{ error_message }}</div>
+        {% endif %}
+        {% if error %}
+          <div class="alert">{{ error }}</div>
+        {% endif %}
+
+        {% if not authorization_error and request.user.is_authenticated %}
+          <div class="user">
             {% if request.user.photo %}
-              <img src="{{ request.user.photo }}" alt="" class="size-8 shrink-0 rounded-full object-cover" referrerpolicy="no-referrer" />
+              <img src="{{ request.user.photo }}" alt="" class="avatar" referrerpolicy="no-referrer" />
             {% else %}
-              <span class="bg-primary/10 text-primary flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold">{{ request.user.full_name|first|upper|default:'U' }}</span>
+              <span class="avatar">{{ request.user.full_name|first|upper|default:'U' }}</span>
             {% endif %}
-            <div class="min-w-0">
-              <p class="text-muted-foreground text-xs">Signed in as</p>
-              <p class="text-card-foreground truncate text-sm font-medium">{{ request.user.full_name|default:request.user.email }}</p>
+            <div>
+              <div class="muted">Signed in as</div>
+              <div class="user-name">{{ request.user.full_name|default:request.user.email }}</div>
             </div>
           </div>
-        {% endif %} {% if scopes_zip %}
-          <div class="px-6">
-            <p class="text-muted-foreground mb-3 text-xs font-medium uppercase tracking-wider">Choose what to allow</p>
-            <div class="space-y-2">
+        {% endif %}
+
+        {% if scopes_zip %}
+          <div class="scopes">
+            <p class="scopes-title">Choose what to allow</p>
+            <div class="scope-list">
               {% for scope, desc in scopes_zip %}
-                <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-background px-4 py-3 text-sm transition-colors select-none has-[:checked]:border-primary/50 has-[:checked]:bg-primary/5">
-                  <input type="checkbox" class="scope-cb size-4 shrink-0 accent-primary" value="{{ scope }}" checked />
-                  <svg class="text-primary size-4 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <label class="scope-option">
+                  <input type="checkbox" class="scope-cb" value="{{ scope }}" checked />
+                  <svg class="scope-icon" width="16" height="16" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
                   </svg>
                   <span>{{ desc }}</span>
                 </label>
               {% endfor %}
             </div>
-            <p class="text-muted-foreground mt-2 text-xs">Uncheck anything you don't want to grant. You can revoke access at any time.</p>
+            <p class="hint">Uncheck anything you don't want to grant. You can revoke access at any time.</p>
           </div>
-        {% endif %} {% if not authorization_error %}
-          <div class="flex gap-3 px-6">
-            <form method="post" class="flex-1">
-              {% csrf_token %} {% for field in form %}
+        {% endif %}
+
+        {% if not authorization_error %}
+          <div class="actions">
+            <form method="post">
+              {% csrf_token %}
+              {% for field in form %}
                 {% if field.is_hidden %}
                   {{ field }}
                 {% endif %}
               {% endfor %}
-              <button type="submit" class="inline-flex h-10 w-full items-center justify-center rounded-md border border-border bg-background px-4 text-sm font-medium shadow-xs transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:translate-y-px">Deny</button>
+              <button type="submit" class="secondary-button">Deny</button>
             </form>
-            <form method="post" id="allow-form" class="flex-1">
-              {% csrf_token %} {% for field in form %}
+            <form method="post" id="allow-form">
+              {% csrf_token %}
+              {% for field in form %}
                 {% if field.is_hidden and field.name != 'scope' %}
                   {{ field }}
                 {% endif %}
               {% endfor %}
               <input type="hidden" name="scope" id="allow-scope" value="{{ scopes|join:' ' }}" />
               <input type="hidden" name="allow" value="true" />
-              <button type="submit" id="allow-button" class="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:translate-y-px disabled:pointer-events-none disabled:opacity-50">Allow</button>
+              <button type="submit" id="allow-button" class="primary-button">Allow</button>
             </form>
           </div>
-        {% endif %} {% if redirect_uri %}
-          <div class="text-muted-foreground flex flex-wrap items-center justify-center gap-1 border-t px-6 pt-6 text-center text-xs">
+        {% endif %}
+
+        {% if redirect_uri %}
+          <div class="redirect">
             Authorizing will redirect you to
-            <span class="font-medium text-card-foreground break-all">{{ redirect_uri }}</span>
+            <span class="redirect-target">{{ redirect_uri }}</span>
           </div>
         {% endif %}
-      </div>
-    </div>
+      </section>
+    </main>
     <script>
       ;(function () {
         var form = document.getElementById('allow-form')
@@ -201,23 +438,23 @@
         var allowButton = document.getElementById('allow-button')
         var checkboxes = Array.prototype.slice.call(document.querySelectorAll('.scope-cb'))
         if (!form || !scopeField) return
-      
+
         function sync() {
           var selected = checkboxes
-            .filter(function (c) {
-              return c.checked
+            .filter(function (checkbox) {
+              return checkbox.checked
             })
-            .map(function (c) {
-              return c.value
+            .map(function (checkbox) {
+              return checkbox.value
             })
           scopeField.value = selected.join(' ')
           if (allowButton) {
             allowButton.disabled = selected.length === 0
           }
         }
-      
-        checkboxes.forEach(function (c) {
-          c.addEventListener('change', sync)
+
+        checkboxes.forEach(function (checkbox) {
+          checkbox.addEventListener('change', sync)
         })
         form.addEventListener('submit', sync)
         sync()

@@ -6,7 +6,7 @@ behalf of a signed-in user.
 
 - **Endpoint:** `https://<host>/api/mcp` (canonical; `/api/mcp/` is also accepted)
 - **Transport:** streamable HTTP (stateless)
-- **Auth:** OAuth 2.1 (authorization code + PKCE) or a first-party JWT
+- **Auth:** OAuth 2.1 (authorization code + PKCE)
 
 ## Connecting
 
@@ -49,6 +49,8 @@ Example:
 ```
 
 Only public authorization-code clients using PKCE are supported through CIMD.
+Loopback `http://localhost` redirect URIs are supported for native/local clients;
+other redirect URIs must use HTTPS.
 
 ### Scopes
 
@@ -74,7 +76,9 @@ and `DELETE /api/oauth/authorized-apps/<client_id>/`.
 ## Tools
 
 All IDs are UUID strings. Tools return a plain object; on failure they return
-`{"error": "..."}` rather than raising — surface that message to the user.
+`{"error": "..."}` for tool-level validation failures — surface that message to
+the user. Scope failures are authorization failures raised before the tool runs
+and are returned as HTTP 403 responses.
 
 ### Reading
 
@@ -99,7 +103,7 @@ label it and users can audit AI-authored content — both the question (and via
   questions. Atomic: if any item is invalid, nothing is saved and the error names
   the offending index.
 - `add_question(quiz_id, text, ...)` — add a single question.
-- `edit_question(question_id, text=, explanation=, answers=, tf_answer=)` — update
+- `edit_question(question_id, text=, explanation=, answers=, multiple=)` — update
   in place; only provided fields change.
 - `delete_question(question_id)`, `add_quiz_to_folder(quiz_id, folder_id)`.
 
@@ -117,31 +121,26 @@ label it and users can audit AI-authored content — both the question (and via
   ],
   "explanation": "optional"
 }
-
-// open (free text); list the accepted answers — matching is case/whitespace-insensitive
-{"text": "Capital of Poland?", "question_type": "open",
- "answers": [{"text": "Warsaw"}, {"text": "Warszawa"}]}
-
-// true/false; use tf_answer, not answers
-{"text": "The Earth is flat.", "question_type": "true_false", "tf_answer": false}
 ```
 
+MCP authoring currently supports closed questions only. Use the REST API for
+open or true/false question authoring.
+
 Rules enforced server-side:
-- `closed` needs ≥2 answers and ≥1 correct; `multiple` is auto-enabled when more
-  than one answer is correct.
-- `open` needs ≥1 accepted answer.
-- `true_false` needs a boolean `tf_answer`.
+- `closed` needs ≥2 answers and ≥1 correct.
+- `multiple` must be a boolean when provided. When omitted, it is inferred from
+  the answer set; it must be `true` when more than one answer is correct.
+- `open` and `true_false` are rejected by MCP authoring tools.
 
 ### Studying (`study:read` to read, `study:write` to record/reset)
 
 - `get_quiz_session(quiz_id)` — start/resume a session; returns counts and the
   current question.
 - `get_next_question(quiz_id)` — fetch a question to present.
-- `submit_answer(quiz_id, question_id, selected_answers)` — record an answer and
-  get correctness plus the next question. Pass:
-  - closed → list of selected answer UUIDs
-  - true_false → `[true]` or `[false]`
-  - open → `["the typed answer"]`
+- `submit_answer(quiz_id, question_id, selected_answers)` — record an answer for
+  a closed question and get correctness plus the next question. Pass a list of
+  selected answer UUIDs. Open and true/false question submission is not currently
+  supported through MCP.
 - `reset_quiz_session(quiz_id)` — archive the current session and start fresh.
 - `get_random_question()` — a random question from recently studied quizzes.
 

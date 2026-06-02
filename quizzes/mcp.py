@@ -98,6 +98,22 @@ def _normalize_answers(answers):
     return normalized
 
 
+def _correct_answer_count(answers):
+    return sum(1 for answer in answers if (answer["is_correct"] if isinstance(answer, dict) else answer.is_correct))
+
+
+def _normalize_multiple(value, answers):
+    correct_count = _correct_answer_count(answers)
+    inferred = correct_count > 1
+    if value is None:
+        return inferred
+    if type(value) is not bool:
+        raise _QuestionError("multiple must be a boolean.")
+    if not value and inferred:
+        raise _QuestionError("multiple must be true when more than one answer is correct.")
+    return value
+
+
 def _normalize_question_spec(spec):
     if not isinstance(spec, dict):
         raise _QuestionError("Each question must be an object.")
@@ -108,14 +124,15 @@ def _normalize_question_spec(spec):
             "MCP only supports normal questions. Use answers=[{text, is_correct}] instead of open or true_false."
         )
 
+    answers = _normalize_answers(spec.get("answers") or [])
     data = {
         "text": spec.get("text", ""),
         "question_type": QuestionType.CLOSED,
-        "multiple": bool(spec.get("multiple", False)),
+        "multiple": _normalize_multiple(spec.get("multiple"), answers),
         "explanation": spec.get("explanation", "") or "",
         "is_flashcard": bool(spec.get("is_flashcard", False)),
         "is_ai_generated": True,
-        "answers": _normalize_answers(spec.get("answers") or []),
+        "answers": answers,
     }
 
     for optional_field in ("image_url", "image_upload", "is_markdown_enabled"):
@@ -124,16 +141,18 @@ def _normalize_question_spec(spec):
     return data
 
 
-def _normalize_question_update(*, text=None, explanation=None, answers=None, multiple=None):
+def _normalize_question_update(*, text=None, explanation=None, answers=None, multiple=None, current_answers=None):
     data = {}
     if text is not None:
         data["text"] = text
     if explanation is not None:
         data["explanation"] = explanation
-    if multiple is not None:
-        data["multiple"] = multiple
     if answers is not None:
-        data["answers"] = _normalize_answers(answers)
+        normalized_answers = _normalize_answers(answers)
+        data["answers"] = normalized_answers
+        data["multiple"] = _normalize_multiple(multiple, normalized_answers)
+    elif multiple is not None:
+        data["multiple"] = _normalize_multiple(multiple, current_answers or [])
     return data
 
 
@@ -236,7 +255,7 @@ class QuizTools(MCPToolset):
           - text (str): the question prompt
           - answers (list): at least two {text, is_correct} objects. Each answer
             is a normal answer option marked true or false with is_correct.
-          - multiple (bool): optional explicit UI/selection setting. It is never
+          - multiple (bool): optional UI/selection setting. If omitted, it is
             inferred from how many answers have is_correct=true.
           - explanation (str), is_flashcard (bool): optional
 
@@ -284,15 +303,15 @@ class QuizTools(MCPToolset):
         quiz_id: str,
         text: str,
         answers: list[dict] | None = None,
-        multiple: bool = False,
+        multiple: bool | None = None,
         explanation: str = "",
         is_flashcard: bool = False,
     ) -> dict:
         """Add a single question to an existing quiz. Marked is_ai_generated=true.
 
         Pass `answers` as at least two {text, is_correct} objects. Each answer is
-        a normal answer option marked true or false with is_correct. `multiple`
-        is an explicit UI/selection setting and is not inferred from correctness.
+        a normal answer option marked true or false with is_correct. If `multiple`
+        is omitted, it is inferred from the number of correct answers.
 
         To add many questions at once, use add_questions instead."""
         _require_scope(self.request, "quizzes:write")
@@ -359,8 +378,9 @@ class QuizTools(MCPToolset):
         """Update a normal question's text, explanation, or answers.
 
         Only provided fields are changed. Passing `answers` replaces all existing
-        answers. Each answer must be a {text, is_correct} object. Passing
-        `multiple` explicitly changes the UI/selection setting."""
+        answers. Each answer must be a {text, is_correct} object. If `answers`
+        is provided and `multiple` is omitted, `multiple` is inferred from the
+        new answer set."""
         _require_scope(self.request, "quizzes:write")
         user = self.request.user
         try:
@@ -378,6 +398,7 @@ class QuizTools(MCPToolset):
                 explanation=explanation,
                 answers=answers,
                 multiple=multiple,
+                current_answers=list(question.answers.all()),
             )
         except _QuestionError as exc:
             return {"error": str(exc)}
@@ -430,7 +451,9 @@ class StudyTools(MCPToolset):
                 q = Question.objects.prefetch_related("answers").get(pk=session.current_question_id)
                 current_q = _question_data(q, self.request)
             except Question.DoesNotExist:
-                pass
+                # The session can reference a question deleted after it was selected.
+                # In that case return no current question and let the next call pick one.
+                current_q = None
         return {
             "session_id": str(session.id),
             "quiz_id": str(quiz.id),
@@ -480,7 +503,9 @@ class StudyTools(MCPToolset):
                 q = Question.objects.prefetch_related("answers").get(pk=session.current_question_id)
                 return _question_data(q, self.request)
             except Question.DoesNotExist:
-                pass
+                # The saved pointer can be stale if the question was deleted.
+                # Fall through and choose another question from the quiz.
+                session.current_question = None
         q = quiz.questions.order_by("?").first()
         if q is None:
             return {"error": "This quiz has no questions."}
@@ -555,8 +580,7 @@ class StudyTools(MCPToolset):
         recent_quiz_ids = list(
             QuizSession.objects.filter(
                 user=user,
-                is_active=True,
-                started_at__gte=timezone.now() - timedelta(days=90),
+                updated_at__gte=timezone.now() - timedelta(days=90),
             ).values_list("quiz_id", flat=True)
         )
         if not recent_quiz_ids:
