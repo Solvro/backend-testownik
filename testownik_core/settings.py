@@ -61,10 +61,6 @@ INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
 _additional_redirect_origins = os.environ.get("ALLOWED_REDIRECT_ORIGINS", "").split(",")
 ALLOWED_REDIRECT_ORIGINS = [FRONTEND_URL] + [o.strip().rstrip("/") for o in _additional_redirect_origins if o.strip()]
 
-CIMD_ALLOWED_CLIENT_METADATA_URLS = [
-    url.strip() for url in os.environ.get("CIMD_ALLOWED_CLIENT_METADATA_URLS", "").split(",") if url.strip()
-]
-
 JWT_COOKIE_SECURE = not DEBUG
 JWT_COOKIE_SAMESITE = "Lax"
 JWT_COOKIE_DOMAIN = os.getenv("JWT_COOKIE_DOMAIN", None)
