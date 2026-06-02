@@ -99,6 +99,18 @@ def _validate_fetch_url(client_id_url: str) -> str:
         raise CIMDError("CIMD client_id must not include a fragment.")
     if parsed.path in ("", "/"):
         raise CIMDError("CIMD client_id must point to a metadata document path.")
+
+    # Gate on the allowlist before resolving DNS so that non-allowlisted,
+    # caller-supplied hostnames never trigger a lookup. The matched value is
+    # returned from settings (not the caller input) so the fetched URL is not
+    # attacker-controlled.
+    allowlisted_url = next(
+        (url for url in getattr(settings, "CIMD_ALLOWED_CLIENT_METADATA_URLS", []) if url == client_id_url),
+        None,
+    )
+    if allowlisted_url is None:
+        raise CIMDError("CIMD metadata URL is not allowlisted.")
+
     if not is_debug_loopback_http_url:
         hostname = parsed.hostname.strip().lower()
         if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith(".localhost"):
@@ -121,10 +133,7 @@ def _validate_fetch_url(client_id_url: str) -> str:
         if any(_is_blocked_ip(str(address)) for address in addresses):
             raise CIMDError("CIMD metadata URL must not resolve to a private address.")
 
-    for allowed_url in getattr(settings, "CIMD_ALLOWED_CLIENT_METADATA_URLS", []):
-        if allowed_url == client_id_url:
-            return allowed_url
-    raise CIMDError("CIMD metadata URL is not allowlisted.")
+    return allowlisted_url
 
 
 def _validate_https_uri(value: str, field_name: str) -> str:
