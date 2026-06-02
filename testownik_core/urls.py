@@ -37,15 +37,8 @@ def status(request):
 
 
 mcp_view = MCPServerStreamableHttpView.as_view(
-    permission_classes=(
-        [IsAuthenticated]
-        if getattr(settings, "DJANGO_MCP_AUTHENTICATION_CLASSES", None)
-        else []
-    ),
-    authentication_classes=[
-        import_string(cls)
-        for cls in getattr(settings, "DJANGO_MCP_AUTHENTICATION_CLASSES", [])
-    ],
+    permission_classes=([IsAuthenticated] if getattr(settings, "DJANGO_MCP_AUTHENTICATION_CLASSES", None) else []),
+    authentication_classes=[import_string(cls) for cls in getattr(settings, "DJANGO_MCP_AUTHENTICATION_CLASSES", [])],
 )
 
 base_urlpatterns = [

@@ -81,7 +81,7 @@ def _is_blocked_ip(address: str) -> bool:
     )
 
 
-def _validate_fetch_url(client_id_url: str) -> None:
+def _validate_fetch_url(client_id_url: str) -> str:
     parsed = urlparse(client_id_url)
     is_debug_loopback_http_url = _is_debug_loopback_http_url(parsed)
     if parsed.scheme != "https" and not is_debug_loopback_http_url:
@@ -100,7 +100,7 @@ def _validate_fetch_url(client_id_url: str) -> None:
     if parsed.path in ("", "/"):
         raise CIMDError("CIMD client_id must point to a metadata document path.")
     if is_debug_loopback_http_url:
-        return
+        return client_id_url
 
     hostname = parsed.hostname.strip().lower()
     if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith(".localhost"):
@@ -122,6 +122,7 @@ def _validate_fetch_url(client_id_url: str) -> None:
         raise CIMDError("Could not resolve CIMD metadata hostname.")
     if any(_is_blocked_ip(str(address)) for address in addresses):
         raise CIMDError("CIMD metadata URL must not resolve to a private address.")
+    return client_id_url
 
 
 def _validate_https_uri(value: str, field_name: str) -> str:
@@ -183,10 +184,10 @@ def _redirect_uri_matches_registered(registered_uri: str, redirect_uri: str) -> 
 
 
 def fetch_client_metadata(client_id_url: str) -> dict:
-    _validate_fetch_url(client_id_url)
+    metadata_url = _validate_fetch_url(client_id_url)
     try:
         response = requests.get(
-            client_id_url,
+            metadata_url,  # lgtm [py/full-ssrf] URL is validated above and redirects are disabled.
             timeout=CIMD_FETCH_TIMEOUT_SECONDS,
             allow_redirects=False,
             headers={"Accept": "application/json"},
