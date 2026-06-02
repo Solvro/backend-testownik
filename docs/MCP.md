@@ -29,6 +29,10 @@ OAuth clients can publish metadata at an HTTPS URL and use that URL as the
 against the document, and reuses one internal OAuth application for that metadata
 URL.
 
+For SSRF protection, the metadata document URL must exactly match an entry in
+`CIMD_ALLOWED_CLIENT_METADATA_URLS` before Testownik fetches it. Configure this
+environment variable as a comma-separated list of trusted metadata document URLs.
+
 Example:
 
 ```json

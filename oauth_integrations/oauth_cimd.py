@@ -99,30 +99,32 @@ def _validate_fetch_url(client_id_url: str) -> str:
         raise CIMDError("CIMD client_id must not include a fragment.")
     if parsed.path in ("", "/"):
         raise CIMDError("CIMD client_id must point to a metadata document path.")
-    if is_debug_loopback_http_url:
-        return client_id_url
+    if not is_debug_loopback_http_url:
+        hostname = parsed.hostname.strip().lower()
+        if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith(".localhost"):
+            raise CIMDError("CIMD metadata URL must not use localhost.")
 
-    hostname = parsed.hostname.strip().lower()
-    if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith(".localhost"):
-        raise CIMDError("CIMD metadata URL must not use localhost.")
+        try:
+            if _is_blocked_ip(hostname):
+                raise CIMDError("CIMD metadata URL must not resolve to a private address.")
+        except ValueError:
+            pass
 
-    try:
-        if _is_blocked_ip(hostname):
+        try:
+            infos = socket.getaddrinfo(hostname, parsed.port or 443, type=socket.SOCK_STREAM)
+        except OSError as exc:
+            raise CIMDError("Could not resolve CIMD metadata hostname.") from exc
+
+        addresses = {info[4][0] for info in infos}
+        if not addresses:
+            raise CIMDError("Could not resolve CIMD metadata hostname.")
+        if any(_is_blocked_ip(str(address)) for address in addresses):
             raise CIMDError("CIMD metadata URL must not resolve to a private address.")
-    except ValueError:
-        pass
 
-    try:
-        infos = socket.getaddrinfo(hostname, parsed.port or 443, type=socket.SOCK_STREAM)
-    except OSError as exc:
-        raise CIMDError("Could not resolve CIMD metadata hostname.") from exc
-
-    addresses = {info[4][0] for info in infos}
-    if not addresses:
-        raise CIMDError("Could not resolve CIMD metadata hostname.")
-    if any(_is_blocked_ip(str(address)) for address in addresses):
-        raise CIMDError("CIMD metadata URL must not resolve to a private address.")
-    return client_id_url
+    for allowed_url in getattr(settings, "CIMD_ALLOWED_CLIENT_METADATA_URLS", []):
+        if allowed_url == client_id_url:
+            return allowed_url
+    raise CIMDError("CIMD metadata URL is not allowlisted.")
 
 
 def _validate_https_uri(value: str, field_name: str) -> str:
@@ -186,10 +188,6 @@ def _redirect_uri_matches_registered(registered_uri: str, redirect_uri: str) -> 
 def fetch_client_metadata(client_id_url: str) -> dict:
     metadata_url = _validate_fetch_url(client_id_url)
     try:
-        # codeql[py/full-ssrf]
-        # The client metadata URL is validated by _validate_fetch_url before this request:
-        # it must be HTTPS, cannot contain credentials/fragments, cannot resolve to private
-        # or loopback addresses outside DEBUG loopback development, and redirects are disabled.
         response = requests.get(
             metadata_url,
             timeout=CIMD_FETCH_TIMEOUT_SECONDS,
