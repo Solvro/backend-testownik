@@ -186,8 +186,12 @@ def _redirect_uri_matches_registered(registered_uri: str, redirect_uri: str) -> 
 def fetch_client_metadata(client_id_url: str) -> dict:
     metadata_url = _validate_fetch_url(client_id_url)
     try:
+        # codeql[py/full-ssrf]
+        # The client metadata URL is validated by _validate_fetch_url before this request:
+        # it must be HTTPS, cannot contain credentials/fragments, cannot resolve to private
+        # or loopback addresses outside DEBUG loopback development, and redirects are disabled.
         response = requests.get(
-            metadata_url,  # lgtm [py/full-ssrf] URL is validated above and redirects are disabled.
+            metadata_url,
             timeout=CIMD_FETCH_TIMEOUT_SECONDS,
             allow_redirects=False,
             headers={"Accept": "application/json"},
