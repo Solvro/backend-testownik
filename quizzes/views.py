@@ -1,11 +1,8 @@
 import logging
-import random
 import urllib.parse
 import uuid
-from datetime import timedelta
 
 from django.conf import settings
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Avg, Count, Prefetch, Q
 from django.utils import timezone
@@ -33,12 +30,10 @@ from rest_framework.views import APIView
 
 from quizzes.models import (
     Answer,
-    AnswerRecord,
     Comment,
     Folder,
     FolderType,
     Question,
-    QuestionType,
     Quiz,
     QuizRating,
     QuizSession,
@@ -78,10 +73,17 @@ from quizzes.serializers import (
     SharedQuizSerializer,
 )
 from quizzes.services.metadata import get_preview_question
-from quizzes.services.normalizer import normalize
 from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
+)
+from quizzes.services.operations import (
+    UNSET,
+    QuizOperationError,
+    get_random_recent_question,
+    grouped_search_quizzes,
+    record_quiz_answer,
+    reset_readable_session,
 )
 from quizzes.services.stats import (
     get_quiz_hardest_questions,
@@ -158,26 +160,10 @@ class RandomQuestionView(APIView):
         ],
     )
     def get(self, request):
-        recent_quiz_ids = list(
-            QuizSession.objects.filter(
-                user=request.user,
-                is_active=True,
-                started_at__gte=timezone.now() - timedelta(days=90),
-            ).values_list("quiz_id", flat=True)
-        )
-
-        if not recent_quiz_ids:
-            return Response({"error": "No quizzes found"}, status=404)
-        total_questions = Question.objects.filter(quiz_id__in=recent_quiz_ids).count()
-        if total_questions == 0:
-            return Response({"error": "No quizzes found"}, status=404)
-
-        random_offset = random.randint(0, total_questions - 1)
-        random_question = (
-            Question.objects.filter(quiz_id__in=recent_quiz_ids)
-            .select_related("quiz")
-            .prefetch_related("answers")[random_offset]
-        )
+        try:
+            random_question = get_random_recent_question(request.user)
+        except QuizOperationError as exc:
+            return Response({"error": exc.message}, status=exc.status_code)
 
         return Response(
             {
@@ -255,33 +241,25 @@ class SearchQuizzesView(APIView):
         if not query:
             return Response({"error": "Query parameter is required"}, status=400)
 
-        user_quizzes = Quiz.objects.filter(creator=request.user, title__icontains=query).select_related("creator")
-        shared_quizzes = SharedQuiz.objects.filter(
-            user=request.user, quiz__title__icontains=query, quiz__visibility__gte=1
-        ).select_related("quiz__creator")
-        group_quizzes = SharedQuiz.objects.filter(
-            study_group__in=request.user.study_groups.all(),
-            quiz__title__icontains=query,
-            quiz__visibility__gte=1,
-        ).select_related("quiz__creator")
-
+        grouped_quizzes = grouped_search_quizzes(
+            request.user,
+            query,
+            include_public=request.user.account_type == AccountType.STUDENT,
+        )
         result = {
-            "user_quizzes": QuizSearchResultSerializer(user_quizzes, many=True, context={"request": request}).data,
+            "user_quizzes": QuizSearchResultSerializer(
+                grouped_quizzes["user_quizzes"], many=True, context={"request": request}
+            ).data,
             "shared_quizzes": QuizSearchResultSerializer(
-                [q.quiz for q in shared_quizzes], many=True, context={"request": request}
+                grouped_quizzes["shared_quizzes"], many=True, context={"request": request}
             ).data,
             "group_quizzes": QuizSearchResultSerializer(
-                [q.quiz for q in group_quizzes], many=True, context={"request": request}
+                grouped_quizzes["group_quizzes"], many=True, context={"request": request}
+            ).data,
+            "public_quizzes": QuizSearchResultSerializer(
+                grouped_quizzes["public_quizzes"], many=True, context={"request": request}
             ).data,
         }
-
-        if request.user.account_type == AccountType.STUDENT:
-            public_quizzes = Quiz.objects.filter(title__icontains=query, visibility__gte=3).select_related("creator")
-            result["public_quizzes"] = QuizSearchResultSerializer(
-                public_quizzes, many=True, context={"request": request}
-            ).data
-        else:
-            result["public_quizzes"] = []
 
         return Response(result)
 
@@ -544,13 +522,8 @@ class QuizViewSet(viewsets.ModelViewSet):
             return Response(QuizSessionSerializer(session).data)
 
         elif request.method == "DELETE":
-            # Archive current session and create new one
-            with transaction.atomic():
-                QuizSession.objects.filter(quiz=quiz, user=request.user, is_active=True).update(
-                    is_active=False, ended_at=timezone.now()
-                )
-                session, _ = QuizSession.get_or_create_active(quiz, request.user)
-            return Response(QuizSessionSerializer(session).data)
+            state = reset_readable_session(request.user, quiz.id)
+            return Response(QuizSessionSerializer(state.session).data)
 
         raise MethodNotAllowed(request.method)
 
@@ -798,7 +771,6 @@ class QuizViewSet(viewsets.ModelViewSet):
     def record_answer(self, request, pk=None):
         """Record an answer for the current session."""
         quiz = self.get_object()
-        session, _ = QuizSession.get_or_create_active(quiz, request.user)
 
         serializer = RecordAnswerSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -808,92 +780,20 @@ class QuizViewSet(viewsets.ModelViewSet):
             return Response({"error": "question_id is required"}, status=400)
 
         selected_answers = serializer.validated_data["selected_answers"]
-
+        next_question_id = request.data.get("next_question", UNSET)
         try:
-            question = Question.objects.prefetch_related("answers").get(id=question_id, quiz=quiz)
-        except (Question.DoesNotExist, ValueError, TypeError, DjangoValidationError):
-            return Response({"error": "Question not found in this quiz"}, status=404)
+            result = record_quiz_answer(
+                request.user,
+                quiz.id,
+                question_id,
+                selected_answers,
+                study_time=request.data.get("study_time") if "study_time" in request.data else None,
+                next_question_id=next_question_id,
+            )
+        except QuizOperationError as exc:
+            return Response({"error": exc.message}, status=exc.status_code)
 
-        if question.question_type == QuestionType.CLOSED:
-            answers = list(question.answers.all())
-
-            selected_ids = set(str(a) for a in selected_answers)
-            valid_answer_ids = set(str(a.id) for a in answers)
-
-            if not selected_ids.issubset(valid_answer_ids):
-                return Response({"error": "One or more selected answers do not belong to this question"}, status=400)
-
-            correct_answer_ids = set(str(a.id) for a in answers if a.is_correct)
-            was_correct = correct_answer_ids == selected_ids
-
-        elif question.question_type == QuestionType.TRUE_FALSE:
-            if len(selected_answers) > 1:
-                return Response({"error": "Invalid list size for this question type"}, status=400)
-
-            if question.tf_answer is None:
-                return Response({"error": "Question does not have tf answer"}, status=500)
-
-            user_answer = selected_answers[0]  # should be True or False
-
-            if not isinstance(user_answer, bool):
-                return Response({"error": "Invalid data type"}, status=400)
-
-            was_correct = user_answer == question.tf_answer
-            selected_ids = selected_answers
-
-        elif question.question_type == QuestionType.OPEN:
-            if len(selected_answers) > 1:
-                return Response({"error": "Invalid list size for this question type"}, status=400)
-
-            input_text = selected_answers[0]
-
-            if not isinstance(input_text, str):
-                return Response({"error": "Invalid data type"}, status=400)
-
-            correct_answer = question.answers.filter(is_correct=True).first()
-
-            if correct_answer is None:
-                return Response({"error": "Question has no correct answer"}, status=500)
-
-            selected_ids = selected_answers
-
-            # NOTE function normalize should be used when adding new answer to database
-            was_correct = normalize(input_text) == normalize(correct_answer.text)
-
-        else:
-            return Response({"error": "Unsupported question type"}, status=400)
-
-        record = AnswerRecord.objects.create(
-            session=session,
-            question=question,
-            selected_answers=list(selected_ids),
-            was_correct=was_correct,
-        )
-
-        update_fields = ["updated_at"]
-        if "study_time" in request.data:
-            try:
-                study_time_seconds = float(request.data["study_time"])
-            except (TypeError, ValueError):
-                return Response({"error": "study_time must be a numeric value"}, status=400)
-            session.study_time = timedelta(seconds=study_time_seconds)
-            update_fields.append("study_time")
-
-        if "next_question" in request.data:
-            next_question_id = request.data["next_question"]
-            if next_question_id is not None:
-                try:
-                    exists = Question.objects.filter(id=next_question_id, quiz=quiz).exists()
-                except (ValueError, TypeError, DjangoValidationError):
-                    return Response({"error": "next_question must be a valid question in this quiz"}, status=400)
-                if not exists:
-                    return Response({"error": "next_question must be a valid question in this quiz"}, status=400)
-            session.current_question_id = next_question_id
-            update_fields.append("current_question_id")
-
-        session.save(update_fields=update_fields)
-
-        return Response(AnswerRecordSerializer(record).data, status=201)
+        return Response(AnswerRecordSerializer(result.record).data, status=201)
 
     @extend_schema(
         summary="Copy quiz to user's library",

@@ -1,32 +1,40 @@
-from datetime import timedelta
-
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.db.models import Count, Q
-from django.utils import timezone
 from mcp_server import MCPToolset
 from rest_framework.exceptions import ValidationError
 
 from quizzes.models import (
-    AnswerRecord,
     Folder,
-    Question,
     QuestionType,
     Quiz,
-    QuizSession,
 )
-from quizzes.permissions import user_has_quiz_read_access
 from quizzes.serializers import (
     BulkCreateQuestionsSerializer,
     QuestionSerializer,
     QuizMetaDataSerializer,
     QuizSerializer,
 )
+from quizzes.services.operations import (
+    QuizOperationError,
+    folder_quizzes_queryset,
+    get_current_session_question,
+    get_editable_question,
+    get_editable_quiz,
+    get_folder_for_read,
+    get_or_choose_session_question,
+    get_random_recent_question,
+    get_readable_quiz,
+    get_readable_session,
+    move_owned_quiz,
+    owned_quizzes_queryset,
+    record_quiz_answer,
+    reset_readable_session,
+    searchable_quizzes_queryset,
+)
 from quizzes.services.stats import get_quiz_stats
 from testownik_core.mcp_auth import require_scope as _require_scope
 
 CLOSED_QUESTION_INPUTS = {"closed", "normal", "0", 0, QuestionType.CLOSED}
-PUBLIC_VISIBILITY = 3
 
 
 class _QuestionError(ValueError):
@@ -53,6 +61,10 @@ def _validation_error(errors):
 
 def _model_validation_error(exc):
     return _validation_error(getattr(exc, "message_dict", getattr(exc, "messages", str(exc))))
+
+
+def _operation_error(exc):
+    return {"error": exc.message}
 
 
 def _question_data(question, request):
@@ -194,55 +206,36 @@ class QuizTools(MCPToolset):
         """List all quizzes owned by the current user. Returns quiz id, title,
         description, question count, and visibility."""
         _require_scope(self.request, "quizzes:read")
-        user = self.request.user
-        quizzes = (
-            Quiz.objects.filter(folder__owner=user, archived_at__isnull=True)
-            .select_related("creator")
-            .annotate(questions_count=Count("questions"))
-            .order_by("-updated_at")
-        )
+        quizzes = owned_quizzes_queryset(self.request.user)
         return [_quiz_meta_data(q, self.request) for q in quizzes]
 
     def search_quizzes(self, query: str) -> list[dict]:
         """Search accessible quizzes by title. Returns matching quizzes the
         current user can read."""
         _require_scope(self.request, "quizzes:read")
-        user = self.request.user
-        base = Quiz.objects.filter(title__icontains=query, archived_at__isnull=True)
-        accessible = base.filter(
-            Q(folder__owner=user)
-            | Q(visibility__gte=PUBLIC_VISIBILITY)
-            | Q(sharedquiz__user=user, visibility__gte=1)
-            | Q(
-                sharedquiz__study_group__in=user.study_groups.all(),
-                visibility__gte=1,
-            )
-        ).distinct()
-        accessible = accessible.select_related("creator").annotate(questions_count=Count("questions"))[:25]
+        accessible = searchable_quizzes_queryset(self.request.user, query)[:25]
         return [_quiz_meta_data(q, self.request) for q in accessible]
 
     def get_quiz(self, quiz_id: str) -> dict:
         """Get full quiz details including all questions and answers."""
         _require_scope(self.request, "quizzes:read")
-        user = self.request.user
         try:
-            quiz = Quiz.objects.prefetch_related("questions__answers").get(pk=quiz_id)
-        except Quiz.DoesNotExist:
-            return {"error": "Quiz not found."}
-        if not user_has_quiz_read_access(user, quiz):
-            return {"error": "You do not have access to this quiz."}
+            quiz = get_readable_quiz(self.request.user, quiz_id, prefetch_questions=True)
+        except QuizOperationError as exc:
+            return _operation_error(exc)
         return _quiz_data(quiz, self.request)
 
     def get_quiz_questions(self, quiz_id: str) -> dict:
         """List all questions in a quiz with their answers."""
         _require_scope(self.request, "quizzes:read")
-        user = self.request.user
         try:
-            quiz = Quiz.objects.prefetch_related("questions__answers", "questions__image_upload").get(pk=quiz_id)
-        except Quiz.DoesNotExist:
-            return {"error": "Quiz not found."}
-        if not user_has_quiz_read_access(user, quiz):
-            return {"error": "You do not have access to this quiz."}
+            quiz = get_readable_quiz(
+                self.request.user,
+                quiz_id,
+                queryset=Quiz.objects.prefetch_related("questions__answers", "questions__image_upload"),
+            )
+        except QuizOperationError as exc:
+            return _operation_error(exc)
         return {"questions": [_question_data(q, self.request) for q in quiz.questions.all()]}
 
     def create_quiz(
@@ -324,13 +317,10 @@ class QuizTools(MCPToolset):
 
         To add many questions at once, use add_questions instead."""
         _require_scope(self.request, "quizzes:write")
-        user = self.request.user
         try:
-            quiz = Quiz.objects.get(pk=quiz_id)
-        except Quiz.DoesNotExist:
-            return {"error": "Quiz not found."}
-        if not quiz.can_edit(user):
-            return {"error": "You do not have permission to edit this quiz."}
+            quiz = get_editable_quiz(self.request.user, quiz_id)
+        except QuizOperationError as exc:
+            return _operation_error(exc)
 
         spec = {
             "text": text,
@@ -357,13 +347,10 @@ class QuizTools(MCPToolset):
         any question is invalid nothing is saved and the error names the
         offending index."""
         _require_scope(self.request, "quizzes:write")
-        user = self.request.user
         try:
-            quiz = Quiz.objects.get(pk=quiz_id)
-        except Quiz.DoesNotExist:
-            return {"error": "Quiz not found."}
-        if not quiz.can_edit(user):
-            return {"error": "You do not have permission to edit this quiz."}
+            quiz = get_editable_quiz(self.request.user, quiz_id)
+        except QuizOperationError as exc:
+            return _operation_error(exc)
         if not questions:
             return {"error": "Provide at least one question."}
 
@@ -391,13 +378,10 @@ class QuizTools(MCPToolset):
         is provided and `multiple` is omitted, `multiple` is inferred from the
         new answer set."""
         _require_scope(self.request, "quizzes:write")
-        user = self.request.user
         try:
-            question = Question.objects.select_related("quiz").get(pk=question_id)
-        except Question.DoesNotExist:
-            return {"error": "Question not found."}
-        if not question.quiz.can_edit(user):
-            return {"error": "You do not have permission to edit this question."}
+            question = get_editable_question(self.request.user, question_id)
+        except QuizOperationError as exc:
+            return _operation_error(exc)
 
         if question.question_type != QuestionType.CLOSED:
             return {"error": "MCP only supports editing normal questions."}
@@ -430,13 +414,10 @@ class QuizTools(MCPToolset):
     def delete_question(self, question_id: str) -> dict:
         """Remove a question from a quiz."""
         _require_scope(self.request, "quizzes:write")
-        user = self.request.user
         try:
-            question = Question.objects.select_related("quiz").get(pk=question_id)
-        except Question.DoesNotExist:
-            return {"error": "Question not found."}
-        if not question.quiz.can_edit(user):
-            return {"error": "You do not have permission to delete this question."}
+            question = get_editable_question(self.request.user, question_id)
+        except QuizOperationError as exc:
+            return _operation_error(exc)
         question.delete()
         return {"status": "deleted"}
 
@@ -446,81 +427,47 @@ class StudyTools(MCPToolset):
         """Get or create an active study session for a quiz. Returns session
         state, progress counts, and the current question."""
         _require_scope(self.request, "study:read")
-        user = self.request.user
         try:
-            quiz = Quiz.objects.prefetch_related("questions__answers").get(pk=quiz_id)
-        except Quiz.DoesNotExist:
-            return {"error": "Quiz not found."}
-        if not user_has_quiz_read_access(user, quiz):
-            return {"error": "You do not have access to this quiz."}
-        session, created = QuizSession.get_or_create_active(quiz, user)
-        current_q = None
-        if session.current_question_id:
-            try:
-                q = Question.objects.prefetch_related("answers").get(pk=session.current_question_id)
-                current_q = _question_data(q, self.request)
-            except Question.DoesNotExist:
-                # The session can reference a question deleted after it was selected.
-                # In that case return no current question and let the next call pick one.
-                current_q = None
+            state = get_readable_session(self.request.user, quiz_id, prefetch_quiz=True)
+        except QuizOperationError as exc:
+            return _operation_error(exc)
+        session = state.session
+        quiz = state.quiz
+        current_q = get_current_session_question(session)
         return {
             "session_id": str(session.id),
             "quiz_id": str(quiz.id),
             "quiz_title": quiz.title,
-            "is_new": created,
+            "is_new": state.created,
             "correct_count": session.correct_count,
             "wrong_count": session.wrong_count,
             "total_questions": quiz.questions.count(),
             "study_time_seconds": session.study_time.total_seconds(),
-            "current_question": current_q,
+            "current_question": _question_data(current_q, self.request) if current_q else None,
         }
 
     def reset_quiz_session(self, quiz_id: str) -> dict:
         """Archive the current session and start a fresh one."""
         _require_scope(self.request, "study:write")
-        user = self.request.user
         try:
-            quiz = Quiz.objects.get(pk=quiz_id)
-        except Quiz.DoesNotExist:
-            return {"error": "Quiz not found."}
-        if not user_has_quiz_read_access(user, quiz):
-            return {"error": "You do not have access to this quiz."}
-        with transaction.atomic():
-            QuizSession.objects.filter(quiz=quiz, user=user, is_active=True).update(
-                is_active=False, ended_at=timezone.now()
-            )
-            session, _ = QuizSession.get_or_create_active(quiz, user)
+            state = reset_readable_session(self.request.user, quiz_id)
+        except QuizOperationError as exc:
+            return _operation_error(exc)
         return {
-            "session_id": str(session.id),
+            "session_id": str(state.session.id),
             "status": "reset",
-            "total_questions": quiz.questions.count(),
+            "total_questions": state.quiz.questions.count(),
         }
 
     def get_next_question(self, quiz_id: str) -> dict:
         """Get the next question to study based on the session's current state."""
         _require_scope(self.request, "study:read")
-        user = self.request.user
         try:
-            quiz = Quiz.objects.prefetch_related("questions__answers").get(pk=quiz_id)
-        except Quiz.DoesNotExist:
-            return {"error": "Quiz not found."}
-        if not user_has_quiz_read_access(user, quiz):
-            return {"error": "You do not have access to this quiz."}
-        session, _ = QuizSession.get_or_create_active(quiz, user)
-        if session.current_question_id:
-            try:
-                q = Question.objects.prefetch_related("answers").get(pk=session.current_question_id)
-                return _question_data(q, self.request)
-            except Question.DoesNotExist:
-                # The saved pointer can be stale if the question was deleted.
-                # Fall through and choose another question from the quiz.
-                session.current_question = None
-        q = quiz.questions.order_by("?").first()
-        if q is None:
-            return {"error": "This quiz has no questions."}
-        session.current_question = q
-        session.save(update_fields=["current_question"])
-        return _question_data(q, self.request)
+            state = get_readable_session(self.request.user, quiz_id, prefetch_quiz=True)
+            question = get_or_choose_session_question(state.session, state.quiz)
+        except QuizOperationError as exc:
+            return _operation_error(exc)
+        return _question_data(question, self.request)
 
     def submit_answer(
         self,
@@ -532,77 +479,38 @@ class StudyTools(MCPToolset):
         Pass a list of selected answer UUIDs for normal questions.
         Returns whether the answer was correct and the updated session state."""
         _require_scope(self.request, "study:write")
-        user = self.request.user
         try:
-            quiz = Quiz.objects.get(pk=quiz_id)
-        except Quiz.DoesNotExist:
-            return {"error": "Quiz not found."}
-        if not user_has_quiz_read_access(user, quiz):
-            return {"error": "You do not have access to this quiz."}
+            result = record_quiz_answer(
+                self.request.user,
+                quiz_id,
+                question_id,
+                selected_answers,
+                closed_only=True,
+                choose_random_next=True,
+            )
+        except QuizOperationError as exc:
+            return _operation_error(exc)
 
-        session, _ = QuizSession.get_or_create_active(quiz, user)
-        try:
-            question = Question.objects.prefetch_related("answers").get(id=question_id, quiz=quiz)
-        except Question.DoesNotExist:
-            return {"error": "Question not found in this quiz."}
-
-        if question.question_type != QuestionType.CLOSED:
-            return {"error": "MCP only supports submitting answers for normal questions."}
-
-        answers = list(question.answers.all())
-        selected_ids = set(str(a) for a in selected_answers)
-        valid_ids = set(str(a.id) for a in answers)
-        if not selected_ids.issubset(valid_ids):
-            return {"error": "One or more selected answers are invalid."}
-        correct_ids = set(str(a.id) for a in answers if a.is_correct)
-        was_correct = correct_ids == selected_ids
-        recorded = list(selected_ids)
-
-        AnswerRecord.objects.create(
-            session=session,
-            question=question,
-            selected_answers=recorded,
-            was_correct=was_correct,
-        )
-        session.save(update_fields=["updated_at"])
-
-        correct_answers = [{"id": str(a.id), "text": a.text} for a in question.answers.all() if a.is_correct]
-
-        next_q = quiz.questions.order_by("?").first()
-        if next_q:
-            session.current_question = next_q
-            session.save(update_fields=["current_question"])
+        correct_answers = [
+            {"id": str(answer.id), "text": answer.text} for answer in result.question.answers.all() if answer.is_correct
+        ]
 
         return {
-            "was_correct": was_correct,
+            "was_correct": result.was_correct,
             "correct_answers": correct_answers,
-            "correct_count": session.correct_count,
-            "wrong_count": session.wrong_count,
-            "next_question_id": str(next_q.id) if next_q else None,
+            "correct_count": result.session.correct_count,
+            "wrong_count": result.session.wrong_count,
+            "next_question_id": str(result.session.current_question_id) if result.session.current_question_id else None,
         }
 
     def get_random_question(self) -> dict:
         """Get a random question from the user's recently active quizzes
         (last 90 days)."""
         _require_scope(self.request, "study:read")
-        user = self.request.user
-        recent_quiz_ids = list(
-            QuizSession.objects.filter(
-                user=user,
-                updated_at__gte=timezone.now() - timedelta(days=90),
-            ).values_list("quiz_id", flat=True)
-        )
-        if not recent_quiz_ids:
-            return {"error": "No recent quizzes found."}
-        question = (
-            Question.objects.filter(quiz_id__in=recent_quiz_ids)
-            .select_related("quiz")
-            .prefetch_related("answers")
-            .order_by("?")
-            .first()
-        )
-        if question is None:
-            return {"error": "No questions found in recent quizzes."}
+        try:
+            question = get_random_recent_question(self.request.user)
+        except QuizOperationError as exc:
+            return _operation_error(exc)
         data = _question_data(question, self.request)
         data["quiz_id"] = str(question.quiz.id)
         data["quiz_title"] = question.quiz.title
@@ -614,26 +522,20 @@ class ProgressTools(MCPToolset):
         """Get the user's study progress on a specific quiz, including session
         counts, scores, and study time."""
         _require_scope(self.request, "study:read")
-        user = self.request.user
         try:
-            quiz = Quiz.objects.get(pk=quiz_id)
-        except Quiz.DoesNotExist:
-            return {"error": "Quiz not found."}
-        if not user_has_quiz_read_access(user, quiz):
-            return {"error": "You do not have access to this quiz."}
-        return get_quiz_stats(quiz, user)
+            quiz = get_readable_quiz(self.request.user, quiz_id)
+        except QuizOperationError as exc:
+            return _operation_error(exc)
+        return get_quiz_stats(quiz, self.request.user)
 
     def get_quiz_statistics(self, quiz_id: str) -> dict:
         """Get aggregated statistics for a quiz with per-question breakdown."""
         _require_scope(self.request, "study:read")
-        user = self.request.user
         try:
-            quiz = Quiz.objects.get(pk=quiz_id)
-        except Quiz.DoesNotExist:
-            return {"error": "Quiz not found."}
-        if not user_has_quiz_read_access(user, quiz):
-            return {"error": "You do not have access to this quiz."}
-        return get_quiz_stats(quiz, user, include_per_question=True)
+            quiz = get_readable_quiz(self.request.user, quiz_id)
+        except QuizOperationError as exc:
+            return _operation_error(exc)
+        return get_quiz_stats(quiz, self.request.user, include_per_question=True)
 
 
 class FolderTools(MCPToolset):
@@ -647,35 +549,18 @@ class FolderTools(MCPToolset):
     def get_folder_quizzes(self, folder_id: str) -> dict:
         """Get all quizzes in a specific folder."""
         _require_scope(self.request, "quizzes:read")
-        user = self.request.user
         try:
-            folder = Folder.objects.get(pk=folder_id)
-        except Folder.DoesNotExist:
-            return {"error": "Folder not found."}
-        if folder.owner != user and not folder.has_edit_permission(user):
-            return {"error": "You do not have access to this folder."}
-        quizzes = (
-            Quiz.objects.filter(folder=folder, archived_at__isnull=True)
-            .select_related("creator")
-            .annotate(questions_count=Count("questions"))
-        )
+            folder = get_folder_for_read(self.request.user, folder_id)
+        except QuizOperationError as exc:
+            return _operation_error(exc)
+        quizzes = folder_quizzes_queryset(folder)
         return {"quizzes": [_quiz_meta_data(q, self.request) for q in quizzes]}
 
     def add_quiz_to_folder(self, quiz_id: str, folder_id: str) -> dict:
         """Move a quiz to a different folder."""
         _require_scope(self.request, "quizzes:write")
-        user = self.request.user
         try:
-            quiz = Quiz.objects.get(pk=quiz_id)
-        except Quiz.DoesNotExist:
-            return {"error": "Quiz not found."}
-        if quiz.folder.owner != user:
-            return {"error": "Only the quiz owner can move it."}
-        try:
-            folder = Folder.objects.get(pk=folder_id, owner=user)
-        except Folder.DoesNotExist:
-            return {"error": "Folder not found."}
-        quiz.folder = folder
-        quiz.archived_at = None
-        quiz.save(update_fields=["folder", "archived_at", "updated_at"])
+            quiz, folder = move_owned_quiz(self.request.user, quiz_id, folder_id)
+        except QuizOperationError as exc:
+            return _operation_error(exc)
         return {"status": "moved", "quiz_id": str(quiz.id), "folder_id": str(folder.id)}
