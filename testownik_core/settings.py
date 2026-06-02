@@ -85,6 +85,7 @@ INSTALLED_APPS = [
     "quizzes.apps.QuizzesConfig",
     "maintenance.apps.MaintenanceConfig",
     "testownik_core.apps.TestownikCoreConfig",
+    "oauth_integrations.apps.OAuthIntegrationsConfig",
     "uploads.apps.UploadsConfig",
     "constance",
     "constance.backends.database",
@@ -95,7 +96,6 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "django_filters",
     "oauth2_provider",
-    "oauth_dcr",
     "mcp_server",
 ]
 
@@ -315,6 +315,7 @@ UNFOLD = get_unfold_settings(FRONTEND_URL)
 
 # OAuth 2.0 Authorization Server (django-oauth-toolkit)
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:8000").rstrip("/")
+OAUTH2_PROVIDER_APPLICATION_MODEL = "oauth2_provider.Application"
 
 OAUTH2_PROVIDER = {
     "SCOPES": {
@@ -330,14 +331,7 @@ OAUTH2_PROVIDER = {
     "ROTATE_REFRESH_TOKEN": True,
     "PKCE_REQUIRED": True,
     "ALLOWED_REDIRECT_URI_SCHEMES": ["https", "http"] if DEBUG else ["https"],
-}
-
-OAUTH_DCR_SETTINGS = {
-    "ALLOWED_GRANT_TYPES": [
-        "authorization_code",
-        "refresh_token",
-    ],
-    "REQUIRE_HTTPS_REDIRECT_URIS": not DEBUG,
+    "OAUTH2_VALIDATOR_CLASS": "oauth_integrations.oauth_cimd.CIMDOAuth2Validator",
 }
 
 # MCP Server (django-mcp-server)

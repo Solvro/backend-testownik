@@ -11,12 +11,11 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 from mcp_server.views import MCPServerStreamableHttpView
-from oauth_dcr.views import DynamicClientRegistrationView
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from testownik_core.oauth_views import (
+from oauth_integrations.views import (
     AuthorizationServerMetadataView,
     AuthorizedAppsView,
     ProtectedResourceMetadataView,
@@ -94,12 +93,11 @@ base_urlpatterns = [
     # OAuth 2.0
     # Override the authorize view (before the include) to render a per-scope
     # consent screen that supports approving a subset of the requested scopes.
-    path("oauth/authorize/", ScopedAuthorizationView.as_view(), name="authorize"),
+    path("oauth/authorize/", ScopedAuthorizationView.as_view(), name="oauth_authorize"),
     path("oauth/", include("oauth2_provider.urls", namespace="oauth2_provider")),
-    path("oauth/register/", DynamicClientRegistrationView.as_view(), name="oauth2_dcr"),
     path("oauth/authorized-apps/", AuthorizedAppsView.as_view(), name="authorized_apps"),
     path(
-        "oauth/authorized-apps/<str:client_id>/",
+        "oauth/authorized-apps/<path:client_id>/",
         AuthorizedAppsView.as_view(),
         name="authorized_app_detail",
     ),
