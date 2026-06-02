@@ -5,7 +5,7 @@ import socket
 import ssl
 from dataclasses import dataclass
 from datetime import timedelta
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -41,7 +41,7 @@ class ValidatedClientMetadata:
 
 @dataclass(frozen=True)
 class ValidatedFetchURL:
-    parsed: object
+    parsed: ParseResult
     address: str
 
 
@@ -286,6 +286,7 @@ def _fetch_pinned_metadata_document(fetch_url: ValidatedFetchURL) -> tuple[int, 
         raw_sock.settimeout(CIMD_FETCH_TIMEOUT_SECONDS)
         if parsed.scheme == "https":
             context = ssl.create_default_context()
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
             with context.wrap_socket(raw_sock, server_hostname=parsed.hostname) as tls_sock:
                 tls_sock.sendall(request)
                 return _read_http_response(tls_sock)

@@ -1,7 +1,10 @@
+import uuid
+
 from django.db import models
 
 
 class OAuthClientMetadata(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     application = models.OneToOneField(
         "oauth2_provider.Application",
         on_delete=models.CASCADE,

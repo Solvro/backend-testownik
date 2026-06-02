@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
@@ -25,7 +26,7 @@ from quizzes.services.stats import get_quiz_stats
 from testownik_core.mcp_auth import require_scope as _require_scope
 
 CLOSED_QUESTION_INPUTS = {"closed", "normal", "0", 0, QuestionType.CLOSED}
-READABLE_VISIBILITY = 2
+PUBLIC_VISIBILITY = 3
 
 
 class _QuestionError(ValueError):
@@ -48,6 +49,10 @@ def _plain_data(value):
 
 def _validation_error(errors):
     return {"error": _plain_data(errors)}
+
+
+def _model_validation_error(exc):
+    return _validation_error(getattr(exc, "message_dict", getattr(exc, "messages", str(exc))))
 
 
 def _question_data(question, request):
@@ -206,7 +211,7 @@ class QuizTools(MCPToolset):
         base = Quiz.objects.filter(title__icontains=query, archived_at__isnull=True)
         accessible = base.filter(
             Q(folder__owner=user)
-            | Q(visibility__gte=READABLE_VISIBILITY)
+            | Q(visibility__gte=PUBLIC_VISIBILITY)
             | Q(sharedquiz__user=user, visibility__gte=1)
             | Q(
                 sharedquiz__study_group__in=user.study_groups.all(),
@@ -228,17 +233,17 @@ class QuizTools(MCPToolset):
             return {"error": "You do not have access to this quiz."}
         return _quiz_data(quiz, self.request)
 
-    def get_quiz_questions(self, quiz_id: str) -> list[dict]:
+    def get_quiz_questions(self, quiz_id: str) -> dict:
         """List all questions in a quiz with their answers."""
         _require_scope(self.request, "quizzes:read")
         user = self.request.user
         try:
             quiz = Quiz.objects.prefetch_related("questions__answers", "questions__image_upload").get(pk=quiz_id)
         except Quiz.DoesNotExist:
-            return [{"error": "Quiz not found."}]
+            return {"error": "Quiz not found."}
         if not user_has_quiz_read_access(user, quiz):
-            return [{"error": "You do not have access to this quiz."}]
-        return [_question_data(q, self.request) for q in quiz.questions.all()]
+            return {"error": "You do not have access to this quiz."}
+        return {"questions": [_question_data(q, self.request) for q in quiz.questions.all()]}
 
     def create_quiz(
         self,
@@ -271,7 +276,7 @@ class QuizTools(MCPToolset):
         try:
             normalized_questions = _normalize_indexed_question_specs(questions or [])
             with transaction.atomic():
-                quiz = Quiz.objects.create(
+                quiz = Quiz(
                     title=title,
                     description=description,
                     visibility=visibility,
@@ -279,6 +284,8 @@ class QuizTools(MCPToolset):
                     folder=user.root_folder,
                     is_ai_generated=True,
                 )
+                quiz.full_clean()
+                quiz.save()
                 if normalized_questions:
                     serializer = BulkCreateQuestionsSerializer(
                         data={"quiz": str(quiz.id), "questions": normalized_questions},
@@ -289,6 +296,8 @@ class QuizTools(MCPToolset):
                 created = len(normalized_questions)
         except _QuestionError as exc:
             return {"error": str(exc)}
+        except DjangoValidationError as exc:
+            return _model_validation_error(exc)
         except ValidationError as exc:
             return _validation_error(exc.detail)
         return {
@@ -635,22 +644,22 @@ class FolderTools(MCPToolset):
         folders = Folder.objects.filter(owner=user).order_by("-created_at")
         return [_folder_data(folder) for folder in folders]
 
-    def get_folder_quizzes(self, folder_id: str) -> list[dict]:
+    def get_folder_quizzes(self, folder_id: str) -> dict:
         """Get all quizzes in a specific folder."""
         _require_scope(self.request, "quizzes:read")
         user = self.request.user
         try:
             folder = Folder.objects.get(pk=folder_id)
         except Folder.DoesNotExist:
-            return [{"error": "Folder not found."}]
+            return {"error": "Folder not found."}
         if folder.owner != user and not folder.has_edit_permission(user):
-            return [{"error": "You do not have access to this folder."}]
+            return {"error": "You do not have access to this folder."}
         quizzes = (
             Quiz.objects.filter(folder=folder, archived_at__isnull=True)
             .select_related("creator")
             .annotate(questions_count=Count("questions"))
         )
-        return [_quiz_meta_data(q, self.request) for q in quizzes]
+        return {"quizzes": [_quiz_meta_data(q, self.request) for q in quizzes]}
 
     def add_quiz_to_folder(self, quiz_id: str, folder_id: str) -> dict:
         """Move a quiz to a different folder."""
