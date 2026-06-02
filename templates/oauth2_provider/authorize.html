@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Authorize — Testownik</title>
+    {% load static %}
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style type="text/tailwindcss">
+        @custom-variant dark (&:is(.dark *));
+
+        @theme inline {
+            --radius: 0.625rem;
+            --radius-md: calc(var(--radius));
+            --radius-lg: calc(var(--radius) + 2px);
+            --radius-xl: calc(var(--radius) + 4px);
+            --color-background: var(--background);
+            --color-foreground: var(--foreground);
+            --color-card: var(--card);
+            --color-card-foreground: var(--card-foreground);
+            --color-primary: var(--primary);
+            --color-primary-foreground: var(--primary-foreground);
+            --color-secondary: var(--secondary);
+            --color-secondary-foreground: var(--secondary-foreground);
+            --color-muted: var(--muted);
+            --color-muted-foreground: var(--muted-foreground);
+            --color-border: var(--border);
+            --color-input: var(--input);
+            --color-ring: var(--ring);
+            --color-destructive: var(--destructive);
+            --color-destructive-foreground: var(--destructive-foreground);
+        }
+
+        :root {
+            --radius: 0.625rem;
+            --background: oklch(1 0 0);
+            --foreground: oklch(0.2044 0.0215 263.92);
+            --card: oklch(0.99 0 286.38);
+            --card-foreground: oklch(0.253 0.0321 265.95);
+            --primary: oklch(0.6068 0.172 258.85);
+            --primary-foreground: oklch(0.9695 0.0045 258.32);
+            --secondary: oklch(0.9374 0.0076 241.67);
+            --secondary-foreground: oklch(0.2988 0.0404 266.18);
+            --muted: oklch(0.9167 0.0219 250.22);
+            --muted-foreground: oklch(0.437 0.0638 260.33);
+            --border: oklch(0.8689 0.0358 258.87);
+            --input: oklch(0.9597 0.0052 247.88);
+            --ring: oklch(0.69 0.0882 257.92);
+            --destructive: oklch(0.577 0.245 27.325);
+            --destructive-foreground: oklch(0.577 0.245 27.325);
+        }
+
+        .dark {
+            --background: oklch(0.177 0.025 262.114);
+            --foreground: oklch(0.985 0 0);
+            --card: oklch(0.1877 0.0283 264.85);
+            --card-foreground: oklch(0.985 0 0);
+            --primary: oklch(0.553 0.18 259.121);
+            --primary-foreground: oklch(0.969 0.005 258.325);
+            --secondary: oklch(0.278 0.052 262.021);
+            --secondary-foreground: oklch(0.985 0 0);
+            --muted: oklch(0.245 0.043 262.55);
+            --muted-foreground: oklch(0.708 0 0);
+            --border: oklch(0.82 0.084 261.375 / 10%);
+            --input: oklch(0.82 0.084 261.375 / 15%);
+            --ring: oklch(0.3663 0.0748 261.57);
+            --destructive: oklch(0.704 0.191 22.216);
+            --destructive-foreground: oklch(0.704 0.191 22.216);
+        }
+
+        @layer base {
+            * {
+                @apply border-border;
+            }
+            body {
+                @apply bg-background text-foreground antialiased;
+            }
+        }
+    </style>
+    <script>
+        (function() {
+            if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                document.documentElement.classList.add('dark');
+            }
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+                document.documentElement.classList.toggle('dark', e.matches);
+            });
+        })();
+    </script>
+</head>
+<body class="flex min-h-screen items-center justify-center p-4">
+    <div class="w-full max-w-lg">
+        <div class="bg-card text-card-foreground ring-foreground/10 flex flex-col gap-6 overflow-hidden rounded-xl py-6 text-sm shadow-xs ring-1">
+
+            <div class="px-6 text-center">
+                <div class="mx-auto mb-4 flex justify-center">
+                    <img src="{% static 'logo.svg' %}" alt="Testownik" class="h-12 dark:hidden">
+                    <img src="{% static 'logo-dark.svg' %}" alt="Testownik" class="hidden h-12 dark:block">
+                </div>
+                <p class="text-muted-foreground text-sm">
+                    <span class="text-card-foreground font-medium">{{ application.name }}</span>
+                    wants to access your Testownik account
+                </p>
+            </div>
+
+            {% if error %}
+            <div class="mx-6 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                {{ error }}
+            </div>
+            {% endif %}
+
+            {% if scopes_zip %}
+            <div class="px-6">
+                <p class="text-muted-foreground mb-3 text-xs font-medium uppercase tracking-wider">
+                    Choose what to allow
+                </p>
+                <div class="space-y-2">
+                    {% for scope, desc in scopes_zip %}
+                    <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-background px-4 py-3 text-sm transition-colors select-none has-[:checked]:border-primary/50 has-[:checked]:bg-primary/5">
+                        <input type="checkbox" class="scope-cb size-4 shrink-0 accent-primary" value="{{ scope }}" checked>
+                        <svg class="text-primary size-4 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>
+                        <span>{{ desc }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                <p class="text-muted-foreground mt-2 text-xs">
+                    Uncheck anything you don't want to grant. You can revoke access at any time.
+                </p>
+            </div>
+            {% endif %}
+
+            <div class="flex gap-3 px-6">
+                <form method="post" id="allow-form" class="flex-1">
+                    {% csrf_token %}
+                    {% for field in form %}
+                        {% if field.is_hidden and field.name != "scope" %}
+                            {{ field }}
+                        {% endif %}
+                    {% endfor %}
+                    {# `scope` is populated from the checkboxes above; defaults to all requested scopes when JS is unavailable. #}
+                    <input type="hidden" name="scope" id="allow-scope" value="{{ scopes|join:' ' }}">
+                    <input type="hidden" name="allow" value="true">
+                    <button type="submit" id="allow-button" class="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:translate-y-px disabled:pointer-events-none disabled:opacity-50">
+                        Allow
+                    </button>
+                </form>
+                <form method="post" class="flex-1">
+                    {% csrf_token %}
+                    {% for field in form %}
+                        {% if field.is_hidden %}
+                            {{ field }}
+                        {% endif %}
+                    {% endfor %}
+                    <button type="submit" class="inline-flex h-10 w-full items-center justify-center rounded-md border border-border bg-background px-4 text-sm font-medium shadow-xs transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:translate-y-px">
+                        Deny
+                    </button>
+                </form>
+            </div>
+
+            <div class="text-muted-foreground flex flex-wrap items-center justify-center gap-1 border-t px-6 pt-6 text-center text-xs">
+                Authorizing will redirect you to
+                <span class="font-medium text-card-foreground break-all">{{ redirect_uri }}</span>
+            </div>
+        </div>
+    </div>
+    <script>
+        (function() {
+            var form = document.getElementById('allow-form');
+            var scopeField = document.getElementById('allow-scope');
+            var allowButton = document.getElementById('allow-button');
+            var checkboxes = Array.prototype.slice.call(document.querySelectorAll('.scope-cb'));
+            if (!form || !scopeField) return;
+
+            function sync() {
+                var selected = checkboxes
+                    .filter(function(c) { return c.checked; })
+                    .map(function(c) { return c.value; });
+                scopeField.value = selected.join(' ');
+                if (allowButton) {
+                    allowButton.disabled = selected.length === 0;
+                }
+            }
+
+            checkboxes.forEach(function(c) { c.addEventListener('change', sync); });
+            form.addEventListener('submit', sync);
+            sync();
+        })();
+    </script>
+</body>
+</html>
