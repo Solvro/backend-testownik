@@ -7,7 +7,15 @@ from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from quizzes.models import AnswerRecord, Folder, Question, QuestionType, Quiz, QuizSession, SharedQuiz
+from quizzes.models import (
+    AnswerRecord,
+    Folder,
+    Question,
+    QuestionType,
+    Quiz,
+    QuizSession,
+    SharedQuiz,
+)
 from quizzes.permissions import user_has_quiz_read_access
 from quizzes.services.normalizer import normalize
 

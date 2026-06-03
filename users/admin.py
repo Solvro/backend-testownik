@@ -3,21 +3,11 @@ import contextlib
 from django.contrib import admin
 from django.contrib.admin.sites import NotRegistered
 from django.contrib.auth.models import Group
-from oauth2_provider.admin import (
-    AccessTokenAdmin as BaseAccessTokenAdmin,
-)
-from oauth2_provider.admin import (
-    ApplicationAdmin as BaseApplicationAdmin,
-)
-from oauth2_provider.admin import (
-    GrantAdmin as BaseGrantAdmin,
-)
-from oauth2_provider.admin import (
-    IDTokenAdmin as BaseIDTokenAdmin,
-)
-from oauth2_provider.admin import (
-    RefreshTokenAdmin as BaseRefreshTokenAdmin,
-)
+from oauth2_provider.admin import AccessTokenAdmin as BaseAccessTokenAdmin
+from oauth2_provider.admin import ApplicationAdmin as BaseApplicationAdmin
+from oauth2_provider.admin import GrantAdmin as BaseGrantAdmin
+from oauth2_provider.admin import IDTokenAdmin as BaseIDTokenAdmin
+from oauth2_provider.admin import RefreshTokenAdmin as BaseRefreshTokenAdmin
 from oauth2_provider.models import (
     get_access_token_model,
     get_application_model,
@@ -31,7 +21,10 @@ from rest_framework_simplejwt.token_blacklist.admin import (
 from rest_framework_simplejwt.token_blacklist.admin import (
     OutstandingTokenAdmin as BaseOutstandingTokenAdmin,
 )
-from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+from rest_framework_simplejwt.token_blacklist.models import (
+    BlacklistedToken,
+    OutstandingToken,
+)
 from unfold.admin import ModelAdmin, StackedInline
 
 from .models import EmailLoginToken, StudyGroup, Term, User, UserSettings

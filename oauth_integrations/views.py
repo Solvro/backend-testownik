@@ -4,7 +4,12 @@ from django.conf import settings
 from django.http import HttpResponseBadRequest
 from django.utils import timezone
 from oauth2_provider.exceptions import OAuthToolkitError
-from oauth2_provider.models import AccessToken, RefreshToken, get_access_token_model, get_application_model
+from oauth2_provider.models import (
+    AccessToken,
+    RefreshToken,
+    get_access_token_model,
+    get_application_model,
+)
 from oauth2_provider.scopes import get_scopes_backend
 from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.views import AuthorizationView
