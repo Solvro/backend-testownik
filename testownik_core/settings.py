@@ -319,11 +319,11 @@ OAUTH2_PROVIDER_APPLICATION_MODEL = "oauth2_provider.Application"
 
 OAUTH2_PROVIDER = {
     "SCOPES": {
-        "quizzes:read": "View quizzes and questions",
-        "quizzes:write": "Create and edit quizzes and questions",
-        "study:read": "View study sessions, progress, and statistics",
-        "study:write": "Record answers and run study sessions",
-        "user:read": "View user profile and settings",
+        "quizzes:read": "Wyświetlanie quizów i pytań",
+        "quizzes:write": "Tworzenie i edytowanie quizów oraz pytań",
+        "study:read": "Wyświetlanie sesji nauki, postępów i statystyk",
+        "study:write": "Zapisywanie odpowiedzi i uruchamianie sesji nauki",
+        "user:read": "Wyświetlanie profilu użytkownika i ustawień",
     },
     "DEFAULT_SCOPES": ["quizzes:read", "user:read"],
     "ACCESS_TOKEN_EXPIRE_SECONDS": 1800,

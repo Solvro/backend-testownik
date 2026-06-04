@@ -16,10 +16,10 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from oauth_integrations.views import (
+    AuthorizationRequestAPIView,
     AuthorizationServerMetadataView,
     AuthorizedAppsView,
     ProtectedResourceMetadataView,
-    ScopedAuthorizationView,
 )
 from testownik_core.views import ApiIndexView
 from users.views import (
@@ -84,9 +84,7 @@ base_urlpatterns = [
     path("", include("feedback.urls")),
     path("", include("uploads.urls")),
     # OAuth 2.0
-    # Override the authorize view (before the include) to render a per-scope
-    # consent screen that supports approving a subset of the requested scopes.
-    path("oauth/authorize/", ScopedAuthorizationView.as_view(), name="oauth_authorize"),
+    path("oauth/authorize/request/", AuthorizationRequestAPIView.as_view(), name="oauth_authorize_request"),
     path("oauth/", include("oauth2_provider.urls", namespace="oauth2_provider")),
     path("oauth/authorized-apps/", AuthorizedAppsView.as_view(), name="authorized_apps"),
     path(

@@ -1,18 +1,15 @@
-import json
+import logging
 
 from django.conf import settings
-from django.http import HttpResponseBadRequest
-from django.utils import timezone
+from django.http import QueryDict
 from oauth2_provider.exceptions import OAuthToolkitError
 from oauth2_provider.models import (
     AccessToken,
     RefreshToken,
-    get_access_token_model,
     get_application_model,
 )
 from oauth2_provider.scopes import get_scopes_backend
-from oauth2_provider.settings import oauth2_settings
-from oauth2_provider.views import AuthorizationView
+from oauth2_provider.views.mixins import OAuthLibMixin
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -25,210 +22,211 @@ from oauth_integrations.oauth_cimd import (
     is_cimd_client_id,
     resolve_application_from_public_client_id,
 )
+from oauth_integrations.serializers import AuthorizationDecisionSerializer
+
+logger = logging.getLogger(__name__)
 
 
-class ScopedAuthorizationView(AuthorizationView):
-    """Consent screen that lets the user approve a subset of requested scopes.
+def _oauth_error_redirect_url(oauth_error):
+    redirect_uri = oauth_error.redirect_uri or ""
+    separator = "&" if "?" in redirect_uri else "?"
+    return redirect_uri + separator + oauth_error.urlencoded
 
-    The default django-oauth-toolkit view renders the requested scopes as static
-    text and grants all of them. We expose each scope as an individual checkbox;
-    the template collects the checked scopes into the form's ``scope`` field, so
-    the issued token only carries the scopes the user actually approved.
-    """
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        if context.get("authorization_error"):
-            context["client_display_name"] = context.get("client_display_name", "This app")
-            context["client_logo_uri"] = ""
-            context["client_uri"] = ""
-            context["scopes_zip"] = []
-            context["form"] = None
-            return context
+def _friendly_oauth_error_message(error):
+    oauth_error = error.oauthlib_error
+    error_code = getattr(oauth_error, "error", "") or "invalid_request"
+    description = getattr(oauth_error, "description", "") or ""
 
-        scopes = context.get("scopes", []) or []
-        descriptions = context.get("scopes_descriptions", []) or []
-        context["scopes_zip"] = list(zip(scopes, descriptions))
-        application = context.get("application")
-        metadata = get_cimd_metadata_for_application(application)
-        context["is_cimd_client"] = metadata is not None
-        context["client_display_name"] = metadata.client_name if metadata else application.name
-        context["client_logo_uri"] = metadata.logo_uri if metadata else ""
-        context["client_uri"] = metadata.client_uri if metadata else ""
-        return context
+    if "client_id" in description:
+        return "The app could not be verified. Check that its client metadata document URL is correct."
+    if "redirect_uri" in description:
+        return "The redirect URI is not allowed for this app. Check the app's client metadata document."
+    if "code_challenge" in description or "PKCE" in description:
+        return "The app did not send a valid PKCE challenge. Ask the app to retry the connection."
+    if error_code == "unsupported_response_type":
+        return "This authorization request uses an unsupported response type."
+    if error_code == "invalid_scope":
+        return "The app requested an invalid or unsupported scope."
+    return "The authorization request is invalid. Ask the app to start the connection again."
+
+
+def _log_oauth_toolkit_error(message, error, *, client_id="", redirect_uri=""):
+    oauth_error = error.oauthlib_error
+    error_code = getattr(oauth_error, "error", "") or "unknown"
+    if error_code == "access_denied":
+        message = "OAuth authorization denied by user"
+        log = logger.info
+    else:
+        log = logger.warning
+    log(
+        "%s: error=%s description=%s client_id=%s redirect_uri=%s",
+        message,
+        error_code,
+        getattr(oauth_error, "description", "") or "",
+        client_id,
+        redirect_uri,
+    )
+
+
+def _preflight_client_id(client_id):
+    if not client_id:
+        return "The authorization request is missing a client_id."
+
+    application = get_application_model().objects.filter(client_id=client_id).first()
+    if application is not None:
+        return ""
+
+    if is_cimd_client_id(client_id) or "://" in client_id:
+        try:
+            get_or_create_cimd_application(client_id)
+        except CIMDError as exc:
+            logger.warning("CIMD client preflight failed: client_id=%s error=%s", client_id, exc)
+            return str(exc)
+        return ""
+
+    return "The client_id is not registered and is not a valid client metadata document URL."
+
+
+class AuthorizationRequestAPIView(OAuthLibMixin, APIView):
+    """JSON OAuth consent API consumed by the frontend authorize page."""
+
+    permission_classes = [IsAuthenticated]
 
     def _get_application(self, client_id):
         return resolve_application_from_public_client_id(client_id)
 
-    def _preflight_client_id(self, client_id):
-        if not client_id:
-            return "The authorization request is missing a client_id."
+    def _request_with_authorization_params(self, request, params):
+        raw_request = request._request
+        original_get = raw_request.GET
+        original_query_string = raw_request.META.get("QUERY_STRING", "")
+        original_user = raw_request.user
 
-        application = get_application_model().objects.filter(client_id=client_id).first()
-        if application is not None:
-            return ""
+        query = QueryDict("", mutable=True)
+        for key, value in params.items():
+            if isinstance(value, list):
+                query.setlist(key, [str(item) for item in value])
+            elif value is not None:
+                query[key] = str(value)
+        query_string = query.urlencode()
+        raw_request.GET = query
+        raw_request.META["QUERY_STRING"] = query_string
+        raw_request.user = request.user
+        return raw_request, original_get, original_query_string, original_user
 
-        if is_cimd_client_id(client_id) or "://" in client_id:
-            try:
-                get_or_create_cimd_application(client_id)
-            except CIMDError as exc:
-                return str(exc)
-            return ""
+    def _restore_request(self, raw_request, original_get, original_query_string, original_user):
+        raw_request.GET = original_get
+        raw_request.META["QUERY_STRING"] = original_query_string
+        raw_request.user = original_user
 
-        return "The client_id is not registered and is not a valid client metadata document URL."
-
-    def _render_authorization_error(self, message, *, status=400, redirect_uri="", client_id=""):
-        return self.render_to_response(
-            self.get_context_data(
-                authorization_error=True,
-                error_title="Authorization request failed",
-                error_message=message,
-                client_id=client_id,
-                redirect_uri=redirect_uri,
-            ),
-            status=status,
-        )
-
-    def _friendly_oauth_error_message(self, error):
-        oauth_error = error.oauthlib_error
-        error_code = getattr(oauth_error, "error", "") or "invalid_request"
-        description = getattr(oauth_error, "description", "") or ""
-
-        if "client_id" in description:
-            return "The app could not be verified. Check that its client metadata document URL is correct."
-        if "redirect_uri" in description:
-            return "The redirect URI is not allowed for this app. Check the app's client metadata document."
-        if "code_challenge" in description or "PKCE" in description:
-            return "The app did not send a valid PKCE challenge. Ask the app to retry the connection."
-        if error_code == "unsupported_response_type":
-            return "This authorization request uses an unsupported response type."
-        if error_code == "invalid_scope":
-            return "The app requested an invalid or unsupported scope."
-        return "The authorization request is invalid. Ask the app to start the connection again."
-
-    def error_response(self, error, application, **kwargs):
-        oauth_error = error.oauthlib_error
-        if getattr(oauth_error, "redirect_uri", None):
-            return super().error_response(error, application, **kwargs)
-
-        return self._render_authorization_error(
-            self._friendly_oauth_error_message(error),
-            status=getattr(oauth_error, "status_code", 400),
-            redirect_uri=getattr(oauth_error, "redirect_uri", "") or "",
-        )
-
-    def get(self, request, *args, **kwargs):
-        client_id = request.GET.get("client_id", "")
-        preflight_error = self._preflight_client_id(client_id)
+    def _validate_params(self, request, params):
+        client_id = params.get("client_id", "")
+        preflight_error = _preflight_client_id(client_id)
         if preflight_error:
-            return self._render_authorization_error(
-                preflight_error,
-                client_id=client_id,
-                redirect_uri=request.GET.get("redirect_uri", ""),
-            )
+            return None, None, Response({"error": preflight_error}, status=400)
 
+        raw_request, original_get, original_query_string, original_user = self._request_with_authorization_params(
+            request, params
+        )
         try:
-            scopes, credentials = self.validate_authorization_request(request)
+            scopes, credentials = self.validate_authorization_request(raw_request)
         except OAuthToolkitError as error:
-            return self.error_response(error, application=None)
+            _log_oauth_toolkit_error(
+                "OAuth authorization request validation failed",
+                error,
+                client_id=client_id,
+                redirect_uri=params.get("redirect_uri", ""),
+            )
+            oauth_error = error.oauthlib_error
+            if getattr(oauth_error, "redirect_uri", None):
+                return None, None, Response({"redirect_url": _oauth_error_redirect_url(oauth_error)})
+            return None, None, Response({"error": _friendly_oauth_error_message(error)}, status=400)
+        except Exception:
+            logger.exception("Unexpected OAuth authorization request validation failure: client_id=%s", client_id)
+            raise
+        finally:
+            self._restore_request(raw_request, original_get, original_query_string, original_user)
 
-        prompt = request.GET.get("prompt")
-        if prompt == "login":
-            return self.handle_prompt_login()
+        return scopes, credentials, None
 
-        all_scopes = get_scopes_backend().get_all_scopes()
-        kwargs["scopes_descriptions"] = [all_scopes[scope] for scope in scopes]
-        kwargs["scopes"] = scopes
+    def get(self, request):
+        scopes, credentials, error_response = self._validate_params(request, request.query_params)
+        if error_response is not None:
+            return error_response
 
         application = self._get_application(credentials["client_id"])
         if application is None:
-            return HttpResponseBadRequest("Invalid OAuth client.")
+            return Response({"error": "Invalid OAuth client."}, status=400)
 
-        kwargs["application"] = application
-        kwargs["client_id"] = credentials["client_id"]
-        kwargs["redirect_uri"] = credentials["redirect_uri"]
-        kwargs["response_type"] = credentials["response_type"]
-        kwargs["state"] = credentials["state"]
-        if "code_challenge" in credentials:
-            kwargs["code_challenge"] = credentials["code_challenge"]
-        if "code_challenge_method" in credentials:
-            kwargs["code_challenge_method"] = credentials["code_challenge_method"]
-        if "nonce" in credentials:
-            kwargs["nonce"] = credentials["nonce"]
-        if "claims" in credentials:
-            kwargs["claims"] = json.dumps(credentials["claims"])
+        all_scopes = get_scopes_backend().get_all_scopes()
+        metadata = get_cimd_metadata_for_application(application)
+        return Response(
+            {
+                "client_id": metadata.client_id_url if metadata else application.client_id,
+                "client_name": metadata.client_name if metadata else application.name,
+                "client_uri": metadata.client_uri if metadata else "",
+                "logo_uri": metadata.logo_uri if metadata else "",
+                "redirect_uri": credentials["redirect_uri"],
+                "scopes": [{"value": scope, "description": all_scopes[scope]} for scope in scopes],
+            }
+        )
 
-        self.oauth2_data = kwargs
-        form = self.get_form(self.get_form_class())
-        kwargs["form"] = form
+    def post(self, request):
+        serializer = AuthorizationDecisionSerializer(data=request.data)
+        if not serializer.is_valid():
+            logger.warning("Invalid OAuth authorization decision payload: errors=%s", serializer.errors)
+            return Response({"error": serializer.errors}, status=400)
 
-        require_approval = request.GET.get("approval_prompt", oauth2_settings.REQUEST_APPROVAL_PROMPT)
+        authorization_params = serializer.validated_data["authorization_params"]
+        scopes, credentials, error_response = self._validate_params(request, authorization_params)
+        if error_response is not None:
+            return error_response
 
-        if "ui_locales" in credentials and isinstance(credentials["ui_locales"], list):
-            credentials["ui_locales"] = " ".join(credentials["ui_locales"])
+        requested_scopes = set(scopes)
+        approved_scopes = serializer.validated_data["scopes"]
+        if not set(approved_scopes).issubset(requested_scopes):
+            logger.warning(
+                "OAuth authorization decision included unrequested scopes: client_id=%s approved=%s requested=%s",
+                authorization_params.get("client_id", ""),
+                approved_scopes,
+                scopes,
+            )
+            return Response({"error": "Approved scopes must be a subset of the requested scopes."}, status=400)
 
+        allow = serializer.validated_data["allow"]
+        scope_string = " ".join(approved_scopes)
+
+        raw_request, original_get, original_query_string, original_user = self._request_with_authorization_params(
+            request, authorization_params
+        )
         try:
-            if application.skip_authorization:
-                uri, _headers, _body, _status = self.create_authorization_response(
-                    request=self.request, scopes=" ".join(scopes), credentials=credentials, allow=True
-                )
-                return self.redirect(uri, application)
-
-            if require_approval == "auto":
-                tokens = (
-                    get_access_token_model()
-                    .objects.filter(user=request.user, application=application, expires__gt=timezone.now())
-                    .all()
-                )
-
-                for token in tokens:
-                    if token.allow_scopes(scopes):
-                        uri, _headers, _body, _status = self.create_authorization_response(
-                            request=self.request,
-                            scopes=" ".join(scopes),
-                            credentials=credentials,
-                            allow=True,
-                        )
-                        return self.redirect(uri, application)
-
-        except OAuthToolkitError as error:
-            return self.error_response(error, application)
-
-        return self.render_to_response(self.get_context_data(**kwargs))
-
-    def form_valid(self, form):
-        client_id = form.cleaned_data["client_id"]
-        application = self._get_application(client_id)
-        if application is None:
-            return HttpResponseBadRequest("Invalid OAuth client.")
-
-        credentials = {
-            "client_id": client_id,
-            "redirect_uri": form.cleaned_data.get("redirect_uri"),
-            "response_type": form.cleaned_data.get("response_type", None),
-            "state": form.cleaned_data.get("state", None),
-        }
-        if form.cleaned_data.get("code_challenge", False):
-            credentials["code_challenge"] = form.cleaned_data.get("code_challenge")
-        if form.cleaned_data.get("code_challenge_method", False):
-            credentials["code_challenge_method"] = form.cleaned_data.get("code_challenge_method")
-        if form.cleaned_data.get("nonce", False):
-            credentials["nonce"] = form.cleaned_data.get("nonce")
-        if form.cleaned_data.get("claims", False):
-            credentials["claims"] = form.cleaned_data.get("claims")
-
-        scopes = form.cleaned_data.get("scope")
-        allow = form.cleaned_data.get("allow")
-
-        try:
-            uri, _headers, _body, _status = self.create_authorization_response(
-                request=self.request, scopes=scopes, credentials=credentials, allow=allow
+            redirect_url, _headers, _body, _status = self.create_authorization_response(
+                request=raw_request,
+                scopes=scope_string,
+                credentials=credentials,
+                allow=allow,
             )
         except OAuthToolkitError as error:
-            return self.error_response(error, application)
+            _log_oauth_toolkit_error(
+                "OAuth authorization response creation failed",
+                error,
+                client_id=authorization_params.get("client_id", ""),
+                redirect_uri=credentials.get("redirect_uri", ""),
+            )
+            oauth_error = error.oauthlib_error
+            if getattr(oauth_error, "redirect_uri", None):
+                return Response({"redirect_url": _oauth_error_redirect_url(oauth_error)})
+            return Response({"error": _friendly_oauth_error_message(error)}, status=400)
+        except Exception:
+            logger.exception(
+                "Unexpected OAuth authorization response creation failure: client_id=%s",
+                authorization_params.get("client_id", ""),
+            )
+            raise
+        finally:
+            self._restore_request(raw_request, original_get, original_query_string, original_user)
 
-        self.success_url = uri
-        return self.redirect(self.success_url, application)
+        return Response({"redirect_url": redirect_url})
 
 
 class AuthorizationServerMetadataView(APIView):
@@ -242,7 +240,7 @@ class AuthorizationServerMetadataView(APIView):
         return Response(
             {
                 "issuer": issuer,
-                "authorization_endpoint": f"{issuer}/api/oauth/authorize/",
+                "authorization_endpoint": f"{settings.FRONTEND_URL}/oauth/authorize",
                 "token_endpoint": f"{issuer}/api/oauth/token/",
                 "revocation_endpoint": f"{issuer}/api/oauth/revoke_token/",
                 "introspection_endpoint": f"{issuer}/api/oauth/introspect/",

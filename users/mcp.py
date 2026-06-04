@@ -24,7 +24,6 @@ class UserTools(MCPToolset):
         user = self.request.user
         settings, _ = UserSettings.objects.get_or_create(user=user)
         return {
-            "sync_progress": settings.sync_progress,
             "initial_reoccurrences": settings.initial_reoccurrences,
             "wrong_answer_reoccurrences": settings.wrong_answer_reoccurrences,
             "max_question_reoccurrences": settings.max_question_reoccurrences,
