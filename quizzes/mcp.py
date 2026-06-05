@@ -4,7 +4,6 @@ from mcp_server import MCPToolset
 from rest_framework.exceptions import ValidationError
 
 from quizzes.models import (
-    Folder,
     QuestionType,
     Quiz,
 )
@@ -16,25 +15,18 @@ from quizzes.serializers import (
 )
 from quizzes.services.operations import (
     QuizOperationError,
-    folder_quizzes_queryset,
     get_current_session_question,
     get_editable_question,
     get_editable_quiz,
-    get_folder_for_read,
     get_or_choose_session_question,
-    get_random_recent_question,
     get_readable_quiz,
     get_readable_session,
-    move_owned_quiz,
     owned_quizzes_queryset,
     record_quiz_answer,
     reset_readable_session,
     searchable_quizzes_queryset,
 )
-from quizzes.services.stats import get_quiz_stats
 from testownik_core.mcp_auth import require_scope as _require_scope
-
-CLOSED_QUESTION_INPUTS = {"closed", "normal", "0", 0, QuestionType.CLOSED}
 
 
 class _QuestionError(ValueError):
@@ -77,25 +69,21 @@ def _quiz_meta_data(quiz, request):
     return data
 
 
+def _mcp_quiz_meta_data(quiz, request):
+    data = _quiz_meta_data(quiz, request)
+    data.pop("visibility", None)
+    return data
+
+
 def _quiz_data(quiz, request):
     return dict(QuizSerializer(quiz, context=_serializer_context(request)).data)
-
-
-def _folder_data(folder):
-    return {
-        "id": str(folder.id),
-        "name": folder.name,
-        "folder_type": folder.folder_type,
-        "parent_id": str(folder.parent_id) if folder.parent_id else None,
-        "quiz_count": getattr(folder, "quiz_count", folder.quizzes.count()),
-    }
 
 
 def _normalize_answers(answers):
     if not isinstance(answers, list):
         raise _QuestionError("answers must be a list of objects.")
-    if len(answers) < 2:
-        raise _QuestionError("Normal questions require at least two answers.")
+    if len(answers) < 1:
+        raise _QuestionError("Normal questions require at least one answer.")
     if any(not isinstance(answer, dict) for answer in answers):
         raise _QuestionError("Each answer must be an object with text and is_correct.")
 
@@ -135,19 +123,12 @@ def _normalize_question_spec(spec):
     if not isinstance(spec, dict):
         raise _QuestionError("Each question must be an object.")
 
-    question_type = spec.get("question_type", "closed")
-    if question_type not in CLOSED_QUESTION_INPUTS:
-        raise _QuestionError(
-            "MCP only supports normal questions. Use answers=[{text, is_correct}] instead of open or true_false."
-        )
-
     answers = _normalize_answers(spec.get("answers") or [])
     data = {
         "text": spec.get("text", ""),
         "question_type": QuestionType.CLOSED,
         "multiple": _normalize_multiple(spec.get("multiple"), answers),
         "explanation": spec.get("explanation", "") or "",
-        "is_flashcard": bool(spec.get("is_flashcard", False)),
         "is_ai_generated": True,
         "answers": answers,
     }
@@ -171,6 +152,26 @@ def _normalize_question_update(*, text=None, explanation=None, answers=None, mul
     elif multiple is not None:
         data["multiple"] = _normalize_multiple(multiple, current_answers or [])
     return data
+
+
+def _normalize_question_range(from_index=None, to_index=None):
+    if from_index is None and to_index is None:
+        return None
+
+    if from_index is not None and type(from_index) is not int:
+        raise _QuestionError("from_index must be an integer.")
+    if to_index is not None and type(to_index) is not int:
+        raise _QuestionError("to_index must be an integer.")
+    if from_index is not None and from_index < 1:
+        raise _QuestionError("from_index must be greater than or equal to 1.")
+    if to_index is not None and to_index < 1:
+        raise _QuestionError("to_index must be greater than or equal to 1.")
+    if from_index is not None and to_index is not None and from_index > to_index:
+        raise _QuestionError("from_index must be less than or equal to to_index.")
+
+    start = from_index - 1 if from_index is not None else None
+    stop = to_index if to_index is not None else None
+    return slice(start, stop)
 
 
 def _create_questions(quiz, questions, request):
@@ -204,10 +205,10 @@ def _normalize_indexed_question_specs(questions):
 class QuizTools(MCPToolset):
     def list_my_quizzes(self) -> list[dict]:
         """List all quizzes owned by the current user. Returns quiz id, title,
-        description, question count, and visibility."""
+        description, and question count."""
         _require_scope(self.request, "quizzes:read")
         quizzes = owned_quizzes_queryset(self.request.user)
-        return [_quiz_meta_data(q, self.request) for q in quizzes]
+        return [_mcp_quiz_meta_data(q, self.request) for q in quizzes]
 
     def search_quizzes(self, query: str) -> list[dict]:
         """Search accessible quizzes by title. Returns matching quizzes the
@@ -225,9 +226,22 @@ class QuizTools(MCPToolset):
             return _operation_error(exc)
         return _quiz_data(quiz, self.request)
 
-    def get_quiz_questions(self, quiz_id: str) -> dict:
-        """List all questions in a quiz with their answers."""
+    def get_quiz_questions(
+        self,
+        quiz_id: str,
+        from_index: int | None = None,
+        to_index: int | None = None,
+    ) -> dict:
+        """List questions in a quiz with their answers.
+
+        Optional `from_index` and `to_index` are 1-based inclusive question
+        positions. Omit both to return all questions.
+        """
         _require_scope(self.request, "quizzes:read")
+        try:
+            question_range = _normalize_question_range(from_index, to_index)
+        except _QuestionError as exc:
+            return {"error": str(exc)}
         try:
             quiz = get_readable_quiz(
                 self.request.user,
@@ -236,26 +250,26 @@ class QuizTools(MCPToolset):
             )
         except QuizOperationError as exc:
             return _operation_error(exc)
-        return {"questions": [_question_data(q, self.request) for q in quiz.questions.all()]}
+        questions = quiz.questions.all()
+        if question_range is not None:
+            questions = questions[question_range]
+        return {"questions": [_question_data(q, self.request) for q in questions]}
 
     def create_quiz(
         self,
         title: str,
         description: str = "",
-        visibility: int = 2,
         questions: list[dict] | None = None,
     ) -> dict:
         """Create a new quiz, optionally with its questions in a single call.
 
-        Visibility: 0=private, 1=shared only, 2=unlisted (with link), 3=public.
-
         `questions` (optional): a list of question objects. Each object accepts:
           - text (str): the question prompt
-          - answers (list): at least two {text, is_correct} objects. Each answer
+          - answers (list): at least one {text, is_correct} object. Each answer
             is a normal answer option marked true or false with is_correct.
           - multiple (bool): optional UI/selection setting. If omitted, it is
             inferred from how many answers have is_correct=true.
-          - explanation (str), is_flashcard (bool): optional
+          - explanation (str): optional
 
         The quiz and all its questions are flagged is_ai_generated=true so the UI
         can label them. Prefer passing questions here over many add_question calls.
@@ -272,7 +286,6 @@ class QuizTools(MCPToolset):
                 quiz = Quiz(
                     title=title,
                     description=description,
-                    visibility=visibility,
                     creator=user,
                     folder=user.root_folder,
                     is_ai_generated=True,
@@ -307,11 +320,10 @@ class QuizTools(MCPToolset):
         answers: list[dict] | None = None,
         multiple: bool | None = None,
         explanation: str = "",
-        is_flashcard: bool = False,
     ) -> dict:
         """Add a single question to an existing quiz. Marked is_ai_generated=true.
 
-        Pass `answers` as at least two {text, is_correct} objects. Each answer is
+        Pass `answers` as at least one {text, is_correct} object. Each answer is
         a normal answer option marked true or false with is_correct. If `multiple`
         is omitted, it is inferred from the number of correct answers.
 
@@ -327,7 +339,6 @@ class QuizTools(MCPToolset):
             "answers": answers,
             "multiple": multiple,
             "explanation": explanation,
-            "is_flashcard": is_flashcard,
         }
         try:
             question = _create_single_question(quiz, spec, self.request)
@@ -342,8 +353,8 @@ class QuizTools(MCPToolset):
         is_ai_generated=true.
 
         `questions`: a list of question objects with the same shape as
-        add_question (text, answers, multiple, explanation, is_flashcard). This
-        is the preferred way to add more than one question — it is atomic, so if
+        add_question (text, answers, multiple, explanation). This is the
+        preferred way to add more than one question — it is atomic, so if
         any question is invalid nothing is saved and the error names the
         offending index."""
         _require_scope(self.request, "quizzes:write")
@@ -410,6 +421,74 @@ class QuizTools(MCPToolset):
         except ValidationError as exc:
             return _validation_error(exc.detail)
         return {"id": str(question.id), "status": "updated"}
+
+    def edit_questions(self, updates: list[dict]) -> dict:
+        """Batch-edit normal questions in one atomic call.
+
+        Each update object must include question_id and may include text,
+        explanation, answers, or multiple. Passing `answers` replaces all
+        existing answers for that question. Each answer must be a
+        {text, is_correct} object. If `answers` is provided and `multiple` is
+        omitted, `multiple` is inferred from the new answer set.
+        """
+        _require_scope(self.request, "quizzes:write")
+        if not updates:
+            return {"error": "Provide at least one question update."}
+        if any(not isinstance(update, dict) for update in updates):
+            return {"error": "Each update must be an object."}
+
+        serializers = []
+        try:
+            with transaction.atomic():
+                for index, update in enumerate(updates):
+                    question_id = update.get("question_id")
+                    if not question_id:
+                        return {"error": f"updates[{index}]: question_id is required."}
+
+                    try:
+                        question = get_editable_question(self.request.user, question_id)
+                    except QuizOperationError as exc:
+                        return {"error": f"updates[{index}]: {exc.message}"}
+
+                    if question.question_type != QuestionType.CLOSED:
+                        return {"error": f"updates[{index}]: MCP only supports editing normal questions."}
+
+                    try:
+                        data = _normalize_question_update(
+                            text=update.get("text"),
+                            explanation=update.get("explanation"),
+                            answers=update.get("answers"),
+                            multiple=update.get("multiple"),
+                            current_answers=list(question.answers.all()),
+                        )
+                    except _QuestionError as exc:
+                        return {"error": f"updates[{index}]: {exc}"}
+
+                    if not data:
+                        serializers.append((question, None))
+                        continue
+
+                    serializer = QuestionSerializer(
+                        question,
+                        data=data,
+                        partial=True,
+                        context=_serializer_context(self.request),
+                    )
+                    try:
+                        serializer.is_valid(raise_exception=True)
+                    except ValidationError as exc:
+                        return {"error": {f"updates[{index}]": _plain_data(exc.detail)}}
+                    serializers.append((question, serializer))
+
+                updated_ids = []
+                for question, serializer in serializers:
+                    if serializer is not None:
+                        serializer.save()
+                    updated_ids.append(str(question.id))
+        except ValidationError as exc:
+            return _validation_error(exc.detail)
+
+        return {"status": "updated", "updated_count": len(updated_ids), "question_ids": updated_ids}
 
     def delete_question(self, question_id: str) -> dict:
         """Remove a question from a quiz."""
@@ -502,65 +581,3 @@ class StudyTools(MCPToolset):
             "wrong_count": result.session.wrong_count,
             "next_question_id": str(result.session.current_question_id) if result.session.current_question_id else None,
         }
-
-    def get_random_question(self) -> dict:
-        """Get a random question from the user's recently active quizzes
-        (last 90 days)."""
-        _require_scope(self.request, "study:read")
-        try:
-            question = get_random_recent_question(self.request.user)
-        except QuizOperationError as exc:
-            return _operation_error(exc)
-        data = _question_data(question, self.request)
-        data["quiz_id"] = str(question.quiz.id)
-        data["quiz_title"] = question.quiz.title
-        return data
-
-
-class ProgressTools(MCPToolset):
-    def get_quiz_progress(self, quiz_id: str) -> dict:
-        """Get the user's study progress on a specific quiz, including session
-        counts, scores, and study time."""
-        _require_scope(self.request, "study:read")
-        try:
-            quiz = get_readable_quiz(self.request.user, quiz_id)
-        except QuizOperationError as exc:
-            return _operation_error(exc)
-        return get_quiz_stats(quiz, self.request.user)
-
-    def get_quiz_statistics(self, quiz_id: str) -> dict:
-        """Get aggregated statistics for a quiz with per-question breakdown."""
-        _require_scope(self.request, "study:read")
-        try:
-            quiz = get_readable_quiz(self.request.user, quiz_id)
-        except QuizOperationError as exc:
-            return _operation_error(exc)
-        return get_quiz_stats(quiz, self.request.user, include_per_question=True)
-
-
-class FolderTools(MCPToolset):
-    def list_folders(self) -> list[dict]:
-        """List the current user's quiz folders."""
-        _require_scope(self.request, "quizzes:read")
-        user = self.request.user
-        folders = Folder.objects.filter(owner=user).order_by("-created_at")
-        return [_folder_data(folder) for folder in folders]
-
-    def get_folder_quizzes(self, folder_id: str) -> dict:
-        """Get all quizzes in a specific folder."""
-        _require_scope(self.request, "quizzes:read")
-        try:
-            folder = get_folder_for_read(self.request.user, folder_id)
-        except QuizOperationError as exc:
-            return _operation_error(exc)
-        quizzes = folder_quizzes_queryset(folder)
-        return {"quizzes": [_quiz_meta_data(q, self.request) for q in quizzes]}
-
-    def add_quiz_to_folder(self, quiz_id: str, folder_id: str) -> dict:
-        """Move a quiz to a different folder."""
-        _require_scope(self.request, "quizzes:write")
-        try:
-            quiz, folder = move_owned_quiz(self.request.user, quiz_id, folder_id)
-        except QuizOperationError as exc:
-            return _operation_error(exc)
-        return {"status": "moved", "quiz_id": str(quiz.id), "folder_id": str(folder.id)}
