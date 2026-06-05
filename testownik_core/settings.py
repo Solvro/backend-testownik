@@ -321,7 +321,7 @@ OAUTH2_PROVIDER = {
     "SCOPES": {
         "quizzes:read": "Wyświetlanie quizów i pytań",
         "quizzes:write": "Tworzenie i edytowanie quizów oraz pytań",
-        "study:read": "Wyświetlanie sesji nauki, postępów i statystyk",
+        "study:read": "Wyświetlanie sesji nauki i postępów",
         "study:write": "Zapisywanie odpowiedzi i uruchamianie sesji nauki",
         "user:read": "Wyświetlanie profilu użytkownika i ustawień",
     },

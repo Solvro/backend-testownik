@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 from django.test import SimpleTestCase, override_settings
 
 from oauth_integrations.oauth_cimd import (
+    CIMD_CACHE_SECONDS,
     CIMDError,
     ValidatedFetchURL,
     _decode_chunked_body,
@@ -64,9 +65,10 @@ class CIMDValidationTests(SimpleTestCase):
             b'{"client_id":"https://client.example/.well-known/oauth-client"}',
         )
 
-        data = fetch_client_metadata("https://client.example/.well-known/oauth-client")
+        data, cache_seconds = fetch_client_metadata("https://client.example/.well-known/oauth-client")
 
         self.assertEqual(data["client_id"], "https://client.example/.well-known/oauth-client")
+        self.assertEqual(cache_seconds, CIMD_CACHE_SECONDS)
         mock_fetch.assert_called_once_with(mock_validate.return_value)
 
     def test_decode_chunked_body(self):
@@ -87,6 +89,50 @@ class CIMDValidationTests(SimpleTestCase):
 
         with self.assertRaisesMessage(CIMDError, "public PKCE"):
             validate_client_metadata("https://client.example/.well-known/oauth-client", metadata)
+
+    @override_settings(DEBUG=False)
+    def test_validate_fetch_url_rejects_dot_segments(self):
+        with self.assertRaisesMessage(CIMDError, "dot"):
+            _validate_fetch_url("https://client.example/../admin/oauth-client")
+
+    @override_settings(DEBUG=False)
+    def test_validate_client_metadata_rejects_cross_origin_client_uri(self):
+        metadata = {
+            "client_id": "https://client.example/.well-known/oauth-client",
+            "client_name": "Example",
+            "redirect_uris": ["https://client.example/callback"],
+            "token_endpoint_auth_method": "none",
+            "client_uri": "https://attacker.example/",
+        }
+
+        with self.assertRaisesMessage(CIMDError, "same origin"):
+            validate_client_metadata("https://client.example/.well-known/oauth-client", metadata)
+
+    @override_settings(DEBUG=False)
+    def test_validate_client_metadata_rejects_client_secret(self):
+        metadata = {
+            "client_id": "https://client.example/.well-known/oauth-client",
+            "client_name": "Example",
+            "redirect_uris": ["https://client.example/callback"],
+            "token_endpoint_auth_method": "none",
+            "client_secret": "leaked",
+        }
+
+        with self.assertRaisesMessage(CIMDError, "client_secret"):
+            validate_client_metadata("https://client.example/.well-known/oauth-client", metadata)
+
+    @override_settings(DEBUG=False)
+    def test_validate_client_metadata_strips_control_chars_from_name(self):
+        metadata = {
+            "client_id": "https://client.example/.well-known/oauth-client",
+            "client_name": "Evil\r\nApp\x00",
+            "redirect_uris": ["https://client.example/callback"],
+            "token_endpoint_auth_method": "none",
+        }
+
+        validated = validate_client_metadata("https://client.example/.well-known/oauth-client", metadata)
+
+        self.assertEqual(validated.client_name, "EvilApp")
 
     @override_settings(DEBUG=False)
     def test_validate_client_metadata_accepts_public_pkce_client(self):

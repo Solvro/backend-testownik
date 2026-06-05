@@ -1,10 +1,13 @@
 import hashlib
 import ipaddress
 import json
+import re
 import socket
 import ssl
+import time
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, timedelta
+from email.utils import parsedate_to_datetime
 from urllib.parse import ParseResult, urlparse
 
 from django.conf import settings
@@ -17,9 +20,13 @@ from oauth2_provider.oauth2_validators import OAuth2Validator
 from oauth_integrations.models import OAuthClientMetadata
 
 CIMD_APP_PREFIX = "cimd:"
+# Default cache lifetime used when the metadata response carries no usable cache headers.
 CIMD_CACHE_SECONDS = 86400
+# Bounds applied to any cache lifetime derived from HTTP cache headers.
+CIMD_CACHE_MIN_SECONDS = 300
+CIMD_CACHE_MAX_SECONDS = 86400
 CIMD_FETCH_TIMEOUT_SECONDS = 3
-CIMD_MAX_BODY_BYTES = 64 * 1024
+CIMD_MAX_BODY_BYTES = 5 * 1024
 
 
 class CIMDError(ValueError):
@@ -105,6 +112,8 @@ def _validate_fetch_url(client_id_url: str) -> ValidatedFetchURL:
         raise CIMDError("CIMD client_id must not include a fragment.")
     if parsed.path in ("", "/"):
         raise CIMDError("CIMD client_id must point to a metadata document path.")
+    if any(segment in (".", "..") for segment in parsed.path.split("/")):
+        raise CIMDError("CIMD client_id must not contain single-dot or double-dot path segments.")
 
     addresses = []
     if not is_debug_loopback_http_url:
@@ -150,6 +159,16 @@ def _validate_https_uri(value: str, field_name: str) -> str:
     if parsed.username or parsed.password or parsed.fragment:
         raise CIMDError(f"{field_name} must not include user info or a fragment.")
     return value
+
+
+def _origin(value: str) -> tuple[str, str, int | None]:
+    parsed = urlparse(value)
+    default_port = 443 if parsed.scheme == "https" else 80 if parsed.scheme == "http" else None
+    return (parsed.scheme, (parsed.hostname or "").lower(), parsed.port or default_port)
+
+
+def _same_origin(a: str, b: str) -> bool:
+    return _origin(a) == _origin(b)
 
 
 def _validate_redirect_uri(uri: str) -> str:
@@ -218,10 +237,14 @@ def _host_header(parsed) -> str:
     return hostname
 
 
-def _read_http_response(sock) -> tuple[int, dict[str, str], bytes]:
+def _read_http_response(sock, deadline: float) -> tuple[int, dict[str, str], bytes]:
     chunks = []
     total = 0
     while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise CIMDError("CIMD metadata request timed out.")
+        sock.settimeout(remaining)
         chunk = sock.recv(8192)
         if not chunk:
             break
@@ -282,29 +305,65 @@ def _fetch_pinned_metadata_document(fetch_url: ValidatedFetchURL) -> tuple[int, 
         "Connection: close\r\n\r\n"
     ).encode("ascii")
 
+    deadline = time.monotonic() + CIMD_FETCH_TIMEOUT_SECONDS
     with socket.create_connection((fetch_url.address, port), timeout=CIMD_FETCH_TIMEOUT_SECONDS) as raw_sock:
-        raw_sock.settimeout(CIMD_FETCH_TIMEOUT_SECONDS)
+        raw_sock.settimeout(max(0.0, deadline - time.monotonic()))
         if parsed.scheme == "https":
             context = ssl.create_default_context()
             context.minimum_version = ssl.TLSVersion.TLSv1_2
             with context.wrap_socket(raw_sock, server_hostname=parsed.hostname) as tls_sock:
                 tls_sock.sendall(request)
-                return _read_http_response(tls_sock)
+                return _read_http_response(tls_sock, deadline)
         raw_sock.sendall(request)
-        return _read_http_response(raw_sock)
+        return _read_http_response(raw_sock, deadline)
 
 
-def fetch_client_metadata(client_id_url: str) -> dict:
+def _clamp_cache_seconds(seconds: int) -> int:
+    return max(CIMD_CACHE_MIN_SECONDS, min(seconds, CIMD_CACHE_MAX_SECONDS))
+
+
+def _cache_seconds_from_headers(headers: dict[str, str]) -> int:
+    cache_control = headers.get("cache-control", "").lower()
+    if cache_control:
+        directives = {}
+        for token in cache_control.split(","):
+            name, _, value = token.strip().partition("=")
+            if name:
+                directives[name] = value.strip()
+        if "no-store" in directives or "no-cache" in directives:
+            return CIMD_CACHE_MIN_SECONDS
+        if "max-age" in directives:
+            try:
+                return _clamp_cache_seconds(int(directives["max-age"]))
+            except ValueError:
+                return CIMD_CACHE_SECONDS
+
+    expires = headers.get("expires")
+    if expires:
+        try:
+            expires_at = parsedate_to_datetime(expires)
+        except (TypeError, ValueError):
+            expires_at = None
+        if expires_at is not None:
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=UTC)
+            return _clamp_cache_seconds(int((expires_at - timezone.now()).total_seconds()))
+
+    return CIMD_CACHE_SECONDS
+
+
+def fetch_client_metadata(client_id_url: str) -> tuple[dict, int]:
     fetch_url = _validate_fetch_url(client_id_url)
     try:
         status_code, headers, body = _fetch_pinned_metadata_document(fetch_url)
-        if not 200 <= status_code < 300:
+        if status_code != 200:
             raise CIMDError("CIMD metadata request failed.")
         if "json" not in headers.get("content-type", "").lower():
             raise CIMDError("CIMD metadata response must be JSON.")
         if headers.get("transfer-encoding", "").lower() == "chunked":
             body = _decode_chunked_body(body)
         data = json.loads(body.decode("utf-8"))
+        cache_seconds = _cache_seconds_from_headers(headers)
     except CIMDError:
         raise
     except (OSError, ssl.SSLError, UnicodeEncodeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -312,17 +371,23 @@ def fetch_client_metadata(client_id_url: str) -> dict:
 
     if not isinstance(data, dict):
         raise CIMDError("CIMD metadata must be a JSON object.")
-    return data
+    return data, cache_seconds
 
 
 def validate_client_metadata(client_id_url: str, metadata: dict) -> ValidatedClientMetadata:
     if metadata.get("client_id") != client_id_url:
         raise CIMDError("CIMD metadata client_id must exactly match the metadata document URL.")
 
+    if "client_secret" in metadata or "client_secret_expires_at" in metadata:
+        raise CIMDError("CIMD metadata must not include a client_secret.")
+
     client_name = metadata.get("client_name")
     if not isinstance(client_name, str) or not client_name.strip():
         raise CIMDError("CIMD metadata must include client_name.")
-    client_name = client_name.strip()[:255]
+    # Strip C0/C1 control characters before the name is shown on the consent screen.
+    client_name = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", client_name).strip()[:255]
+    if not client_name:
+        raise CIMDError("CIMD metadata must include client_name.")
 
     redirect_uris_raw = metadata.get("redirect_uris")
     if not isinstance(redirect_uris_raw, list) or not redirect_uris_raw:
@@ -344,6 +409,8 @@ def validate_client_metadata(client_id_url: str, metadata: dict) -> ValidatedCli
     client_uri = metadata.get("client_uri") or ""
     if client_uri:
         client_uri = _validate_https_uri(client_uri, "client_uri")
+        if not _same_origin(client_uri, client_id_url):
+            raise CIMDError("client_uri must share the same origin as the client_id metadata URL.")
 
     logo_uri = metadata.get("logo_uri") or ""
     if logo_uri:
@@ -386,10 +453,11 @@ def get_or_create_cimd_application(client_id_url: str, *, force_refresh: bool = 
         if expires_at is None or expires_at > now:
             return metadata_record.application
 
-    validated = validate_client_metadata(client_id_url, fetch_client_metadata(client_id_url))
+    metadata, cache_seconds = fetch_client_metadata(client_id_url)
+    validated = validate_client_metadata(client_id_url, metadata)
     Application = get_application_model()
     internal_client_id = _internal_client_id(client_id_url)
-    cache_expires_at = now + timedelta(seconds=CIMD_CACHE_SECONDS)
+    cache_expires_at = now + timedelta(seconds=cache_seconds)
 
     with transaction.atomic():
         application, _ = Application.objects.update_or_create(
