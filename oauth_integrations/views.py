@@ -83,7 +83,7 @@ def _preflight_client_id(client_id):
             get_or_create_cimd_application(client_id)
         except CIMDError as exc:
             logger.warning("CIMD client preflight failed: client_id=%s error=%s", client_id, exc)
-            return str(exc)
+            return "Unable to validate client metadata for the provided client_id."
         return ""
 
     return "The client_id is not registered and is not a valid client metadata document URL."

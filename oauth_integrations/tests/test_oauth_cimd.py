@@ -3,13 +3,15 @@ from unittest.mock import patch
 from urllib.parse import urlparse
 
 from django.test import SimpleTestCase, override_settings
+from urllib3 import HTTPHeaderDict
 
 from oauth_integrations.oauth_cimd import (
     CIMD_CACHE_SECONDS,
+    CIMD_MAX_BODY_BYTES,
     CIMDError,
     ValidatedFetchURL,
-    _decode_chunked_body,
     _validate_fetch_url,
+    _validate_metadata_response_headers,
     fetch_client_metadata,
     validate_client_metadata,
 )
@@ -22,8 +24,13 @@ def _addrinfo(address):
 class CIMDValidationTests(SimpleTestCase):
     @override_settings(DEBUG=False)
     def test_validate_fetch_url_rejects_private_ip_literal(self):
-        with self.assertRaisesMessage(CIMDError, "private address"):
+        with self.assertRaisesMessage(CIMDError, "domain name"):
             _validate_fetch_url("https://127.0.0.1/.well-known/oauth-client")
+
+    @override_settings(DEBUG=False)
+    def test_validate_fetch_url_rejects_public_ip_literal(self):
+        with self.assertRaisesMessage(CIMDError, "domain name"):
+            _validate_fetch_url("https://8.8.8.8/.well-known/oauth-client")
 
     @override_settings(DEBUG=False)
     @patch("oauth_integrations.oauth_cimd.socket.getaddrinfo", return_value=_addrinfo("10.0.0.5"))
@@ -71,10 +78,53 @@ class CIMDValidationTests(SimpleTestCase):
         self.assertEqual(cache_seconds, CIMD_CACHE_SECONDS)
         mock_fetch.assert_called_once_with(mock_validate.return_value)
 
-    def test_decode_chunked_body(self):
-        body = _decode_chunked_body(b'8\r\n{"ok":1}\r\n0\r\n\r\n')
+    @override_settings(DEBUG=False)
+    def test_validate_fetch_url_rejects_encoded_dot_segments(self):
+        with self.assertRaisesMessage(CIMDError, "dot"):
+            _validate_fetch_url("https://client.example/%2e%2e/admin/oauth-client")
 
-        self.assertEqual(body, b'{"ok":1}')
+    @override_settings(DEBUG=False)
+    def test_validate_fetch_url_rejects_query_string(self):
+        with self.assertRaisesMessage(CIMDError, "query string"):
+            _validate_fetch_url("https://client.example/.well-known/oauth-client?target=internal")
+
+    @override_settings(DEBUG=False)
+    def test_validate_fetch_url_rejects_invalid_port(self):
+        with self.assertRaisesMessage(CIMDError, "valid port"):
+            _validate_fetch_url("https://client.example:99999/.well-known/oauth-client")
+
+    @override_settings(DEBUG=False)
+    def test_validate_fetch_url_rejects_custom_https_port(self):
+        with self.assertRaisesMessage(CIMDError, "default HTTPS port"):
+            _validate_fetch_url("https://client.example:8443/.well-known/oauth-client")
+
+    @override_settings(DEBUG=True)
+    def test_validate_fetch_url_rejects_debug_loopback_ip_literal(self):
+        with self.assertRaisesMessage(CIMDError, "domain name"):
+            _validate_fetch_url("http://127.0.0.1:3333/oauth-client")
+
+    def test_validate_metadata_response_headers_rejects_transfer_encoding(self):
+        headers = HTTPHeaderDict({"content-type": "application/json", "transfer-encoding": "chunked"})
+
+        with self.assertRaisesMessage(CIMDError, "transfer encoding"):
+            _validate_metadata_response_headers(headers)
+
+    def test_validate_metadata_response_headers_rejects_large_content_length(self):
+        headers = HTTPHeaderDict(
+            {
+                "content-type": "application/json",
+                "content-length": str(CIMD_MAX_BODY_BYTES + 1),
+            }
+        )
+
+        with self.assertRaisesMessage(CIMDError, "too large"):
+            _validate_metadata_response_headers(headers)
+
+    def test_validate_metadata_response_headers_rejects_content_encoding(self):
+        headers = HTTPHeaderDict({"content-type": "application/json", "content-encoding": "gzip"})
+
+        with self.assertRaisesMessage(CIMDError, "content encoding"):
+            _validate_metadata_response_headers(headers)
 
     @override_settings(DEBUG=False)
     def test_validate_client_metadata_rejects_confidential_client(self):

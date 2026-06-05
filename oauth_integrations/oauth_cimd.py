@@ -4,18 +4,20 @@ import json
 import re
 import socket
 import ssl
-import time
 from dataclasses import dataclass
 from datetime import UTC, timedelta
 from email.utils import parsedate_to_datetime
-from urllib.parse import ParseResult, urlparse
+from urllib.parse import ParseResult, unquote, urlparse
 
+import urllib3
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 from oauth2_provider.models import AbstractApplication, get_application_model
 from oauth2_provider.oauth2_validators import OAuth2Validator
+from requests.certs import where as default_ca_bundle_path
+from urllib3.exceptions import HTTPError
 
 from oauth_integrations.models import OAuthClientMetadata
 
@@ -27,6 +29,7 @@ CIMD_CACHE_MIN_SECONDS = 300
 CIMD_CACHE_MAX_SECONDS = 86400
 CIMD_FETCH_TIMEOUT_SECONDS = 3
 CIMD_MAX_BODY_BYTES = 5 * 1024
+CIMD_ALLOWED_CONTENT_TYPES = {"application/json"}
 
 
 class CIMDError(ValueError):
@@ -69,13 +72,36 @@ def _is_loopback_hostname(hostname: str) -> bool:
         return False
 
 
+def _is_ip_literal(hostname: str) -> bool:
+    try:
+        ipaddress.ip_address(hostname.strip("[]"))
+    except ValueError:
+        return False
+    return True
+
+
+def _port_or_none(parsed) -> int | None:
+    try:
+        return parsed.port
+    except ValueError:
+        return None
+
+
+def _require_valid_port(parsed) -> int | None:
+    try:
+        return parsed.port
+    except ValueError as exc:
+        raise CIMDError("CIMD URL must include a valid port.") from exc
+
+
 def _is_debug_loopback_http_url(parsed) -> bool:
     return bool(
         settings.DEBUG
         and parsed.scheme == "http"
         and parsed.netloc
         and parsed.hostname
-        and parsed.port
+        and _port_or_none(parsed)
+        and not _is_ip_literal(parsed.hostname)
         and _is_loopback_hostname(parsed.hostname)
     )
 
@@ -94,8 +120,51 @@ def _is_blocked_ip(address: str) -> bool:
     )
 
 
+def _validate_domain_hostname(hostname: str) -> str:
+    hostname = hostname.strip().lower()
+    if _is_ip_literal(hostname):
+        raise CIMDError("CIMD metadata URL must use a domain name, not an IP address.")
+    if hostname.endswith("."):
+        raise CIMDError("CIMD metadata URL must use a normalized domain name.")
+    if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith(".localhost"):
+        raise CIMDError("CIMD metadata URL must not use localhost.")
+    try:
+        hostname.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise CIMDError("CIMD metadata URL must use an ASCII domain name.") from exc
+    if len(hostname) > 253 or "." not in hostname:
+        raise CIMDError("CIMD metadata URL must use a fully qualified domain name.")
+    labels = hostname.split(".")
+    if any(
+        not label
+        or len(label) > 63
+        or label.startswith("-")
+        or label.endswith("-")
+        or not re.fullmatch(r"[a-z0-9-]+", label)
+        for label in labels
+    ):
+        raise CIMDError("CIMD metadata URL must use a valid domain name.")
+    return hostname
+
+
+def _path_contains_dot_segment(path: str) -> bool:
+    decoded = path.replace("\\", "/")
+    for _ in range(3):
+        next_decoded = unquote(decoded).replace("\\", "/")
+        if next_decoded == decoded:
+            break
+        decoded = next_decoded
+    return any(segment in (".", "..") for segment in decoded.split("/"))
+
+
 def _validate_fetch_url(client_id_url: str) -> ValidatedFetchURL:
     parsed = urlparse(client_id_url)
+    if not parsed.hostname:
+        raise CIMDError("CIMD client_id must include a hostname.")
+    port = _require_valid_port(parsed)
+    hostname = parsed.hostname.strip().lower()
+    if _is_ip_literal(hostname):
+        raise CIMDError("CIMD metadata URL must use a domain name, not an IP address.")
     is_debug_loopback_http_url = _is_debug_loopback_http_url(parsed)
     if parsed.scheme != "https" and not is_debug_loopback_http_url:
         if settings.DEBUG:
@@ -104,32 +173,24 @@ def _validate_fetch_url(client_id_url: str) -> ValidatedFetchURL:
                 "During local development you can also use an HTTP URL with a loopback hostname and port."
             )
         raise CIMDError("CIMD client_id must be an HTTPS URL.")
-    if not parsed.hostname:
-        raise CIMDError("CIMD client_id must include a hostname.")
     if parsed.username or parsed.password:
         raise CIMDError("CIMD client_id must not include user info.")
     if parsed.fragment:
         raise CIMDError("CIMD client_id must not include a fragment.")
+    if parsed.params or parsed.query:
+        raise CIMDError("CIMD client_id metadata URL must not include params or a query string.")
     if parsed.path in ("", "/"):
         raise CIMDError("CIMD client_id must point to a metadata document path.")
-    if any(segment in (".", "..") for segment in parsed.path.split("/")):
+    if _path_contains_dot_segment(parsed.path):
         raise CIMDError("CIMD client_id must not contain single-dot or double-dot path segments.")
 
-    addresses = []
     if not is_debug_loopback_http_url:
-        hostname = parsed.hostname.strip().lower()
-        if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith(".localhost"):
-            raise CIMDError("CIMD metadata URL must not use localhost.")
+        hostname = _validate_domain_hostname(hostname)
+        if port not in (None, 443):
+            raise CIMDError("CIMD metadata URL must use the default HTTPS port.")
 
         try:
-            hostname_ip = ipaddress.ip_address(hostname)
-        except ValueError:
-            hostname_ip = None
-        if hostname_ip is not None and _is_blocked_ip(str(hostname_ip)):
-            raise CIMDError("CIMD metadata URL must not resolve to a private address.")
-
-        try:
-            infos = socket.getaddrinfo(hostname, parsed.port or 443, type=socket.SOCK_STREAM)
+            infos = socket.getaddrinfo(hostname, port or 443, type=socket.SOCK_STREAM)
         except OSError as exc:
             raise CIMDError("Could not resolve CIMD metadata hostname.") from exc
 
@@ -140,7 +201,7 @@ def _validate_fetch_url(client_id_url: str) -> ValidatedFetchURL:
             raise CIMDError("CIMD metadata URL must not resolve to a private address.")
     else:
         try:
-            infos = socket.getaddrinfo(parsed.hostname, parsed.port, type=socket.SOCK_STREAM)
+            infos = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
         except OSError as exc:
             raise CIMDError("Could not resolve CIMD metadata hostname.") from exc
         addresses = {info[4][0] for info in infos}
@@ -164,7 +225,7 @@ def _validate_https_uri(value: str, field_name: str) -> str:
 def _origin(value: str) -> tuple[str, str, int | None]:
     parsed = urlparse(value)
     default_port = 443 if parsed.scheme == "https" else 80 if parsed.scheme == "http" else None
-    return (parsed.scheme, (parsed.hostname or "").lower(), parsed.port or default_port)
+    return (parsed.scheme, (parsed.hostname or "").lower(), _port_or_none(parsed) or default_port)
 
 
 def _same_origin(a: str, b: str) -> bool:
@@ -232,90 +293,93 @@ def _host_header(parsed) -> str:
     if ":" in hostname and not hostname.startswith("["):
         hostname = f"[{hostname}]"
     default_port = 443 if parsed.scheme == "https" else 80
-    if parsed.port and parsed.port != default_port:
-        return f"{hostname}:{parsed.port}"
+    port = _require_valid_port(parsed)
+    if port and port != default_port:
+        return f"{hostname}:{port}"
     return hostname
-
-
-def _read_http_response(sock, deadline: float) -> tuple[int, dict[str, str], bytes]:
-    chunks = []
-    total = 0
-    while True:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise CIMDError("CIMD metadata request timed out.")
-        sock.settimeout(remaining)
-        chunk = sock.recv(8192)
-        if not chunk:
-            break
-        total += len(chunk)
-        if total > CIMD_MAX_BODY_BYTES:
-            raise CIMDError("CIMD metadata response is too large.")
-        chunks.append(chunk)
-
-    raw_response = b"".join(chunks)
-    header_bytes, separator, body = raw_response.partition(b"\r\n\r\n")
-    if not separator:
-        raise CIMDError("CIMD metadata response is invalid.")
-
-    header_lines = header_bytes.decode("iso-8859-1").split("\r\n")
-    try:
-        status_code = int(header_lines[0].split(" ", 2)[1])
-    except (IndexError, ValueError) as exc:
-        raise CIMDError("CIMD metadata response is invalid.") from exc
-
-    headers = {}
-    for line in header_lines[1:]:
-        name, separator, value = line.partition(":")
-        if separator:
-            headers[name.lower()] = value.strip()
-    return status_code, headers, body
-
-
-def _decode_chunked_body(body: bytes) -> bytes:
-    decoded = []
-    offset = 0
-    while True:
-        line_end = body.find(b"\r\n", offset)
-        if line_end == -1:
-            raise CIMDError("CIMD metadata response is invalid.")
-        size_line = body[offset:line_end].split(b";", 1)[0]
-        try:
-            size = int(size_line, 16)
-        except ValueError as exc:
-            raise CIMDError("CIMD metadata response is invalid.") from exc
-        offset = line_end + 2
-        if size == 0:
-            return b"".join(decoded)
-        chunk_end = offset + size
-        if len(body) < chunk_end + 2 or body[chunk_end : chunk_end + 2] != b"\r\n":
-            raise CIMDError("CIMD metadata response is invalid.")
-        decoded.append(body[offset:chunk_end])
-        offset = chunk_end + 2
 
 
 def _fetch_pinned_metadata_document(fetch_url: ValidatedFetchURL) -> tuple[int, dict[str, str], bytes]:
     parsed = fetch_url.parsed
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    host_header = _host_header(parsed)
-    request = (
-        f"GET {_request_target(parsed)} HTTP/1.1\r\n"
-        f"Host: {host_header}\r\n"
-        "Accept: application/json\r\n"
-        "Connection: close\r\n\r\n"
-    ).encode("ascii")
+    port = _require_valid_port(parsed) or (443 if parsed.scheme == "https" else 80)
+    headers = {
+        "Host": _host_header(parsed),
+        "Accept": "application/json",
+        "Accept-Encoding": "identity",
+        "Connection": "close",
+        "User-Agent": "testownik-cimd-fetcher/1.0",
+    }
+    timeout = urllib3.Timeout(connect=CIMD_FETCH_TIMEOUT_SECONDS, read=CIMD_FETCH_TIMEOUT_SECONDS)
+    if parsed.scheme == "https":
+        pool = urllib3.HTTPSConnectionPool(
+            fetch_url.address,
+            port=port,
+            timeout=timeout,
+            retries=False,
+            maxsize=1,
+            block=True,
+            cert_reqs="CERT_REQUIRED",
+            ca_certs=default_ca_bundle_path(),
+            assert_hostname=parsed.hostname,
+            server_hostname=parsed.hostname,
+            ssl_minimum_version=ssl.TLSVersion.TLSv1_2,
+        )
+    else:
+        pool = urllib3.HTTPConnectionPool(
+            fetch_url.address,
+            port=port,
+            timeout=timeout,
+            retries=False,
+            maxsize=1,
+            block=True,
+        )
 
-    deadline = time.monotonic() + CIMD_FETCH_TIMEOUT_SECONDS
-    with socket.create_connection((fetch_url.address, port), timeout=CIMD_FETCH_TIMEOUT_SECONDS) as raw_sock:
-        raw_sock.settimeout(max(0.0, deadline - time.monotonic()))
-        if parsed.scheme == "https":
-            context = ssl.create_default_context()
-            context.minimum_version = ssl.TLSVersion.TLSv1_2
-            with context.wrap_socket(raw_sock, server_hostname=parsed.hostname) as tls_sock:
-                tls_sock.sendall(request)
-                return _read_http_response(tls_sock, deadline)
-        raw_sock.sendall(request)
-        return _read_http_response(raw_sock, deadline)
+    response = None
+    try:
+        response = pool.urlopen(
+            "GET",
+            _request_target(parsed),
+            headers=headers,
+            preload_content=False,
+            decode_content=False,
+            redirect=False,
+            retries=False,
+        )
+        response_headers = _validate_metadata_response_headers(response.headers)
+        body = response.read(CIMD_MAX_BODY_BYTES + 1, decode_content=False)
+        if len(body) > CIMD_MAX_BODY_BYTES:
+            raise CIMDError("CIMD metadata response is too large.")
+        return response.status, response_headers, body
+    finally:
+        if response is not None:
+            response.close()
+            response.release_conn()
+        pool.close()
+
+
+def _validate_metadata_response_headers(headers) -> dict[str, str]:
+    normalized = {name.lower(): value.strip() for name, value in headers.items()}
+    if headers.get("transfer-encoding"):
+        raise CIMDError("CIMD metadata response must not use transfer encoding.")
+    content_encoding = normalized.get("content-encoding", "").lower()
+    if content_encoding and content_encoding != "identity":
+        raise CIMDError("CIMD metadata response must not use content encoding.")
+
+    content_lengths = [value.strip() for value in headers.getlist("content-length", [])]
+    if len(set(content_lengths)) > 1:
+        raise CIMDError("CIMD metadata response has conflicting Content-Length headers.")
+    if content_lengths:
+        try:
+            content_length = int(content_lengths[0])
+        except ValueError as exc:
+            raise CIMDError("CIMD metadata response has an invalid Content-Length header.") from exc
+        if content_length > CIMD_MAX_BODY_BYTES:
+            raise CIMDError("CIMD metadata response is too large.")
+
+    content_type = normalized.get("content-type", "").split(";", 1)[0].strip().lower()
+    if content_type not in CIMD_ALLOWED_CONTENT_TYPES and not content_type.endswith("+json"):
+        raise CIMDError("CIMD metadata response must be JSON.")
+    return normalized
 
 
 def _clamp_cache_seconds(seconds: int) -> int:
@@ -358,15 +422,11 @@ def fetch_client_metadata(client_id_url: str) -> tuple[dict, int]:
         status_code, headers, body = _fetch_pinned_metadata_document(fetch_url)
         if status_code != 200:
             raise CIMDError("CIMD metadata request failed.")
-        if "json" not in headers.get("content-type", "").lower():
-            raise CIMDError("CIMD metadata response must be JSON.")
-        if headers.get("transfer-encoding", "").lower() == "chunked":
-            body = _decode_chunked_body(body)
         data = json.loads(body.decode("utf-8"))
         cache_seconds = _cache_seconds_from_headers(headers)
     except CIMDError:
         raise
-    except (OSError, ssl.SSLError, UnicodeEncodeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (HTTPError, OSError, ssl.SSLError, UnicodeEncodeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise CIMDError("Could not fetch CIMD metadata.") from exc
 
     if not isinstance(data, dict):

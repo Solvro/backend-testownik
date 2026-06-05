@@ -1,8 +1,11 @@
+from unittest.mock import patch
+
 from django.test import override_settings
 from django.urls import reverse
 from oauth2_provider.models import AbstractApplication, get_application_model
 from rest_framework.test import APITestCase
 
+from oauth_integrations.oauth_cimd import CIMDError
 from users.models import User
 
 AUTHORIZATION_PARAMS = {
@@ -54,6 +57,26 @@ class OAuthAuthorizationAPITests(APITestCase):
             [scope["value"] for scope in response.data["scopes"]],
             ["quizzes:read", "user:read"],
         )
+
+    def test_authorization_request_hides_cimd_preflight_error_details(self):
+        self.client.force_authenticate(user=self.user)
+        params = {
+            **self.authorization_params,
+            "client_id": "https://client.example/.well-known/oauth-client",
+        }
+
+        with patch(
+            "oauth_integrations.views.get_or_create_cimd_application",
+            side_effect=CIMDError("resolved internal host 10.0.0.5"),
+        ):
+            response = self.client.get(reverse("oauth_authorize_request"), params)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.data["error"],
+            "Unable to validate client metadata for the provided client_id.",
+        )
+        self.assertNotIn("10.0.0.5", response.data["error"])
 
     def test_authorization_request_approval_returns_redirect_url(self):
         self.client.force_authenticate(user=self.user)
