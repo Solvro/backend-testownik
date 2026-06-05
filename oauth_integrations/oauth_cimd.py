@@ -18,6 +18,7 @@ from oauth2_provider.models import AbstractApplication, get_application_model
 from oauth2_provider.oauth2_validators import OAuth2Validator
 from requests.certs import where as default_ca_bundle_path
 from urllib3.exceptions import HTTPError
+from urllib3.response import HTTPResponse
 
 from oauth_integrations.models import OAuthClientMetadata
 
@@ -30,6 +31,7 @@ CIMD_CACHE_MAX_SECONDS = 86400
 CIMD_FETCH_TIMEOUT_SECONDS = 3
 CIMD_MAX_BODY_BYTES = 5 * 1024
 CIMD_ALLOWED_CONTENT_TYPES = {"application/json"}
+CIMD_ALLOWED_CONTENT_ENCODINGS = {"identity", *HTTPResponse.CONTENT_DECODERS}
 
 
 class CIMDError(ValueError):
@@ -305,7 +307,7 @@ def _fetch_pinned_metadata_document(fetch_url: ValidatedFetchURL) -> tuple[int, 
     headers = {
         "Host": _host_header(parsed),
         "Accept": "application/json",
-        "Accept-Encoding": "identity",
+        "Accept-Encoding": "gzip, deflate",
         "Connection": "close",
         "User-Agent": "testownik-cimd-fetcher/1.0",
     }
@@ -341,12 +343,12 @@ def _fetch_pinned_metadata_document(fetch_url: ValidatedFetchURL) -> tuple[int, 
             _request_target(parsed),
             headers=headers,
             preload_content=False,
-            decode_content=False,
+            decode_content=True,
             redirect=False,
             retries=False,
         )
         response_headers = _validate_metadata_response_headers(response.headers)
-        body = response.read(CIMD_MAX_BODY_BYTES + 1, decode_content=False)
+        body = response.read(CIMD_MAX_BODY_BYTES + 1, decode_content=True)
         if len(body) > CIMD_MAX_BODY_BYTES:
             raise CIMDError("CIMD metadata response is too large.")
         return response.status, response_headers, body
@@ -359,13 +361,30 @@ def _fetch_pinned_metadata_document(fetch_url: ValidatedFetchURL) -> tuple[int, 
 
 def _validate_metadata_response_headers(headers) -> dict[str, str]:
     normalized = {name.lower(): value.strip() for name, value in headers.items()}
-    if headers.get("transfer-encoding"):
-        raise CIMDError("CIMD metadata response must not use transfer encoding.")
-    content_encoding = normalized.get("content-encoding", "").lower()
-    if content_encoding and content_encoding != "identity":
-        raise CIMDError("CIMD metadata response must not use content encoding.")
+    transfer_encoding = normalized.get("transfer-encoding", "").lower()
+    transfer_encodings = [
+        value.strip().lower()
+        for header_value in headers.getlist("transfer-encoding", [])
+        for value in header_value.split(",")
+        if value.strip()
+    ]
+    if transfer_encodings and transfer_encodings != ["chunked"]:
+        raise CIMDError("CIMD metadata response uses an unsupported transfer encoding.")
+    content_encodings = [
+        value.strip().lower()
+        for header_value in headers.getlist("content-encoding", [])
+        for value in header_value.split(",")
+        if value.strip()
+    ]
+    unsupported_content_encodings = [
+        encoding for encoding in content_encodings if encoding not in CIMD_ALLOWED_CONTENT_ENCODINGS
+    ]
+    if unsupported_content_encodings:
+        raise CIMDError("CIMD metadata response uses an unsupported content encoding.")
 
     content_lengths = [value.strip() for value in headers.getlist("content-length", [])]
+    if transfer_encoding and content_lengths:
+        raise CIMDError("CIMD metadata response must not mix Transfer-Encoding and Content-Length.")
     if len(set(content_lengths)) > 1:
         raise CIMDError("CIMD metadata response has conflicting Content-Length headers.")
     if content_lengths:

@@ -103,10 +103,29 @@ class CIMDValidationTests(SimpleTestCase):
         with self.assertRaisesMessage(CIMDError, "domain name"):
             _validate_fetch_url("http://127.0.0.1:3333/oauth-client")
 
-    def test_validate_metadata_response_headers_rejects_transfer_encoding(self):
+    def test_validate_metadata_response_headers_accepts_chunked_transfer_encoding(self):
         headers = HTTPHeaderDict({"content-type": "application/json", "transfer-encoding": "chunked"})
 
+        validated = _validate_metadata_response_headers(headers)
+
+        self.assertEqual(validated["transfer-encoding"], "chunked")
+
+    def test_validate_metadata_response_headers_rejects_unsupported_transfer_encoding(self):
+        headers = HTTPHeaderDict({"content-type": "application/json", "transfer-encoding": "gzip"})
+
         with self.assertRaisesMessage(CIMDError, "transfer encoding"):
+            _validate_metadata_response_headers(headers)
+
+    def test_validate_metadata_response_headers_rejects_transfer_encoding_with_content_length(self):
+        headers = HTTPHeaderDict(
+            {
+                "content-type": "application/json",
+                "transfer-encoding": "chunked",
+                "content-length": "16",
+            }
+        )
+
+        with self.assertRaisesMessage(CIMDError, "Transfer-Encoding and Content-Length"):
             _validate_metadata_response_headers(headers)
 
     def test_validate_metadata_response_headers_rejects_large_content_length(self):
@@ -120,8 +139,15 @@ class CIMDValidationTests(SimpleTestCase):
         with self.assertRaisesMessage(CIMDError, "too large"):
             _validate_metadata_response_headers(headers)
 
-    def test_validate_metadata_response_headers_rejects_content_encoding(self):
+    def test_validate_metadata_response_headers_accepts_gzip_content_encoding(self):
         headers = HTTPHeaderDict({"content-type": "application/json", "content-encoding": "gzip"})
+
+        validated = _validate_metadata_response_headers(headers)
+
+        self.assertEqual(validated["content-encoding"], "gzip")
+
+    def test_validate_metadata_response_headers_rejects_unsupported_content_encoding(self):
+        headers = HTTPHeaderDict({"content-type": "application/json", "content-encoding": "br"})
 
         with self.assertRaisesMessage(CIMDError, "content encoding"):
             _validate_metadata_response_headers(headers)

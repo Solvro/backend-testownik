@@ -153,6 +153,11 @@ def get_unfold_settings(frontend_url):
                             "icon": "token",
                             "link": reverse_lazy("admin:oauth2_provider_accesstoken_changelist"),
                         },
+                        {
+                            "title": "CIMD Metadata",
+                            "icon": "hub",
+                            "link": reverse_lazy("admin:oauth_integrations_oauthclientmetadata_changelist"),
+                        },
                     ],
                 },
                 {
