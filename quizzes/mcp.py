@@ -4,6 +4,7 @@ from mcp_server import MCPToolset
 from rest_framework.exceptions import ValidationError
 
 from quizzes.models import (
+    Question,
     QuestionType,
     Quiz,
 )
@@ -243,17 +244,19 @@ class QuizTools(MCPToolset):
         except _QuestionError as exc:
             return {"error": str(exc)}
         try:
-            quiz = get_readable_quiz(
-                self.request.user,
-                quiz_id,
-                queryset=Quiz.objects.prefetch_related("questions__answers", "questions__image_upload"),
-            )
+            quiz = get_readable_quiz(self.request.user, quiz_id)
         except QuizOperationError as exc:
             return _operation_error(exc)
-        questions = quiz.questions.all()
+
+        questions = (
+            Question.objects.filter(quiz=quiz)
+            .select_related("image_upload")
+            .prefetch_related("answers__image_upload")
+            .order_by("order")
+        )
         if question_range is not None:
             questions = questions[question_range]
-        return {"questions": [_question_data(q, self.request) for q in questions]}
+        return {"questions": [_question_data(q, self.request) for q in questions.iterator(chunk_size=500)]}
 
     def create_quiz(
         self,
