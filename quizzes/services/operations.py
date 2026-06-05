@@ -9,7 +9,6 @@ from django.utils import timezone
 
 from quizzes.models import (
     AnswerRecord,
-    Folder,
     Question,
     QuestionType,
     Quiz,
@@ -301,38 +300,3 @@ def record_quiz_answer(
         was_correct=was_correct,
         selected_answers=list(recorded_answers),
     )
-
-
-def get_folder_for_read(user, folder_id):
-    try:
-        folder = Folder.objects.get(pk=folder_id)
-    except (Folder.DoesNotExist, ValueError, TypeError, DjangoValidationError) as exc:
-        raise QuizOperationError("Folder not found.", status_code=404) from exc
-    if folder.owner != user and not folder.has_edit_permission(user):
-        raise QuizOperationError("You do not have access to this folder.", status_code=403)
-    return folder
-
-
-def folder_quizzes_queryset(folder):
-    return (
-        Quiz.objects.filter(folder=folder, archived_at__isnull=True)
-        .select_related("creator")
-        .annotate(questions_count=Count("questions"))
-    )
-
-
-def move_owned_quiz(user, quiz_id, folder_id):
-    try:
-        quiz = Quiz.objects.get(pk=quiz_id)
-    except (Quiz.DoesNotExist, ValueError, TypeError, DjangoValidationError) as exc:
-        raise QuizOperationError("Quiz not found.", status_code=404) from exc
-    if quiz.folder.owner != user:
-        raise QuizOperationError("Only the quiz owner can move it.", status_code=403)
-    try:
-        folder = Folder.objects.get(pk=folder_id, owner=user)
-    except (Folder.DoesNotExist, ValueError, TypeError, DjangoValidationError) as exc:
-        raise QuizOperationError("Folder not found.", status_code=404) from exc
-    quiz.folder = folder
-    quiz.archived_at = None
-    quiz.save(update_fields=["folder", "archived_at", "updated_at"])
-    return quiz, folder
