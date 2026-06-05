@@ -23,3 +23,13 @@ class AuthorizationDecisionSerializer(serializers.Serializer):
         required=False,
     )
     allow = serializers.BooleanField()
+
+
+class AuthorizedAppSerializer(serializers.Serializer):
+    client_id = serializers.CharField()
+    oauth_application_id = serializers.CharField()
+    client_name = serializers.CharField()
+    client_uri = serializers.URLField(allow_blank=True)
+    logo_uri = serializers.URLField(allow_blank=True)
+    created = serializers.DateTimeField()
+    scopes = serializers.CharField()

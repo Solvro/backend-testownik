@@ -18,7 +18,7 @@ from rest_framework.response import Response
 from oauth_integrations.views import (
     AuthorizationRequestAPIView,
     AuthorizationServerMetadataView,
-    AuthorizedAppsView,
+    AuthorizedAppsViewSet,
     ProtectedResourceMetadataView,
 )
 from testownik_core.views import ApiIndexView
@@ -34,6 +34,12 @@ from users.views import (
 @permission_classes([AllowAny])
 def status(request):
     return Response({"status": "ok"})
+
+
+MCPServerStreamableHttpView.__doc__ = """Endpoint for MCP server communication. 
+Supports streaming responses and is designed to handle long-lived connections for real-time interactions. 
+This endpoint is used by the MCP server to manage sessions and facilitate communication between clients and the server.
+"""
 
 
 mcp_view = MCPServerStreamableHttpView.as_view(
@@ -86,10 +92,10 @@ base_urlpatterns = [
     # OAuth 2.0
     path("oauth/authorize/request/", AuthorizationRequestAPIView.as_view(), name="oauth_authorize_request"),
     path("oauth/", include("oauth2_provider.urls", namespace="oauth2_provider")),
-    path("oauth/authorized-apps/", AuthorizedAppsView.as_view(), name="authorized_apps"),
+    path("oauth/authorized-apps/", AuthorizedAppsViewSet.as_view({"get": "list"}), name="authorized_apps"),
     path(
         "oauth/authorized-apps/<path:client_id>/",
-        AuthorizedAppsView.as_view(),
+        AuthorizedAppsViewSet.as_view({"delete": "destroy"}),
         name="authorized_app_detail",
     ),
 ]

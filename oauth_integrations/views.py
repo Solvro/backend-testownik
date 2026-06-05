@@ -1,7 +1,7 @@
 import logging
 
 from django.conf import settings
-from django.http import QueryDict
+from django.http import Http404, QueryDict
 from oauth2_provider.exceptions import OAuthToolkitError
 from oauth2_provider.models import (
     AccessToken,
@@ -10,6 +10,7 @@ from oauth2_provider.models import (
 )
 from oauth2_provider.scopes import get_scopes_backend
 from oauth2_provider.views.mixins import OAuthLibMixin
+from rest_framework import mixins, viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -22,7 +23,7 @@ from oauth_integrations.oauth_cimd import (
     is_cimd_client_id,
     resolve_application_from_public_client_id,
 )
-from oauth_integrations.serializers import AuthorizationDecisionSerializer
+from oauth_integrations.serializers import AuthorizationDecisionSerializer, AuthorizedAppSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -276,13 +277,15 @@ class ProtectedResourceMetadataView(APIView):
         )
 
 
-class AuthorizedAppsView(APIView):
+class AuthorizedAppsViewSet(mixins.ListModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet):
     """Manage OAuth apps authorized by the current user."""
 
     permission_classes = [IsAuthenticated]
+    serializer_class = AuthorizedAppSerializer
+    lookup_url_kwarg = "client_id"
 
-    def get(self, request):
-        tokens = AccessToken.objects.filter(user=request.user).select_related("application").order_by("-created")
+    def get_queryset(self):
+        tokens = AccessToken.objects.filter(user=self.request.user).select_related("application").order_by("-created")
         seen = set()
         apps = []
         for token in tokens:
@@ -302,28 +305,45 @@ class AuthorizedAppsView(APIView):
                     "scopes": token.scope,
                 }
             )
-        return Response(apps)
+        return apps
 
-    def delete(self, request, client_id=None):
+    def destroy(self, request, *args, **kwargs):
+        client_id = kwargs.get(self.lookup_url_kwarg)
         if not client_id:
             return Response({"error": "client_id is required"}, status=400)
-        application = self._get_application_for_revoke(client_id)
-        if application is None:
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except Http404:
             return Response({"error": "No tokens found for this app"}, status=404)
+
+    def get_object(self):
+        client_id = self.kwargs.get(self.lookup_url_kwarg)
+        application = self._get_application_for_revoke(client_id)
+        if application is None or not self._has_user_tokens(application):
+            raise Http404
+        self.check_object_permissions(self.request, application)
+        return application
+
+    def perform_destroy(self, application):
         refresh_deleted, _ = RefreshToken.objects.filter(
-            user=request.user,
+            user=self.request.user,
             application=application,
         ).delete()
         access_deleted, _ = AccessToken.objects.filter(
-            user=request.user,
+            user=self.request.user,
             application=application,
         ).delete()
         if refresh_deleted == 0 and access_deleted == 0:
-            return Response({"error": "No tokens found for this app"}, status=404)
-        return Response(status=204)
+            raise Http404
 
     def _get_application_for_revoke(self, client_id):
         if is_cimd_client_id(client_id):
             metadata = OAuthClientMetadata.objects.select_related("application").filter(client_id_url=client_id).first()
             return metadata.application if metadata else None
         return get_application_model().objects.filter(client_id=client_id).first()
+
+    def _has_user_tokens(self, application):
+        return (
+            AccessToken.objects.filter(user=self.request.user, application=application).exists()
+            or RefreshToken.objects.filter(user=self.request.user, application=application).exists()
+        )
