@@ -174,7 +174,9 @@ def recently_studied_quiz_ids(user, *, days: int = 90):
         QuizSession.objects.filter(
             user=user,
             updated_at__gte=timezone.now() - timedelta(days=days),
-        ).values_list("quiz_id", flat=True)
+        )
+        .values_list("quiz_id", flat=True)
+        .distinct()
     )
 
 
