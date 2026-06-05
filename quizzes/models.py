@@ -128,6 +128,10 @@ class Quiz(models.Model):
         help_text="Nie będzie wyświetlany autor testu, cały czas będzie można zgłosić błąd w pytaniu",
     )
     version = models.PositiveIntegerField(default=1)
+    is_ai_generated = models.BooleanField(
+        default=False,
+        help_text="Cała baza została wygenerowana przez AI (np. przez asystenta MCP)",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     archived_at = models.DateTimeField(null=True, blank=True, db_index=True)
