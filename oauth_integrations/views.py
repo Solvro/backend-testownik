@@ -2,6 +2,7 @@ import logging
 
 from django.conf import settings
 from django.http import Http404, QueryDict
+from django.urls import reverse
 from oauth2_provider.exceptions import OAuthToolkitError
 from oauth2_provider.models import (
     AccessToken,
@@ -237,14 +238,14 @@ class AuthorizationServerMetadataView(APIView):
     authentication_classes = []
 
     def get(self, request):
-        issuer = settings.SITE_URL
+        issuer = settings.OAUTH_ISSUER_URL.rstrip("/")
         return Response(
             {
                 "issuer": issuer,
                 "authorization_endpoint": f"{settings.FRONTEND_URL}/oauth/authorize",
-                "token_endpoint": f"{issuer}/api/oauth/token/",
-                "revocation_endpoint": f"{issuer}/api/oauth/revoke_token/",
-                "introspection_endpoint": f"{issuer}/api/oauth/introspect/",
+                "token_endpoint": request.build_absolute_uri(reverse("oauth2_provider:token")),
+                "revocation_endpoint": request.build_absolute_uri(reverse("oauth2_provider:revoke-token")),
+                "introspection_endpoint": request.build_absolute_uri(reverse("oauth2_provider:introspect")),
                 "response_types_supported": ["code"],
                 "grant_types_supported": ["authorization_code", "refresh_token"],
                 "code_challenge_methods_supported": ["S256"],
@@ -266,12 +267,11 @@ class ProtectedResourceMetadataView(APIView):
     authentication_classes = []
 
     def get(self, request):
-        site_url = settings.SITE_URL
-        mcp_endpoint = settings.DJANGO_MCP_ENDPOINT.strip("/")
+        issuer = settings.OAUTH_ISSUER_URL.rstrip("/")
         return Response(
             {
-                "resource": f"{site_url}/{mcp_endpoint}",
-                "authorization_servers": [site_url],
+                "resource": request.build_absolute_uri(reverse("mcp_server_streamable_http_endpoint")),
+                "authorization_servers": [issuer],
                 "scopes_supported": list(settings.OAUTH2_PROVIDER["SCOPES"].keys()),
             }
         )

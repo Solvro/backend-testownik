@@ -313,7 +313,7 @@ ARCHIVE_TTL_DAYS = 30
 UNFOLD = get_unfold_settings(FRONTEND_URL)
 
 # OAuth 2.0 Authorization Server (django-oauth-toolkit)
-SITE_URL = os.environ.get("SITE_URL", "http://localhost:8000").rstrip("/")
+OAUTH_ISSUER_URL = os.environ.get("OAUTH_ISSUER_URL", "http://localhost:8000").rstrip("/")
 OAUTH2_PROVIDER_APPLICATION_MODEL = "oauth2_provider.Application"
 
 OAUTH2_PROVIDER = {
