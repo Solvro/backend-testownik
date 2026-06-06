@@ -1,10 +1,10 @@
-from mcp_server import MCPToolset
-
 from testownik_core.mcp_auth import require_scope as _require_scope
+from testownik_core.mcp_tools import AnnotatedMCPToolset, tool_annotations
 from users.models import UserSettings
 
 
-class UserTools(MCPToolset):
+class UserTools(AnnotatedMCPToolset):
+    @tool_annotations(title="Get my profile", read_only=True, destructive=False, idempotent=True)
     def get_my_profile(self) -> dict:
         """Return the current user's profile information like name and email"""
         _require_scope(self.request, "user:read")
@@ -17,6 +17,7 @@ class UserTools(MCPToolset):
             "full_name": user.full_name,
         }
 
+    @tool_annotations(title="Get my settings", read_only=True, destructive=False, idempotent=True)
     def get_my_settings(self) -> dict:
         """Return the current user's quiz and notification settings, including
         reoccurrence config, AI preferences, and notification toggles."""

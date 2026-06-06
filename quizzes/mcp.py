@@ -1,6 +1,5 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from mcp_server import MCPToolset
 from rest_framework.exceptions import ValidationError
 
 from quizzes.models import (
@@ -28,6 +27,7 @@ from quizzes.services.operations import (
     searchable_quizzes_queryset,
 )
 from testownik_core.mcp_auth import require_scope as _require_scope
+from testownik_core.mcp_tools import AnnotatedMCPToolset, tool_annotations
 
 
 class _QuestionError(ValueError):
@@ -203,7 +203,8 @@ def _normalize_indexed_question_specs(questions):
     return normalized
 
 
-class QuizTools(MCPToolset):
+class QuizTools(AnnotatedMCPToolset):
+    @tool_annotations(title="List my quizzes", read_only=True, destructive=False, idempotent=True)
     def list_my_quizzes(self) -> list[dict]:
         """List all quizzes owned by the current user. Returns quiz id, title,
         description, and question count."""
@@ -211,6 +212,7 @@ class QuizTools(MCPToolset):
         quizzes = owned_quizzes_queryset(self.request.user)
         return [_mcp_quiz_meta_data(q, self.request) for q in quizzes]
 
+    @tool_annotations(title="Search quizzes", read_only=True, destructive=False, idempotent=True)
     def search_quizzes(self, query: str) -> list[dict]:
         """Search accessible quizzes by title. Returns matching quizzes the
         current user can read."""
@@ -218,6 +220,7 @@ class QuizTools(MCPToolset):
         accessible = searchable_quizzes_queryset(self.request.user, query)[:25]
         return [_quiz_meta_data(q, self.request) for q in accessible]
 
+    @tool_annotations(title="Get quiz", read_only=True, destructive=False, idempotent=True)
     def get_quiz(self, quiz_id: str) -> dict:
         """Get full quiz details including all questions and answers."""
         _require_scope(self.request, "quizzes:read")
@@ -227,6 +230,7 @@ class QuizTools(MCPToolset):
             return _operation_error(exc)
         return _quiz_data(quiz, self.request)
 
+    @tool_annotations(title="Get quiz questions", read_only=True, destructive=False, idempotent=True)
     def get_quiz_questions(
         self,
         quiz_id: str,
@@ -258,6 +262,7 @@ class QuizTools(MCPToolset):
             questions = questions[question_range]
         return {"questions": [_question_data(q, self.request) for q in questions.iterator(chunk_size=500)]}
 
+    @tool_annotations(title="Create quiz", read_only=False, destructive=False, idempotent=False)
     def create_quiz(
         self,
         title: str,
@@ -316,6 +321,7 @@ class QuizTools(MCPToolset):
             "status": "created",
         }
 
+    @tool_annotations(title="Add question", read_only=False, destructive=False, idempotent=False)
     def add_question(
         self,
         quiz_id: str,
@@ -351,6 +357,7 @@ class QuizTools(MCPToolset):
             return _validation_error(exc.detail)
         return {"id": str(question.id), "status": "created"}
 
+    @tool_annotations(title="Add questions", read_only=False, destructive=False, idempotent=False)
     def add_questions(self, quiz_id: str, questions: list[dict]) -> dict:
         """Batch-add multiple questions to a quiz in one call. Marked
         is_ai_generated=true.
@@ -377,6 +384,7 @@ class QuizTools(MCPToolset):
         created_ids = [str(question.id) for question in created_questions]
         return {"status": "created", "created_count": len(created_ids), "question_ids": created_ids}
 
+    @tool_annotations(title="Edit question", read_only=False, destructive=True, idempotent=False)
     def edit_question(
         self,
         question_id: str,
@@ -425,6 +433,7 @@ class QuizTools(MCPToolset):
             return _validation_error(exc.detail)
         return {"id": str(question.id), "status": "updated"}
 
+    @tool_annotations(title="Edit questions", read_only=False, destructive=True, idempotent=False)
     def edit_questions(self, updates: list[dict]) -> dict:
         """Batch-edit normal questions in one atomic call.
 
@@ -493,6 +502,7 @@ class QuizTools(MCPToolset):
 
         return {"status": "updated", "updated_count": len(updated_ids), "question_ids": updated_ids}
 
+    @tool_annotations(title="Delete question", read_only=False, destructive=True, idempotent=True)
     def delete_question(self, question_id: str) -> dict:
         """Remove a question from a quiz."""
         _require_scope(self.request, "quizzes:write")
@@ -504,7 +514,8 @@ class QuizTools(MCPToolset):
         return {"status": "deleted"}
 
 
-class StudyTools(MCPToolset):
+class StudyTools(AnnotatedMCPToolset):
+    @tool_annotations(title="Get quiz session", read_only=True, destructive=False, idempotent=False)
     def get_quiz_session(self, quiz_id: str) -> dict:
         """Get or create an active study session for a quiz. Returns session
         state, progress counts, and the current question."""
@@ -528,6 +539,7 @@ class StudyTools(MCPToolset):
             "current_question": _question_data(current_q, self.request) if current_q else None,
         }
 
+    @tool_annotations(title="Reset quiz session", read_only=False, destructive=True, idempotent=False)
     def reset_quiz_session(self, quiz_id: str) -> dict:
         """Archive the current session and start a fresh one."""
         _require_scope(self.request, "study:write")
@@ -541,6 +553,7 @@ class StudyTools(MCPToolset):
             "total_questions": state.quiz.questions.count(),
         }
 
+    @tool_annotations(title="Get next question", read_only=True, destructive=False, idempotent=False)
     def get_next_question(self, quiz_id: str) -> dict:
         """Get the next question to study based on the session's current state."""
         _require_scope(self.request, "study:read")
@@ -551,6 +564,7 @@ class StudyTools(MCPToolset):
             return _operation_error(exc)
         return _question_data(question, self.request)
 
+    @tool_annotations(title="Submit answer", read_only=False, destructive=False, idempotent=False)
     def submit_answer(
         self,
         quiz_id: str,
