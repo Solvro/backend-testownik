@@ -1,4 +1,5 @@
 import io
+import ipaddress
 import os
 import uuid
 from urllib.parse import urlparse
@@ -143,5 +144,14 @@ def validate_image_source_url(url: str, allowed_hosts: list[str] | None = None) 
     if not parsed.netloc:
         raise ValidationError("URL is missing a hostname.")
     hostname = (parsed.hostname or "").lower()
+    try:
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        if not ip.is_global:
+            raise ValidationError(
+                f"URL host '{hostname}' is a non-global IP address and is not allowed as an image source."
+            )
     if hostname not in {h.lower() for h in allowed_hosts}:
         raise ValidationError(f"URL host '{parsed.hostname}' is not in the allowed image source hosts.")
