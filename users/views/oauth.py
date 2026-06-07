@@ -626,7 +626,7 @@ def _sync_process_and_save_photo(user, url):
         raw_content, content_type = _sync_download_photo(url, MAX_PHOTO_FILE_SIZE)
         _process_and_save_photo_file(user, url, raw_content, content_type)
     except Exception as e:
-        logger.warning(f"Failed to download and process photo from {url} for user {user.id}: {e}")
+        logger.warning(f"Failed to download and process photo from {urlparse(url).hostname} for user {user.id}: {e}")
 
 
 async def _async_process_and_save_photo(user, url):
@@ -652,4 +652,4 @@ async def _async_process_and_save_photo(user, url):
         raw_content, content_type = await _async_download_photo(url, MAX_PHOTO_FILE_SIZE)
         await sync_to_async(_process_and_save_photo_file)(user, url, raw_content, content_type)
     except Exception as e:
-        logger.warning(f"Failed to download and process photo from {url} for user {user.id}: {e}")
+        logger.warning(f"Failed to download and process photo from {urlparse(url).hostname} for user {user.id}: {e}")
