@@ -1,12 +1,9 @@
-import logging
 import urllib.parse
 import uuid
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Avg, Count, Prefetch, Q
 from django.utils import timezone
-from django.utils.html import escape
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
@@ -34,6 +31,7 @@ from quizzes.models import (
     Folder,
     FolderType,
     Question,
+    QuestionChangeSuggestion,
     Quiz,
     QuizRating,
     QuizSession,
@@ -61,6 +59,7 @@ from quizzes.serializers import (
     LibraryItemSerializer,
     MoveFolderSerializer,
     MoveQuizSerializer,
+    QuestionChangeSuggestionSerializer,
     QuestionSerializer,
     QuizMetaDataSerializer,
     QuizMetaDataWithQuestionSerializer,
@@ -74,6 +73,7 @@ from quizzes.serializers import (
 )
 from quizzes.services.metadata import get_preview_question
 from quizzes.services.notifications import (
+    notify_question_comment_created,
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
 )
@@ -92,12 +92,15 @@ from quizzes.services.stats import (
     get_quiz_stats,
     get_quiz_timeline_stats,
 )
+from quizzes.services.suggestions import (
+    SuggestionApplyError,
+    SuggestionVersionConflict,
+    apply_question_change_suggestion,
+    reject_question_change_suggestion,
+)
 from quizzes.throttling import CopyQuizThrottle, QuizStatsThrottle
 from quizzes.utils import parse_include_values, parse_positive_int_query_param
-from testownik_core.emails import send_email
 from users.models import AccountType
-
-logger = logging.getLogger(__name__)
 
 ALLOWED_STATS_SCOPES = {"me", "all"}
 
@@ -371,11 +374,11 @@ class QuizViewSet(viewsets.ModelViewSet):
         Access Rules:
         - Private (0): Only creator
         - Shared (1): Everyone but without preview question and always anonymous
-        - Unlisted/Public (≥2): Everyone
+        - Unlisted/Public (â‰Ą2): Everyone
 
         Preview Question Rules:
-        - Included only if ?include=preview_question AND visibility ≥ 2
-        - Selected based on: no images (q/a), ≥3 answers
+        - Included only if ?include=preview_question AND visibility â‰Ą 2
+        - Selected based on: no images (q/a), â‰Ą3 answers
         """
 
         try:
@@ -950,9 +953,13 @@ class ReportQuestionIssueView(APIView):
         if not data.get("quiz_id") or not data.get("question_id") or not data.get("issue"):
             return Response({"error": "Missing data"}, status=400)
 
-        quiz = Quiz.objects.get(id=data.get("quiz_id"))
-        if not quiz:
+        try:
+            quiz = Quiz.objects.get(id=data.get("quiz_id"))
+        except (Quiz.DoesNotExist, ValueError, TypeError):
             return Response({"error": "Quiz not found"}, status=404)
+
+        if not user_has_quiz_read_access(request.user, quiz):
+            raise PermissionDenied("You do not have access to this quiz.")
 
         if request.user == quiz.creator:
             return Response(
@@ -965,35 +972,21 @@ class ReportQuestionIssueView(APIView):
         except Question.DoesNotExist:
             return Response({"error": "Question not found"}, status=404)
 
-        subject = "Zgłoszenie błędu w pytaniu"
-        query_params = urllib.parse.urlencode({"scroll_to": f"question-{question.id}"})
-        cta_url = f"{settings.FRONTEND_URL}/edit-quiz/{quiz.id}/?{query_params}"
+        serializer_data = {
+            "quiz": quiz.id,
+            "question": question.id,
+            "content": data.get("issue"),
+        }
+        if data.get("suggestion"):
+            serializer_data["suggestion"] = data["suggestion"]
 
-        content = (
-            f"{escape(request.user.full_name)} zgłosił błąd w pytaniu "
-            f'"{escape(question.text)}" quizu {escape(quiz.title)}.\n\n'
-            f"{escape(data.get('issue'))}"
-        )
+        serializer = CommentSerializer(data=serializer_data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        comment = serializer.save(author=request.user)
 
-        recipient_list = [quiz.creator.email]
-        reply_to = [request.user.email]
+        transaction.on_commit(lambda: notify_question_comment_created(comment))
 
-        try:
-            send_email(
-                subject=subject,
-                recipient_list=recipient_list,
-                title="Zgłoszenie błędu w pytaniu",
-                content=content,
-                cta_url=cta_url,
-                cta_text="Przejdź do edycji",
-                reply_to=reply_to,
-                fail_silently=False,
-            )
-        except Exception as e:
-            logger.exception("Email sending failed: %s", str(e))
-            return Response({"error": "Email sending failed"}, status=500)
-
-        return Response({"status": "ok"}, status=201)
+        return Response(CommentSerializer(comment, context={"request": request}).data, status=201)
 
 
 class QuestionViewSet(
@@ -1138,7 +1131,7 @@ class CommentViewSet(viewsets.ModelViewSet):
       - Create validates quiz read access.
       - Only the author can modify or delete their own comments.
 
-    DELETE performs a soft delete — the record is kept but content/author are
+    DELETE performs a soft delete the record is kept but content/author are
     hidden in responses for deleted comments to preserve thread structure.
     """
 
@@ -1149,9 +1142,19 @@ class CommentViewSet(viewsets.ModelViewSet):
     ordering_fields = ["created_at", "updated_at"]
     ordering = ["-created_at"]
 
+    def get_permissions(self):
+        if self.action in {"accept_suggestion", "reject_suggestion"}:
+            return [permissions.IsAuthenticated()]
+        return super().get_permissions()
+
     def get_queryset(self):
         user = self.request.user
-        return Comment.objects.filter(accessible_quizzes_q(user)).select_related("author", "parent").distinct()
+        return (
+            Comment.objects.filter(accessible_quizzes_q(user))
+            .select_related("author", "parent", "quiz", "quiz__folder", "question")
+            .prefetch_related("suggestion")
+            .distinct()
+        )
 
     def list(self, request, *args, **kwargs):
         if "quiz" not in request.query_params:
@@ -1168,13 +1171,57 @@ class CommentViewSet(viewsets.ModelViewSet):
         quiz = serializer.validated_data["quiz"]
         if not user_has_quiz_read_access(self.request.user, quiz):
             raise PermissionDenied("You do not have access to this quiz.")
-        serializer.save(author=self.request.user)
+        comment = serializer.save(author=self.request.user)
+        transaction.on_commit(lambda: notify_question_comment_created(comment))
 
     def perform_destroy(self, instance: Comment):
         if instance.is_deleted:
             raise ValidationError("Comment is already deleted.")
 
         instance.mark_as_deleted()
+
+    @action(detail=True, methods=["post"], url_path="accept-suggestion")
+    def accept_suggestion(self, request, pk=None):
+        comment = self.get_object()
+
+        if not comment.quiz.can_edit(request.user):
+            raise PermissionDenied("You do not have permission to accept suggestions for this quiz.")
+
+        try:
+            suggestion = comment.suggestion
+        except QuestionChangeSuggestion.DoesNotExist:
+            raise ValidationError({"suggestion": "This comment has no suggestion."})
+
+        force = request.data.get("force", False)
+        if isinstance(force, str):
+            force = force.lower() in {"1", "true", "yes"}
+        try:
+            suggestion = apply_question_change_suggestion(suggestion, request.user, force=force)
+        except SuggestionVersionConflict as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except SuggestionApplyError as exc:
+            raise ValidationError({"suggestion": str(exc)})
+
+        return Response(QuestionChangeSuggestionSerializer(suggestion, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"], url_path="reject-suggestion")
+    def reject_suggestion(self, request, pk=None):
+        comment = self.get_object()
+
+        if not comment.quiz.can_edit(request.user):
+            raise PermissionDenied("You do not have permission to reject suggestions for this quiz.")
+
+        try:
+            suggestion = comment.suggestion
+        except QuestionChangeSuggestion.DoesNotExist:
+            raise ValidationError({"suggestion": "This comment has no suggestion."})
+
+        try:
+            suggestion = reject_question_change_suggestion(suggestion, request.user)
+        except SuggestionApplyError as exc:
+            raise ValidationError({"suggestion": str(exc)})
+
+        return Response(QuestionChangeSuggestionSerializer(suggestion, context={"request": request}).data)
 
 
 class LibraryView(APIView):
