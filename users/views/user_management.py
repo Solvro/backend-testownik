@@ -174,7 +174,7 @@ class UserPhotoView(APIView):
         try:
             processed_file, width, height, content_type = process_uploaded_image(request.FILES["photo"])
         except ValidationError:
-            logger.exception("Photo upload failed for user %s", request.user.id)
+            logger.warning("Photo upload failed for user %s", request.user.id)
             return Response(
                 {"error": "Invalid image file. Accepted formats: JPEG, PNG, GIF, WEBP, AVIF (max 10MB)."}, status=400
             )
@@ -189,6 +189,8 @@ class UserPhotoView(APIView):
             uploaded_by=request.user,
         )
 
+        # The old custom_photo_image (if any) is now orphaned — intentionally not deleted here.
+        # Orphan cleanup is deferred to the `cleanup_orphans` management command.
         request.user.custom_photo_image = img
         request.user.save(update_fields=["custom_photo_image"])
 
@@ -200,6 +202,8 @@ class UserPhotoView(APIView):
         responses={200: OpenApiResponse(description="Photo removed successfully")},
     )
     def delete(self, request):
+        # The old UploadedImage row + file is now orphaned — intentionally not deleted here.
+        # Orphan cleanup is deferred to the `cleanup_orphans` management command.
         request.user.custom_photo_image = None
         request.user.save(update_fields=["custom_photo_image"])
         return Response({"message": "Photo removed successfully"})
