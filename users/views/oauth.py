@@ -564,7 +564,7 @@ def _process_and_save_photo_file(user, url, raw_content: bytes, content_type: st
 
 def _sync_download_photo(url: str, max_size: int) -> tuple[bytes, str]:
     """Download photo synchronously with streaming + size cap. Returns (content, content_type)."""
-    with requests.get(url, timeout=5, stream=True) as response:
+    with requests.get(url, timeout=5, stream=True, allow_redirects=False) as response:
         response.raise_for_status()
         content_type = response.headers.get("Content-Type", "image/jpeg")
 

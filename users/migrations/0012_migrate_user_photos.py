@@ -34,7 +34,7 @@ def migrate_photos(apps, schema_editor):
                 continue
 
             try:
-                with requests.get(user.overriden_photo_url, timeout=5, stream=True) as response:
+                with requests.get(user.overriden_photo_url, timeout=5, stream=True, allow_redirects=False) as response:
                     response.raise_for_status()
                     if response.status_code == 200:
                         content_length = response.headers.get("Content-Length")
