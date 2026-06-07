@@ -591,7 +591,7 @@ def _sync_download_photo(url: str, max_size: int) -> tuple[bytes, str]:
 async def _async_download_photo(url: str, max_size: int) -> tuple[bytes, str]:
     """Download photo asynchronously via aiohttp with streaming + size cap. Returns (content, content_type)."""
     timeout = aiohttp.ClientTimeout(total=5)
-    async with aiohttp.ClientSession(timeout=timeout) as session, session.get(url) as response:
+    async with aiohttp.ClientSession(timeout=timeout) as session, session.get(url, allow_redirects=False) as response:
         response.raise_for_status()
         content_type = response.headers.get("Content-Type", "image/jpeg")
 
