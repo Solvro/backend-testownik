@@ -640,7 +640,12 @@ async def _async_process_and_save_photo(user, url):
         validate_image_source_url(url)
 
         if user.photo_image_id:
-            photo_image = user.photo_image
+            from uploads.models import UploadedImage
+
+            try:
+                photo_image = await UploadedImage.objects.aget(pk=user.photo_image_id)
+            except UploadedImage.DoesNotExist:
+                photo_image = None
             if photo_image and (timezone.now() - photo_image.uploaded_at < timedelta(hours=24)):
                 return
 
