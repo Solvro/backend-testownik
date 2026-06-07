@@ -537,7 +537,10 @@ def _process_and_save_photo_file(user, url, raw_content: bytes, content_type: st
         file_name = file_name.split("?")[0]
     if not file_name.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
         hostname = urlparse(url).hostname
-        file_name += ".png" if hostname == "api.dicebear.com" else ".jpg"
+        if hostname == "api.dicebear.com":
+            file_name = "dicebear.png"
+        else:
+            file_name += ".jpg"
 
     uploaded_file = SimpleUploadedFile(
         name=file_name,
