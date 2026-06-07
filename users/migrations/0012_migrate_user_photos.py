@@ -13,10 +13,10 @@ def migrate_photos(apps, schema_editor):
     User = apps.get_model("users", "User")
     UploadedImage = apps.get_model("uploads", "UploadedImage")
 
-    # We must import this directly because apps.get_model doesn't give us the utility
+    # We must import these directly because apps.get_model doesn't give us the utility
     # and importing in migrations is generally okay for utilities as long as they don't depend on unmigrated models.
     try:
-        from uploads.utils import process_uploaded_image
+        from uploads.utils import process_uploaded_image, validate_image_source_url
     except ImportError:
         logger.error("Could not import process_uploaded_image, skipping photo migration.")
         return
@@ -27,6 +27,12 @@ def migrate_photos(apps, schema_editor):
     for user in users:
         # Migrate overriden_photo_url -> custom_photo_image
         if user.overriden_photo_url:
+            try:
+                validate_image_source_url(user.overriden_photo_url)
+            except Exception:
+                logger.warning("Skipping invalid photo URL for user %s: %s", user.id, user.overriden_photo_url)
+                continue
+
             try:
                 with requests.get(user.overriden_photo_url, timeout=5, stream=True) as response:
                     response.raise_for_status()
