@@ -1,6 +1,7 @@
 import secrets
 import uuid
 from datetime import date, timedelta
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.contrib.auth.base_user import BaseUserManager
@@ -186,7 +187,7 @@ class User(AbstractBaseUser, PermissionsMixin):
             return None
 
         url = img.image.url
-        if not url.startswith(("http://", "https://")):
+        if not urlparse(url).netloc:
             backend_url = settings.BACKEND_URL
             return f"{backend_url}{url}"
         return url
