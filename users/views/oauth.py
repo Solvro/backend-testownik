@@ -619,7 +619,14 @@ def _sync_process_and_save_photo(user, url):
         validate_image_source_url(url)
 
         if user.photo_image_id:
-            photo_image = user.photo_image
+            from uploads.models import UploadedImage
+
+            try:
+                photo_image = UploadedImage.objects.get(pk=user.photo_image_id)
+            except UploadedImage.DoesNotExist:
+                photo_image = None
+                user.photo_image = None
+                user.save(update_fields=["photo_image"])
             if photo_image and (timezone.now() - photo_image.uploaded_at < timedelta(hours=24)):
                 return
 
