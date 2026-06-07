@@ -290,6 +290,7 @@ class QuizSerializer(serializers.ModelSerializer):
             "visibility",
             "is_anonymous",
             "allow_anonymous",
+            "is_ai_generated",
             "version",
             "questions",
             "can_edit",
@@ -533,6 +534,7 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "visibility",
             "is_anonymous",
             "allow_anonymous",
+            "is_ai_generated",
             "created_at",
             "updated_at",
             "last_used_at",
@@ -545,6 +547,7 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "creator",
+            "is_ai_generated",
             "created_at",
             "updated_at",
             "last_used_at",
