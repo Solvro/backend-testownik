@@ -156,7 +156,7 @@ if os.getenv("JWT_SECRET") is None:
 
 SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
-    "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=3),
     "ROTATE_REFRESH_TOKENS": True,
     "SIGNING_KEY": os.getenv("JWT_SECRET", SECRET_KEY),
 }
