@@ -17,8 +17,9 @@ from pathlib import Path
 
 import dotenv
 from authlib.integrations.django_client import OAuth
-from django.templatetags.static import static
-from django.urls import reverse_lazy
+
+from testownik_core.settings_configs import mcp, spectacular
+from testownik_core.settings_configs.unfold import get_unfold_settings
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,9 @@ SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-mo_va&2*lmj8z2ymm5i##wze&u
 DEBUG = os.getenv("DEBUG", "False") == "True"
 
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
 
 CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 
@@ -84,6 +88,7 @@ INSTALLED_APPS = [
     "quizzes.apps.QuizzesConfig",
     "maintenance.apps.MaintenanceConfig",
     "testownik_core.apps.TestownikCoreConfig",
+    "oauth_integrations.apps.OAuthIntegrationsConfig",
     "uploads.apps.UploadsConfig",
     "constance",
     "constance.backends.database",
@@ -93,6 +98,8 @@ INSTALLED_APPS = [
     "adrf",
     "drf_spectacular",
     "django_filters",
+    "oauth2_provider",
+    "mcp_server",
 ]
 
 CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
@@ -149,7 +156,7 @@ if os.getenv("JWT_SECRET") is None:
 
 SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
-    "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=3),
     "ROTATE_REFRESH_TOKENS": True,
     "SIGNING_KEY": os.getenv("JWT_SECRET", SECRET_KEY),
 }
@@ -300,172 +307,36 @@ EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Testownik Solvro <testownik@solvro.pl>")
 EMAIL_TIMEOUT = 10
 
-# DRF Spectacular Settings
-SPECTACULAR_SETTINGS = {
-    "TITLE": "Testownik API",
-    "DESCRIPTION": "API documentation for Testownik application",
-    "VERSION": "1.0.0",
-    "SERVE_INCLUDE_SCHEMA": False,
-    "COMPONENT_SPLIT_REQUEST": True,
-    "SWAGGER_UI_SETTINGS": {
-        "deepLinking": True,
-        "persistAuthorization": True,
-    },
-    "SERVE_PUBLIC": True,
-    "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
-}
+SPECTACULAR_SETTINGS = spectacular.SPECTACULAR_SETTINGS
 
 TASKS = {"default": {"BACKEND": "django.tasks.backends.immediate.ImmediateBackend"}}
 
 ARCHIVE_TTL_DAYS = 30
 
-UNFOLD = {
-    "SITE_TITLE": "Testownik Solvro",
-    "SITE_HEADER": "Testownik Solvro",
-    "SITE_SUBHEADER": "by Antoni Czaplicki",
-    "SITE_URL": FRONTEND_URL,
-    "SITE_SYMBOL": "quiz",
-    "SITE_ICON": {
-        "light": lambda request: static("logo.svg"),
-        "dark": lambda request: static("logo-dark.svg"),
+UNFOLD = get_unfold_settings(FRONTEND_URL)
+
+# OAuth 2.0 Authorization Server (django-oauth-toolkit)
+OAUTH_ISSUER_URL = os.environ.get("OAUTH_ISSUER_URL", "http://localhost:8000").rstrip("/")
+OAUTH2_PROVIDER_APPLICATION_MODEL = "oauth2_provider.Application"
+
+OAUTH2_PROVIDER = {
+    "SCOPES": {
+        "quizzes:read": "Wyświetlanie quizów i pytań",
+        "quizzes:write": "Tworzenie i edytowanie quizów oraz pytań",
+        "study:read": "Wyświetlanie sesji nauki i postępów",
+        "study:write": "Zapisywanie odpowiedzi i uruchamianie sesji nauki",
+        "user:read": "Wyświetlanie profilu użytkownika i ustawień",
     },
-    "SITE_FAVICONS": [
-        {
-            "rel": "icon",
-            "sizes": "32x32",
-            "type": "image/svg+xml",
-            "href": lambda request: static("logo.svg"),
-        },
-    ],
-    "SHOW_HISTORY": True,
-    "SHOW_VIEW_ON_SITE": True,
-    "BORDER_RADIUS": "6px",
-    "COLORS": {
-        "base": {
-            "50": "oklch(98.5% .002 247.839)",
-            "100": "oklch(96.7% .003 264.542)",
-            "200": "oklch(92.8% .006 264.531)",
-            "300": "oklch(87.2% .01 258.338)",
-            "400": "oklch(70.7% .022 261.325)",
-            "500": "oklch(55.1% .027 264.364)",
-            "600": "oklch(44.6% .03 256.802)",
-            "700": "oklch(37.3% .034 259.733)",
-            "800": "oklch(27.8% .033 256.848)",
-            "900": "oklch(21% .034 264.665)",
-            "950": "oklch(13% .028 261.692)",
-        },
-        "primary": {
-            "50": "oklch(95.5% .02 250)",
-            "100": "oklch(91% .04 250)",
-            "200": "oklch(84% .08 250)",
-            "300": "oklch(74% .14 250)",
-            "400": "oklch(63% .19 250)",
-            "500": "oklch(54% .22 250)",
-            "600": "oklch(47% .21 250)",
-            "700": "oklch(40% .18 250)",
-            "800": "oklch(34% .15 250)",
-            "900": "oklch(28% .11 250)",
-            "950": "oklch(21% .08 250)",
-        },
-    },
-    "SIDEBAR": {
-        "show_search": True,
-        "show_all_applications": True,
-        "navigation": [
-            {
-                "title": "Navigation",
-                "separator": True,
-                "items": [
-                    {
-                        "title": "Dashboard",
-                        "icon": "dashboard",
-                        "link": reverse_lazy("admin:index"),
-                    },
-                ],
-            },
-            {
-                "title": "Users",
-                "separator": True,
-                "collapsible": True,
-                "items": [
-                    {
-                        "title": "Users",
-                        "icon": "people",
-                        "link": reverse_lazy("admin:users_user_changelist"),
-                    },
-                    {
-                        "title": "Study Groups",
-                        "icon": "groups",
-                        "link": reverse_lazy("admin:users_studygroup_changelist"),
-                    },
-                    {
-                        "title": "Terms",
-                        "icon": "calendar_month",
-                        "link": reverse_lazy("admin:users_term_changelist"),
-                    },
-                    {
-                        "title": "Email Login Tokens",
-                        "icon": "key",
-                        "link": reverse_lazy("admin:users_emaillogintoken_changelist"),
-                    },
-                ],
-            },
-            {
-                "title": "Quizzes",
-                "separator": True,
-                "collapsible": True,
-                "items": [
-                    {
-                        "title": "Quizzes",
-                        "icon": "quiz",
-                        "link": reverse_lazy("admin:quizzes_quiz_changelist"),
-                    },
-                    {
-                        "title": "Questions",
-                        "icon": "help",
-                        "link": reverse_lazy("admin:quizzes_question_changelist"),
-                    },
-                    {
-                        "title": "Sessions",
-                        "icon": "play_circle",
-                        "link": reverse_lazy("admin:quizzes_quizsession_changelist"),
-                    },
-                    {
-                        "title": "Shared Quizzes",
-                        "icon": "share",
-                        "link": reverse_lazy("admin:quizzes_sharedquiz_changelist"),
-                    },
-                    {
-                        "title": "Folders",
-                        "icon": "folder",
-                        "link": reverse_lazy("admin:quizzes_folder_changelist"),
-                    },
-                ],
-            },
-            {
-                "title": "Uploads",
-                "separator": True,
-                "collapsible": True,
-                "items": [
-                    {
-                        "title": "Uploaded Images",
-                        "icon": "image",
-                        "link": reverse_lazy("admin:uploads_uploadedimage_changelist"),
-                    },
-                ],
-            },
-            {
-                "title": "System",
-                "separator": True,
-                "collapsible": True,
-                "items": [
-                    {
-                        "title": "Constance",
-                        "icon": "settings",
-                        "link": reverse_lazy("admin:constance_config_changelist"),
-                    },
-                ],
-            },
-        ],
-    },
+    "DEFAULT_SCOPES": ["quizzes:read", "user:read"],
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 1800,
+    "REFRESH_TOKEN_EXPIRE_SECONDS": 2592000,
+    "ROTATE_REFRESH_TOKEN": True,
+    "PKCE_REQUIRED": True,
+    "ALLOWED_REDIRECT_URI_SCHEMES": ["https", "http"],
+    "OAUTH2_VALIDATOR_CLASS": "oauth_integrations.oauth_cimd.CIMDOAuth2Validator",
 }
+
+# MCP Server (django-mcp-server)
+DJANGO_MCP_ENDPOINT = mcp.DJANGO_MCP_ENDPOINT
+DJANGO_MCP_GLOBAL_SERVER_CONFIG = mcp.DJANGO_MCP_GLOBAL_SERVER_CONFIG
+DJANGO_MCP_AUTHENTICATION_CLASSES = mcp.DJANGO_MCP_AUTHENTICATION_CLASSES
