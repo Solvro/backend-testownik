@@ -19,6 +19,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import (
     AuthenticationFailed,
     MethodNotAllowed,
+    NotAuthenticated,
     NotFound,
     PermissionDenied,
     ValidationError,
@@ -307,7 +308,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         if self.action == "list":
             if not user.is_authenticated:
-                return Quiz.objects.none()
+                raise NotAuthenticated()
 
             return (
                 Quiz.objects.filter(creator=user)
