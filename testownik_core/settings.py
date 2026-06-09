@@ -318,7 +318,16 @@ EMAIL_TIMEOUT = 10
 
 SPECTACULAR_SETTINGS = spectacular.SPECTACULAR_SETTINGS
 
-TASKS = {"default": {"BACKEND": "django.tasks.backends.immediate.ImmediateBackend"}}
+# NOTE: ImmediateBackend runs enqueued tasks inline on the request thread, so
+# work is not actually deferred yet. Swap in a durable third-party backend with a
+# worker process (e.g. django-tasks DatabaseBackend + `manage.py db_worker`
+# consuming the "images" queue) to truly move slow third-party work off-request.
+TASKS = {
+    "default": {
+        "BACKEND": "django.tasks.backends.immediate.ImmediateBackend",
+        "QUEUES": ["default", "images"],
+    }
+}
 
 ARCHIVE_TTL_DAYS = 30
 

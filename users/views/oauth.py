@@ -2,6 +2,7 @@ import logging
 import os
 from asyncio import CancelledError, sleep
 from datetime import timedelta
+from functools import partial
 from urllib.parse import quote, urlparse
 
 import aiohttp
@@ -11,6 +12,7 @@ from adrf.views import APIView as AsyncAPIView
 from asgiref.sync import sync_to_async
 from django.contrib import messages
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import transaction
 from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, resolve_url
 from django.utils import timezone
@@ -24,6 +26,7 @@ from usos_api.models import StaffStatus, StudentStatus
 from testownik_core.settings import oauth
 from uploads.utils import validate_image_source_url
 from users.models import AccountType, StudyGroup, Term, User
+from users.tasks import sync_user_photo_task
 
 from .auth_helpers import (
     ahandle_oauth_login_result,
@@ -289,9 +292,11 @@ class SolvroAuthorizeView(APIView):
             },
         )
 
-        _sync_process_and_save_photo(
-            user, f"https://api.dicebear.com/9.x/adventurer/png?seed={quote(profile['email'])}"
-        )
+        # Defer the avatar fetch (outbound DiceBear request + image processing + DB writes)
+        # off the request thread so login latency isn't coupled to a third-party call.
+        # on_commit guarantees the worker reads a committed user row.
+        dicebear_url = f"https://api.dicebear.com/9.x/adventurer/png?seed={quote(profile['email'])}"
+        transaction.on_commit(partial(sync_user_photo_task.enqueue, user.id, dicebear_url))
 
         return handle_oauth_login_result(request, user, jwt=jwt, redirect_url=redirect_url, guest_id=guest_id)
 
