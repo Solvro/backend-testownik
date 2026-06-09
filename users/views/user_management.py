@@ -276,10 +276,10 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.Gen
                     student_number__icontains=search_terms[0],
                 )
             else:
-                return User.objects.none()
-            return User.objects.filter(filters)
+                return self.queryset.none()
+            return self.queryset.filter(filters)
         else:
-            return User.objects.none()
+            return self.queryset.none()
 
 
 class StudyGroupViewSet(viewsets.ModelViewSet):
