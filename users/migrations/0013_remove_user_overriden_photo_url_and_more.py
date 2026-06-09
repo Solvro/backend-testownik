@@ -4,16 +4,16 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
+    # NOTE: dropping `overriden_photo_url` is intentionally deferred. It is the source
+    # column for the `backfill_user_photos` management command, which runs out-of-band
+    # after deploy. A later "contract" migration drops it once the backfill is verified.
+    # `photo_url` is unused by the backfill, so it is dropped here.
 
     dependencies = [
         ('users', '0012_migrate_user_photos'),
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name='user',
-            name='overriden_photo_url',
-        ),
         migrations.RemoveField(
             model_name='user',
             name='photo_url',

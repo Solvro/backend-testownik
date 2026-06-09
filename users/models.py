@@ -103,6 +103,10 @@ class User(AbstractBaseUser, PermissionsMixin):
         on_delete=models.SET_NULL,
         related_name="user_custom_photos",
     )
+    # DEPRECATED transitional field. Source for the `backfill_user_photos` command,
+    # which migrates it into `custom_photo_image`. Drop in a contract migration once
+    # the backfill is verified complete. Do not read from this in application code.
+    overriden_photo_url = models.URLField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
