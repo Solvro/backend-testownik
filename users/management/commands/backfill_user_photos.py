@@ -100,10 +100,7 @@ class Command(BaseCommand):
                 time.sleep(sleep_between)
 
         self.stdout.write(
-            self.style.SUCCESS(
-                f"Done. processed={processed} succeeded={succeeded} "
-                f"skipped={skipped} failed={failed}"
-            )
+            self.style.SUCCESS(f"Done. processed={processed} succeeded={succeeded} skipped={skipped} failed={failed}")
         )
         if not dry_run and (base_qs.count() == 0):
             self.stdout.write(
