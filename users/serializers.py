@@ -57,7 +57,7 @@ class UserTokenRefreshSerializer(TokenRefreshSerializer):
 
         if user_id:
             try:
-                user = User.objects.get(pk=user_id)
+                user = User.objects.select_related("photo_image", "custom_photo_image").get(pk=user_id)
                 if user.is_banned:
                     raise InvalidToken(
                         {
@@ -76,7 +76,7 @@ class UserTokenRefreshSerializer(TokenRefreshSerializer):
 
         if user_id:
             try:
-                user = User.objects.get(pk=user_id)
+                user = User.objects.select_related("photo_image", "custom_photo_image").get(pk=user_id)
                 new_access = UserTokenObtainPairSerializer.get_token(user).access_token
                 data["access"] = str(new_access)
             except User.DoesNotExist:
@@ -99,6 +99,8 @@ class CurrentUserDefault:
 
 
 class UserSerializer(serializers.ModelSerializer):
+    has_custom_photo = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = [
@@ -110,13 +112,15 @@ class UserSerializer(serializers.ModelSerializer):
             "student_number",
             "sex",
             "gender",
-            "photo_url",
-            "overriden_photo_url",
             "photo",
+            "has_custom_photo",
             "hide_profile",
             "account_type",
             "account_level",
         ]
+
+    def get_has_custom_photo(self, obj):
+        return obj.custom_photo_image_id is not None
 
 
 class PublicUserSerializer(serializers.ModelSerializer):
