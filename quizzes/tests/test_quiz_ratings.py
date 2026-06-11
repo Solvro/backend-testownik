@@ -115,4 +115,5 @@ class QuizRatingViewSetTestCase(TestCase):
             {"quiz": self.quiz.id, "score": 3},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("non_field_errors", response.data)
+        self.assertEqual(response.data["type"], "validation_error")
+        self.assertIn("non_field_errors", [e.get("attr") for e in response.data.get("errors", [])])
