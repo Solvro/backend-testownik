@@ -106,12 +106,13 @@ class QuizAdmin(ModelAdmin):
         "creator",
         "visibility",
         "is_anonymous",
+        "is_ai_generated",
         "version",
         "created_at",
         "view_questions_link",
         "view_sessions_link",
     ]
-    list_filter = ["visibility", "is_anonymous"]
+    list_filter = ["visibility", "is_anonymous", "is_ai_generated"]
     search_fields = [
         "title",
         "description",
