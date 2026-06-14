@@ -11,6 +11,8 @@ from quizzes.models import (
     Folder,
     FolderType,
     Question,
+    QuestionChangeSuggestion,
+    QuestionType,
     Quiz,
     QuizRating,
     QuizSession,
@@ -860,9 +862,101 @@ class QuizRatingSerializer(serializers.ModelSerializer):
         return value
 
 
+class SuggestedAnswerSerializer(serializers.Serializer):
+    id = serializers.UUIDField(required=False)
+    order = serializers.IntegerField(required=False, min_value=0)
+    text = serializers.CharField(required=False, allow_blank=True)
+    is_correct = serializers.BooleanField(required=False)
+
+    def validate(self, data):
+        if "id" in data:
+            data["id"] = str(data["id"])
+            return data
+
+        missing_fields = [field for field in ("order", "text") if field not in data]
+        if missing_fields:
+            raise serializers.ValidationError(
+                {field: "This field is required for new answers." for field in missing_fields}
+            )
+        return data
+
+
+class QuestionChangeSuggestionPayloadSerializer(serializers.Serializer):
+    order = serializers.IntegerField(required=False, min_value=0)
+    text = serializers.CharField(required=False, allow_blank=True)
+    explanation = serializers.CharField(required=False, allow_blank=True)
+    multiple = serializers.BooleanField(required=False)
+    question_type = serializers.ChoiceField(required=False, choices=QuestionType.choices)
+    tf_answer = serializers.BooleanField(required=False, allow_null=True)
+    is_flashcard = serializers.BooleanField(required=False)
+    is_markdown_enabled = serializers.BooleanField(required=False)
+    answers = SuggestedAnswerSerializer(required=False, many=True)
+
+    def validate_answers(self, value):
+        question = self.context["question"]
+        existing_ids = {str(answer_id) for answer_id in question.answers.values_list("id", flat=True)}
+        incoming_existing_ids = set()
+
+        for answer_data in value:
+            answer_id = answer_data.get("id")
+            if not answer_id:
+                continue
+            if answer_id not in existing_ids:
+                raise serializers.ValidationError(f"Answer {answer_id} does not belong to this question.")
+            if answer_id in incoming_existing_ids:
+                raise serializers.ValidationError(f"Answer {answer_id} is duplicated.")
+            incoming_existing_ids.add(answer_id)
+
+        return value
+
+    def validate(self, data):
+        if not data:
+            raise serializers.ValidationError("Suggestion payload cannot be empty.")
+        return data
+
+
+class QuestionChangeSuggestionSerializer(serializers.ModelSerializer):
+    payload = serializers.JSONField()
+    resolved_by = PublicUserSerializer(read_only=True)
+
+    class Meta:
+        model = QuestionChangeSuggestion
+        fields = [
+            "id",
+            "payload",
+            "base_quiz_version",
+            "status",
+            "resolved_by",
+            "resolved_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "base_quiz_version",
+            "status",
+            "resolved_by",
+            "resolved_at",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_payload(self, value):
+        question = self.context.get("question")
+        if not question and self.instance:
+            question = self.instance.question
+        if not question:
+            raise serializers.ValidationError("Suggestion requires a question.")
+
+        serializer = QuestionChangeSuggestionPayloadSerializer(data=value, context={"question": question})
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
+
 class CommentSerializer(serializers.ModelSerializer):
     author = PublicUserSerializer(default=serializers.CurrentUserDefault(), read_only=True)
     is_reply = serializers.BooleanField(read_only=True)
+    suggestion = serializers.JSONField(required=False, allow_null=True)
 
     class Meta:
         model = Comment
@@ -873,6 +967,7 @@ class CommentSerializer(serializers.ModelSerializer):
             "parent",
             "quiz",
             "question",
+            "suggestion",
             "created_at",
             "updated_at",
             "is_deleted",
@@ -908,11 +1003,45 @@ class CommentSerializer(serializers.ModelSerializer):
     def validate(self, data):
         question = data.get("question")
         quiz = data.get("quiz")
+        suggestion = data.get("suggestion")
 
         if question and quiz and str(question.quiz_id) != str(quiz.id):
             raise serializers.ValidationError({"question": "This question does not belong to the selected quiz"})
 
+        if self.instance and "suggestion" in self.initial_data:
+            raise serializers.ValidationError({"suggestion": "Cannot change suggestion after comment creation."})
+
+        if suggestion and not question:
+            raise serializers.ValidationError({"suggestion": "Suggestion comments must be attached to a question."})
+
+        if suggestion:
+            if not isinstance(suggestion, dict):
+                raise serializers.ValidationError({"suggestion": "Suggestion must be an object."})
+            payload = suggestion.get("payload", suggestion)
+            if not isinstance(payload, dict):
+                raise serializers.ValidationError({"suggestion": "Suggestion payload must be an object."})
+            suggestion_serializer = QuestionChangeSuggestionPayloadSerializer(
+                data=payload,
+                context={"question": question},
+            )
+            suggestion_serializer.is_valid(raise_exception=True)
+            data["suggestion"] = {"payload": suggestion_serializer.validated_data}
+
         return data
+
+    def create(self, validated_data):
+        suggestion_data = validated_data.pop("suggestion", None)
+        comment = Comment.objects.create(**validated_data)
+
+        if suggestion_data:
+            QuestionChangeSuggestion.objects.create(
+                comment=comment,
+                question=comment.question,
+                payload=suggestion_data["payload"],
+                base_quiz_version=comment.quiz.version,
+            )
+
+        return comment
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -921,5 +1050,12 @@ class CommentSerializer(serializers.ModelSerializer):
             # Hide the original text but keep author attribution so the
             # thread still shows who posted the (now removed) comment.
             data["content"] = ""
+
+        try:
+            suggestion = instance.suggestion
+        except QuestionChangeSuggestion.DoesNotExist:
+            data["suggestion"] = None
+        else:
+            data["suggestion"] = QuestionChangeSuggestionSerializer(suggestion, context=self.context).data
 
         return data
