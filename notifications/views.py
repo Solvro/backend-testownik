@@ -1,3 +1,4 @@
+from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -42,7 +43,7 @@ class NotificationViewSet(
 
     @action(detail=False, methods=["patch"], url_path="mark-all-read")
     def mark_all_read(self, request):
-        updated_count = Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
+        updated_count = self.get_queryset().filter(is_read=False).update(is_read=True, updated_at=timezone.now())
 
         return Response(
             {

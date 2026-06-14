@@ -20,6 +20,22 @@ class NotificationType(models.TextChoices):
     PUSH = "push", "Push"
 
 
+class DeliveryStatus(models.TextChoices):
+    """
+    Delivery status of a notification's external transport (email / push).
+
+    Attributes:
+        PENDING: Record persisted but transport not yet attempted (or in flight).
+        DELIVERED: Transport reported success. For IN_APP notifications, the
+            record itself is the delivery, so they are created as DELIVERED.
+        FAILED: Transport reported a failure (e.g. SMTP error, missing e-mail).
+    """
+
+    PENDING = "pending", "Pending"
+    DELIVERED = "delivered", "Delivered"
+    FAILED = "failed", "Failed"
+
+
 class Notification(models.Model):
     """
     Represents a notification entity that can be sent to users.
@@ -33,6 +49,12 @@ class Notification(models.Model):
     content = models.TextField()
     is_read = models.BooleanField(default=False)
     notification_type = models.CharField(max_length=20, choices=NotificationType.choices)
+    delivery_status = models.CharField(
+        max_length=20,
+        choices=DeliveryStatus.choices,
+        default=DeliveryStatus.PENDING,
+    )
+    delivery_error = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notifications")

@@ -3,7 +3,7 @@ import logging
 from testownik_core.emails import send_email
 from users.models import User
 
-from .models import Notification, NotificationType
+from .models import DeliveryStatus, Notification, NotificationType
 
 logger = logging.getLogger(__name__)
 
@@ -30,60 +30,101 @@ def send_notification(
     on ``notification_type``, it is additionally dispatched through the
     matching transport:
 
-    * :data:`NotificationType.IN_APP` — no transport, the record is the delivery.
-    * :data:`NotificationType.EMAIL` — sent via :func:`testownik_core.emails.send_email`.
-    * :data:`NotificationType.PUSH` — Web Push delivery (not yet implemented).
+    * :data:`NotificationType.IN_APP` — no transport, the record is the delivery
+      (saved straight as :data:`DeliveryStatus.DELIVERED`).
+    * :data:`NotificationType.EMAIL` — saved as :data:`DeliveryStatus.PENDING`,
+      flipped to ``DELIVERED`` or ``FAILED`` after the e-mail backend reports back.
+    * :data:`NotificationType.PUSH` — Web Push delivery (not yet implemented;
+      stays ``PENDING`` until a real transport is wired in).
 
-    All callers that need to inform a user about something MUST go through this
-    function rather than calling ``send_email`` directly, so notifications are
-    consistently recorded and inspectable from the admin / API.
-
-    Args:
-        user: Recipient of the notification.
-        title: Short title shown in the notification list and used as the e-mail
-            title/subject default.
-        content: Main body of the notification.
-        notification_type: One of :class:`NotificationType` values.
-        subject: Custom e-mail subject. Defaults to ``title`` when not provided.
-        cta_url: Optional CTA button URL for the e-mail.
-        cta_text: Optional CTA button label.
-        cta_description: Optional description shown beneath the CTA.
-        reply_to: Optional Reply-To header for the e-mail.
-        from_email: Optional From header for the e-mail.
-        connection: Optional pre-opened e-mail backend connection (useful when
-            sending a batch of e-mails from a background task).
-        fail_silently: Whether transport errors should be swallowed.
+    Any e-mail transport failure is recorded on the notification itself
+    (``delivery_status`` + ``delivery_error``) so it can be inspected from the
+    admin / API instead of being silently lost. If ``fail_silently`` is ``False``
+    the underlying exception is re-raised AFTER the failure is persisted.
 
     Returns:
         The created :class:`Notification` instance.
     """
+
+    initial_status = (
+        DeliveryStatus.DELIVERED if notification_type == NotificationType.IN_APP else DeliveryStatus.PENDING
+    )
 
     notification = Notification.objects.create(
         user=user,
         title=title,
         content=content,
         notification_type=notification_type,
+        delivery_status=initial_status,
     )
 
     if notification_type == NotificationType.EMAIL:
-        if user.email:
-            send_email(
-                subject=subject or title,
-                recipient_list=[user.email],
-                title=title,
-                content=content,
-                cta_url=cta_url,
-                cta_text=cta_text,
-                cta_description=cta_description,
-                reply_to=reply_to,
-                from_email=from_email,
-                connection=connection,
-                fail_silently=fail_silently,
-            )
-        else:
-            logger.warning("Skipping email notification for user %s: no email address set.", user.pk)
+        _dispatch_email(
+            notification,
+            subject=subject,
+            cta_url=cta_url,
+            cta_text=cta_text,
+            cta_description=cta_description,
+            reply_to=reply_to,
+            from_email=from_email,
+            connection=connection,
+            fail_silently=fail_silently,
+        )
     elif notification_type == NotificationType.PUSH:
         # TODO: dispatch via Web Push once PushSubscription model is in place.
-        logger.info("Push delivery not yet implemented; notification %s saved only.", notification.pk)
+        logger.info("Push delivery not yet implemented; notification %s left pending.", notification.pk)
 
     return notification
+
+
+def _dispatch_email(
+    notification: Notification,
+    *,
+    subject: str | None,
+    cta_url: str | None,
+    cta_text: str | None,
+    cta_description: str | None,
+    reply_to: list[str] | None,
+    from_email: str | None,
+    connection,
+    fail_silently: bool,
+) -> None:
+    """Send the e-mail for `notification` and persist the delivery result on it."""
+
+    user = notification.user
+
+    if not user.email:
+        _mark_failed(notification, "Recipient user has no e-mail address set.")
+        logger.warning("Skipping email notification for user %s: no email address set.", user.pk)
+        return
+
+    try:
+        sent = send_email(
+            subject=subject or notification.title,
+            recipient_list=[user.email],
+            title=notification.title,
+            content=notification.content,
+            cta_url=cta_url,
+            cta_text=cta_text,
+            cta_description=cta_description,
+            reply_to=reply_to,
+            from_email=from_email,
+            connection=connection,
+            fail_silently=fail_silently,
+        )
+    except Exception as exc:
+        _mark_failed(notification, str(exc) or exc.__class__.__name__)
+        raise
+
+    if sent:
+        notification.delivery_status = DeliveryStatus.DELIVERED
+        notification.delivery_error = ""
+        notification.save(update_fields=["delivery_status", "delivery_error", "updated_at"])
+    else:
+        _mark_failed(notification, "E-mail backend reported delivery failure.")
+
+
+def _mark_failed(notification: Notification, error: str) -> None:
+    notification.delivery_status = DeliveryStatus.FAILED
+    notification.delivery_error = error
+    notification.save(update_fields=["delivery_status", "delivery_error", "updated_at"])
