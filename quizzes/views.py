@@ -1197,8 +1197,8 @@ class CommentViewSet(viewsets.ModelViewSet):
             force = force.lower() in {"1", "true", "yes"}
         try:
             suggestion = apply_question_change_suggestion(suggestion, request.user, force=force)
-        except SuggestionVersionConflict as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except SuggestionVersionConflict:
+            return Response({"error": "Suggestion version conflict."}, status=status.HTTP_409_CONFLICT)
         except SuggestionApplyError as exc:
             raise ValidationError({"suggestion": str(exc)})
 
