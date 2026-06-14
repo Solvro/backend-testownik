@@ -54,7 +54,7 @@ class NotificationViewSetAPITestCase(APITestCase):
         response = self.client.get(self.LIST_URL)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        results = response.data.get("results", response.data)
+        results = response.data["results"] if isinstance(response.data, dict) else response.data
         ids = {item["id"] for item in results}
         self.assertEqual(ids, {str(self.own_unread.id), str(self.own_read.id)})
         self.assertNotIn(str(self.other_users_notification.id), ids)
@@ -73,7 +73,7 @@ class NotificationViewSetAPITestCase(APITestCase):
     def test_filter_by_is_read(self):
         response = self.client.get(f"{self.LIST_URL}?is_read=false")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.data.get("results", response.data)
+        results = response.data["results"] if isinstance(response.data, dict) else response.data
         ids = {item["id"] for item in results}
         self.assertEqual(ids, {str(self.own_unread.id)})
 
