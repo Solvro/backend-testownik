@@ -1199,8 +1199,8 @@ class CommentViewSet(viewsets.ModelViewSet):
             suggestion = apply_question_change_suggestion(suggestion, request.user, force=force)
         except SuggestionVersionConflict as exc:
             return Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
-        except SuggestionApplyError as exc:
-            raise ValidationError({"suggestion": str(exc)})
+        except SuggestionApplyError:
+            raise ValidationError({"suggestion": "Unable to apply suggestion."})
 
         return Response(QuestionChangeSuggestionSerializer(suggestion, context={"request": request}).data)
 
@@ -1218,8 +1218,8 @@ class CommentViewSet(viewsets.ModelViewSet):
 
         try:
             suggestion = reject_question_change_suggestion(suggestion, request.user)
-        except SuggestionApplyError as exc:
-            raise ValidationError({"suggestion": str(exc)})
+        except SuggestionApplyError:
+            raise ValidationError({"suggestion": "Unable to reject suggestion."})
 
         return Response(QuestionChangeSuggestionSerializer(suggestion, context={"request": request}).data)
 
