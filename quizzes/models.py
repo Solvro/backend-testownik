@@ -19,6 +19,27 @@ QUIZ_VISIBILITY_CHOICES = [
 class FolderType(models.TextChoices):
     ARCHIVE = "archive", "Archive"
     REGULAR = "regular", "Regular"
+    SHARED_DRIVE = "shared_drive", "Shared Drive"
+
+
+class SharedDriveRole(models.TextChoices):
+    VIEWER = "viewer", "Viewer"
+    CONTRIBUTOR = "contributor", "Contributor"
+    QUIZ_MANAGER = "quiz_manager", "Quiz Manager"
+    ADMIN = "admin", "Admin"
+
+    @classmethod
+    def satisfies(cls, role: str, min_role: str) -> bool:
+        """Return True if role has at least the privilege level of min_role.
+
+        Order is explicit here — do not rely on declaration order or list index
+        elsewhere. Add new roles to this list in the correct position.
+        """
+        order = [cls.VIEWER, cls.CONTRIBUTOR, cls.QUIZ_MANAGER, cls.ADMIN]
+        try:
+            return order.index(role) >= order.index(min_role)
+        except ValueError:
+            return False
 
 
 class Folder(models.Model):
@@ -34,10 +55,21 @@ class Folder(models.Model):
         on_delete=models.CASCADE,
         related_name="subfolders",
     )
-    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="folders")
+    # Denormalized pointer to the shared drive root. Set for every folder that
+    # lives inside a shared drive (including nested subfolders). Null for
+    # personal folders and for the shared drive root itself.
+    shared_drive = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="drive_folders",
+    )
+    # Null means shared drive
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="folders", null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    folder_type = models.CharField(max_length=10, choices=FolderType.choices, default=FolderType.REGULAR)
+    folder_type = models.CharField(max_length=12, choices=FolderType.choices, default=FolderType.REGULAR)
 
     class Meta:
         ordering = ["-created_at"]
@@ -72,9 +104,46 @@ class Folder(models.Model):
             )
         super().delete(*args, **kwargs)
 
+    def get_shared_drive_root(self):
+        """Return the shared drive root this folder belongs to, or None.
+
+        For the drive root itself returns self. For subfolders returns the
+        drive root via the denormalized ``shared_drive`` FK (O(1) lookup).
+        Falls back to tree traversal only when ``shared_drive`` is not
+        populated (e.g. during migrations or legacy data).
+        """
+        if self.folder_type == FolderType.SHARED_DRIVE:
+            return self
+        if self.shared_drive_id:
+            return self.shared_drive
+        # Fallback: traverse up (handles unpopulated shared_drive)
+        node = self.parent
+        while node is not None:
+            if node.folder_type == FolderType.SHARED_DRIVE:
+                return node
+            node = node.parent
+        return None
+
+    def get_shared_drive_role(self, user) -> str | None:
+        """Return the user's role in the containing shared drive, or None."""
+        drive = self.get_shared_drive_root()
+        if drive is None:
+            return None
+        member = drive.shared_drive_users.filter(user=user).first()
+        return member.role if member else None
+
+    def has_shared_drive_permission(self, user, min_role: str) -> bool:
+        """Check if user has at least min_role in the containing shared drive."""
+        role = self.get_shared_drive_role(user)
+        if role is None:
+            return False
+        return SharedDriveRole.satisfies(role, min_role)
+
     def has_edit_permission(self, user):
         """Check if user can edit content in this folder."""
         if user.id == self.owner_id:
+            return True
+        if self.has_shared_drive_permission(user, SharedDriveRole.CONTRIBUTOR):
             return True
         return self.shares.filter(
             Q(user=user) | Q(study_group__in=user.study_groups.all()),
@@ -111,6 +180,32 @@ class SharedFolder(models.Model):
 
     def __str__(self):
         return f"Folder {self.folder.name} shared with {self.user or self.study_group}"
+
+
+class SharedDriveMember(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    drive = models.ForeignKey(Folder, on_delete=models.CASCADE, related_name="shared_drive_users")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="shared_drive_users")
+    role = models.CharField(max_length=12, choices=SharedDriveRole.choices, default=SharedDriveRole.VIEWER)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["drive", "user"], name="unique_shared_drive_user"),
+        ]
+
+    def __str__(self):
+        return f"Shared drive user {self.user.email} in {self.drive.name} with role {self.role}"
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        if self.drive_id and self.drive.folder_type != FolderType.SHARED_DRIVE:
+            raise ValidationError({"drive": "Folder must be of type SHARED_DRIVE."})
 
 
 class Quiz(models.Model):
