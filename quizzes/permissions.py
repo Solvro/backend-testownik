@@ -61,7 +61,7 @@ class IsSharedQuizCreatorOrReadOnly(permissions.BasePermission):
             return False
 
         if request.method == "POST":
-            quiz_id = request.data.get("quiz")
+            quiz_id = request.data.get("quiz_id")
             if not quiz_id:
                 return False
             try:
