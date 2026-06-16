@@ -2,7 +2,11 @@
 Tests for Quiz CRUD operations including nested Question and Answer management.
 """
 
+from datetime import timedelta
+
 from django.urls import reverse
+from django.utils import timezone
+from oauth2_provider.models import AbstractApplication, AccessToken, get_application_model
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -247,6 +251,94 @@ class QuizCRUDTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("folder", response.data)
         self.assertEqual(str(response.data["folder"]["id"]), str(self.user.root_folder_id))
+
+
+class QuizOAuthScopeTestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="oauth-quiz@example.com",
+            password="password123",
+            first_name="OAuth",
+            last_name="Quiz",
+        )
+        self.user.refresh_from_db()
+        Application = get_application_model()
+        self.application = Application.objects.create(
+            name="NotebookLM Extension",
+            client_id="notebooklm-extension",
+            client_type=AbstractApplication.CLIENT_PUBLIC,
+            authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://extension-id.chromiumapp.org/",
+        )
+
+    def authorize_with_scope(self, scope):
+        token = AccessToken.objects.create(
+            user=self.user,
+            application=self.application,
+            token=f"token-{scope.replace(' ', '-')}",
+            expires=timezone.now() + timedelta(minutes=30),
+            scope=scope,
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+
+    def quiz_payload(self):
+        return {
+            "title": "NotebookLM import",
+            "description": "Zaimportowano z NotebookLM",
+            "questions": [
+                {
+                    "order": 1,
+                    "text": "Question?",
+                    "question_type": 0,
+                    "multiple": False,
+                    "answers": [
+                        {"order": 1, "text": "Correct", "is_correct": True},
+                        {"order": 2, "text": "Wrong", "is_correct": False},
+                    ],
+                }
+            ],
+        }
+
+    def test_oauth_token_with_quizzes_write_can_create_quiz(self):
+        self.authorize_with_scope("quizzes:write user:read")
+
+        response = self.client.post(reverse("quiz-list"), self.quiz_payload(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        quiz = Quiz.objects.get(id=response.data["id"])
+        self.assertEqual(quiz.creator, self.user)
+        self.assertEqual(quiz.folder_id, self.user.root_folder_id)
+
+    def test_oauth_token_without_quizzes_write_cannot_create_quiz(self):
+        self.authorize_with_scope("quizzes:read user:read")
+
+        response = self.client.post(reverse("quiz-list"), self.quiz_payload(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Quiz.objects.filter(title="NotebookLM import").exists())
+
+    def test_oauth_token_with_quizzes_read_can_retrieve_quiz(self):
+        quiz = Quiz.objects.create(title="Readable quiz", creator=self.user, folder=self.user.root_folder)
+        self.authorize_with_scope("quizzes:read user:read")
+
+        response = self.client.get(reverse("quiz-detail", kwargs={"pk": quiz.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_oauth_token_without_quizzes_read_cannot_retrieve_quiz(self):
+        quiz = Quiz.objects.create(title="Scoped quiz", creator=self.user, folder=self.user.root_folder)
+        self.authorize_with_scope("user:read")
+
+        response = self.client.get(reverse("quiz-detail", kwargs={"pk": quiz.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_first_party_authenticated_create_is_not_blocked_by_oauth_scope_permission(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(reverse("quiz-list"), self.quiz_payload(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
 
 class QuizQuestionAnswerTestCase(APITestCase):

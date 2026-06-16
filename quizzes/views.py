@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import Avg, Count, Prefetch, Q
 from django.utils import timezone
 from django.utils.html import escape
+from django.utils.module_loading import import_string
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
@@ -14,6 +15,7 @@ from drf_spectacular.utils import (
     extend_schema,
     extend_schema_view,
 )
+from oauth2_provider.contrib.rest_framework import OAuth2Authentication
 from rest_framework import generics, mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import (
@@ -41,6 +43,7 @@ from quizzes.models import (
     SharedQuiz,
 )
 from quizzes.permissions import (
+    HasOAuthQuizScopeForMethods,
     IsCommentAuthorOrReadOnly,
     IsFolderOwner,
     IsQuestionReadable,
@@ -101,6 +104,13 @@ from users.models import AccountType
 logger = logging.getLogger(__name__)
 
 ALLOWED_STATS_SCOPES = {"me", "all"}
+
+
+def resolve_default_authentication_classes():
+    configured_classes = settings.REST_FRAMEWORK.get("DEFAULT_AUTHENTICATION_CLASSES", [])
+    return [
+        import_string(auth_class) if isinstance(auth_class, str) else auth_class for auth_class in configured_classes
+    ]
 
 
 def resolve_stats_scope_user(request, quiz):
@@ -289,8 +299,13 @@ class SearchQuizzesView(APIView):
 class QuizViewSet(viewsets.ModelViewSet):
     queryset = Quiz.objects.all()
     serializer_class = QuizSerializer
+    authentication_classes = [
+        OAuth2Authentication,
+        *resolve_default_authentication_classes(),
+    ]
     permission_classes = [
         permissions.IsAuthenticatedOrReadOnly,
+        HasOAuthQuizScopeForMethods,
         IsQuizCreatorOrCollaboratorOrReadOnly,
         IsQuizReadable,
     ]

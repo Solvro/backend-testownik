@@ -1,10 +1,13 @@
 from django.conf import settings
 from django.db.models import Q
+from oauth2_provider.models import get_access_token_model
 from rest_framework import permissions
 
 from users.models import AccountType
 
 from .models import Question, Quiz
+
+OAuthAccessToken = get_access_token_model()
 
 
 def _is_effectively_authenticated(user) -> bool:
@@ -134,6 +137,25 @@ class IsQuizReadable(permissions.BasePermission):
 
     def has_object_permission(self, request, view, obj: Quiz):
         return user_has_quiz_read_access(request.user, obj)
+
+
+class HasOAuthQuizScopeForMethods(permissions.BasePermission):
+    """
+    Enforce quiz scopes only for requests authenticated with a DOT access token.
+
+    JWT and session users do not carry OAuth scopes, so they continue through the
+    normal first-party permission chain unchanged.
+    """
+
+    message = "OAuth token must include the required quiz scope."
+
+    def has_permission(self, request, view):
+        token = getattr(request, "auth", None)
+        if not isinstance(token, OAuthAccessToken):
+            return True
+
+        required_scope = "quizzes:read" if request.method in permissions.SAFE_METHODS else "quizzes:write"
+        return token.is_valid([required_scope])
 
 
 class IsQuestionReadable(permissions.BasePermission):
