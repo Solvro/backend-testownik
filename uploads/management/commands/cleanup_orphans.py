@@ -11,7 +11,7 @@ class Command(BaseCommand):
     """Management command to clean up orphaned uploaded images."""
 
     help = (
-        "Deletes uploaded images that are not referenced by any Question or Answer "
+        "Deletes uploaded images that are not referenced by any Question, Answer, or User photo "
         "and are older than the specified threshold (default: 24 hours)."
     )
 
@@ -44,7 +44,11 @@ class Command(BaseCommand):
 
         # Find orphaned images older than cutoff
         orphans = UploadedImage.objects.filter(
-            uploaded_at__lt=cutoff, questions__isnull=True, answers__isnull=True
+            uploaded_at__lt=cutoff,
+            questions__isnull=True,
+            answers__isnull=True,
+            user_photos__isnull=True,
+            user_custom_photos__isnull=True,
         ).distinct()
 
         orphan_count = orphans.count()

@@ -57,6 +57,15 @@ if ALLOW_PREVIEW_ENVIRONMENTS:
 CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:3000").split(",")
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000").rstrip("/")
+ALLOWED_IMAGE_SOURCE_HOSTS = [
+    h.strip()
+    for h in os.environ.get(
+        "ALLOWED_IMAGE_SOURCE_HOSTS",
+        "api.dicebear.com,apps.usos.pwr.edu.pl",
+    ).split(",")
+    if h.strip()
+]
 
 # Internal API key for server-to-server authentication (e.g., Next.js server-side)
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
@@ -309,7 +318,16 @@ EMAIL_TIMEOUT = 10
 
 SPECTACULAR_SETTINGS = spectacular.SPECTACULAR_SETTINGS
 
-TASKS = {"default": {"BACKEND": "django.tasks.backends.immediate.ImmediateBackend"}}
+# NOTE: ImmediateBackend runs enqueued tasks inline on the request thread, so
+# work is not actually deferred yet. Swap in a durable third-party backend with a
+# worker process (e.g. django-tasks DatabaseBackend + `manage.py db_worker`
+# consuming the "images" queue) to truly move slow third-party work off-request.
+TASKS = {
+    "default": {
+        "BACKEND": "django.tasks.backends.immediate.ImmediateBackend",
+        "QUEUES": ["default", "images"],
+    }
+}
 
 ARCHIVE_TTL_DAYS = 30
 
