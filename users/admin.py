@@ -27,6 +27,8 @@ from rest_framework_simplejwt.token_blacklist.models import (
 )
 from unfold.admin import ModelAdmin, StackedInline
 
+from oauth_integrations.models import OAuthApplicationMetadata
+
 from .models import EmailLoginToken, StudyGroup, Term, User, UserSettings
 
 
@@ -176,7 +178,14 @@ for model in (Application, AccessToken, Grant, RefreshToken, IDToken):
 
 @admin.register(Application)
 class ApplicationAdmin(BaseApplicationAdmin, ModelAdmin):
-    pass
+    class OAuthApplicationMetadataInline(StackedInline):
+        model = OAuthApplicationMetadata
+        can_delete = True
+        extra = 0
+        max_num = 1
+        verbose_name_plural = "Testownik metadata"
+
+    inlines = [OAuthApplicationMetadataInline]
 
 
 @admin.register(AccessToken)
