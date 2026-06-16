@@ -5,9 +5,12 @@ from rest_framework import permissions
 
 from users.models import AccountType
 
-from .models import Question, Quiz
+from .models import FolderType, Question, Quiz
 
 OAuthAccessToken = get_access_token_model()
+DELETED_QUIZ_MESSAGE = "This quiz has been deleted."
+DELETED_OWNER_QUIZ_MESSAGE = "This quiz has been deleted. You can restore it."
+NO_QUIZ_ACCESS_MESSAGE = "You do not have access to this quiz."
 
 
 def _is_effectively_authenticated(user) -> bool:
@@ -100,9 +103,15 @@ def accessible_quizzes_q(user) -> Q:
     """
     shared_quiz_ids = Quiz.objects.filter(
         Q(sharedquiz__user=user) | Q(sharedquiz__study_group__in=user.study_groups.all()),
+        ~Q(folder__folder_type=FolderType.TRASH),
         visibility__gte=1,
     ).values_list("id", flat=True)
-    return Q(quiz__folder__owner=user) | Q(quiz_id__in=shared_quiz_ids) | Q(quiz__visibility__gte=2)
+    readable_filter = Q(quiz__folder__owner=user) | Q(quiz_id__in=shared_quiz_ids) | Q(quiz__visibility__gte=2)
+    return ~Q(quiz__folder__folder_type=FolderType.TRASH) & readable_filter
+
+
+def quiz_is_deleted(quiz: Quiz) -> bool:
+    return quiz.folder.folder_type == FolderType.TRASH
 
 
 def user_has_quiz_read_access(user, quiz) -> bool:
@@ -111,6 +120,9 @@ def user_has_quiz_read_access(user, quiz) -> bool:
     (e.g. perform_create). Kept here as the single source of truth so the
     viewset doesn't duplicate the permission logic.
     """
+    if quiz_is_deleted(quiz):
+        return False
+
     if quiz.folder.owner == user:
         return True
     if quiz.visibility >= 2 and (user.is_authenticated or quiz.allow_anonymous):
@@ -135,7 +147,19 @@ class IsQuizReadable(permissions.BasePermission):
     Guest users are treated as unauthenticated for shared quiz access.
     """
 
+    message = NO_QUIZ_ACCESS_MESSAGE
+
     def has_object_permission(self, request, view, obj: Quiz):
+        if quiz_is_deleted(obj):
+            if getattr(view, "action", None) == "destroy" and obj.folder.owner == request.user:
+                return True
+            if obj.folder.owner == request.user:
+                self.message = DELETED_OWNER_QUIZ_MESSAGE
+                return False
+            self.message = DELETED_QUIZ_MESSAGE
+            return False
+
+        self.message = NO_QUIZ_ACCESS_MESSAGE
         return user_has_quiz_read_access(request.user, obj)
 
 
@@ -163,8 +187,13 @@ class IsQuestionReadable(permissions.BasePermission):
     Forwards the request to IsQuizReadable for the quiz.
     """
 
+    message = NO_QUIZ_ACCESS_MESSAGE
+
     def has_object_permission(self, request, view, obj: Question):
-        return IsQuizReadable().has_object_permission(request, view, obj.quiz)
+        quiz_permission = IsQuizReadable()
+        is_allowed = quiz_permission.has_object_permission(request, view, obj.quiz)
+        self.message = quiz_permission.message
+        return is_allowed
 
 
 class IsQuizCreatorOrCollaboratorOrReadOnly(permissions.BasePermission):
