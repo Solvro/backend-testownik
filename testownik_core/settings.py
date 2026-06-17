@@ -311,7 +311,7 @@ SPECTACULAR_SETTINGS = spectacular.SPECTACULAR_SETTINGS
 
 TASKS = {"default": {"BACKEND": "django.tasks.backends.immediate.ImmediateBackend"}}
 
-ARCHIVE_TTL_DAYS = 30
+TRASH_TTL_DAYS = 30
 
 UNFOLD = get_unfold_settings(FRONTEND_URL)
 

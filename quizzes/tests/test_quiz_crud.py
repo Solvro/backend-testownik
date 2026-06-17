@@ -2,7 +2,11 @@
 Tests for Quiz CRUD operations including nested Question and Answer management.
 """
 
+from datetime import timedelta
+
 from django.urls import reverse
+from django.utils import timezone
+from oauth2_provider.models import AbstractApplication, AccessToken, get_application_model
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -134,6 +138,21 @@ class QuizCRUDTestCase(APITestCase):
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]["title"], "My Quiz")
 
+    def test_list_own_quizzes_excludes_archived_and_trashed_quizzes(self):
+        """Archived and trashed quizzes are hidden from the normal quiz list."""
+        active_quiz = Quiz.objects.create(title="Active Quiz", creator=self.user, folder=self.user.root_folder)
+        archive_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.ARCHIVE)
+        archived_quiz = Quiz.objects.create(title="Archived Quiz", creator=self.user, folder=archive_folder)
+        trashed_quiz = Quiz.objects.create(title="Trashed Quiz", creator=self.user, folder=self.user.root_folder)
+        Quiz.objects.filter(id=archived_quiz.id).update(archived_at=timezone.now())
+        self.client.delete(reverse("quiz-detail", kwargs={"pk": trashed_quiz.id}))
+
+        response = self.client.get(reverse("quiz-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = {item["id"] for item in response.data}
+        self.assertEqual(returned_ids, {str(active_quiz.id)})
+
     def test_retrieve_quiz_with_questions(self):
         """Test retrieving a single quiz includes nested questions."""
         quiz = Quiz.objects.create(title="My Quiz", creator=self.user, folder=self.user.root_folder)
@@ -146,6 +165,33 @@ class QuizCRUDTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data["questions"]), 1)
         self.assertEqual(len(response.data["questions"][0]["answers"]), 1)
+
+    def test_retrieve_archived_quiz(self):
+        """Archived quizzes remain directly accessible."""
+        archive_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.ARCHIVE)
+        quiz = Quiz.objects.create(title="Archived Quiz", creator=self.user, folder=archive_folder)
+        Quiz.objects.filter(id=quiz.id).update(archived_at=timezone.now())
+
+        response = self.client.get(reverse("quiz-detail", kwargs={"pk": quiz.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["title"], "Archived Quiz")
+
+    def test_retrieve_trashed_quiz_is_forbidden_with_restore_message_for_owner(self):
+        """Deleted quizzes are not directly accessible, but owners get restore context."""
+        trash_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.TRASH)
+        quiz = Quiz.objects.create(
+            title="Deleted Quiz",
+            creator=self.user,
+            folder=trash_folder,
+            deleted_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse("quiz-detail", kwargs={"pk": quiz.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("deleted", str(response.data["detail"]).lower())
+        self.assertIn("restore", str(response.data["detail"]).lower())
 
     # --- UPDATE ---
     def test_update_quiz_title(self):
@@ -190,8 +236,8 @@ class QuizCRUDTestCase(APITestCase):
         question.refresh_from_db()
         self.assertEqual(question.text, "Updated Text")
 
-    def test_delete_quiz_moves_to_archive(self):
-        """Test deleting a quiz moves it to the archive folder instead of complete deletion."""
+    def test_delete_quiz_moves_to_trash(self):
+        """Test deleting a quiz moves it to the trash folder instead of complete deletion."""
         quiz = Quiz.objects.create(title="To Trash", creator=self.user, folder=self.user.root_folder)
         url = reverse("quiz-detail", kwargs={"pk": quiz.id})
 
@@ -199,18 +245,69 @@ class QuizCRUDTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
         quiz.refresh_from_db()
-        archive_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.ARCHIVE)
-        self.assertEqual(quiz.folder, archive_folder)
+        trash_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.TRASH)
+        self.assertEqual(quiz.folder, trash_folder)
+        self.assertIsNone(quiz.archived_at)
+        self.assertIsNotNone(quiz.deleted_at)
 
     def test_delete_quiz_permanently(self):
-        """Test deleting a quiz already in the archive folder permanently deletes it."""
-        archive_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.ARCHIVE)
-        quiz = Quiz.objects.create(title="In Trash", creator=self.user, folder=archive_folder)
+        """Test deleting a quiz already in the trash folder permanently deletes it."""
+        trash_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.TRASH)
+        quiz = Quiz.objects.create(title="In Trash", creator=self.user, folder=trash_folder)
         url = reverse("quiz-detail", kwargs={"pk": quiz.id})
 
         response = self.client.delete(url)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Quiz.objects.filter(id=quiz.id).exists())
+
+    def test_delete_archived_quiz_moves_to_trash(self):
+        """Archive stays separate: deleting an archived quiz moves it to trash."""
+        archive_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.ARCHIVE)
+        quiz = Quiz.objects.create(title="Archived Quiz", creator=self.user, folder=archive_folder)
+        url = reverse("quiz-detail", kwargs={"pk": quiz.id})
+
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        quiz.refresh_from_db()
+        self.assertEqual(quiz.folder.folder_type, FolderType.TRASH)
+        self.assertIsNone(quiz.archived_at)
+        self.assertIsNotNone(quiz.deleted_at)
+
+    def test_restore_deleted_quiz_moves_to_root_folder(self):
+        """Owner can restore a deleted quiz back to the main library."""
+        trash_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.TRASH)
+        quiz = Quiz.objects.create(
+            title="Deleted Quiz",
+            creator=self.user,
+            folder=trash_folder,
+            deleted_at=timezone.now(),
+        )
+
+        response = self.client.post(reverse("quiz-restore", kwargs={"pk": quiz.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        quiz.refresh_from_db()
+        self.assertEqual(quiz.folder, self.user.root_folder)
+        self.assertIsNone(quiz.archived_at)
+        self.assertIsNone(quiz.deleted_at)
+
+    def test_non_owner_cannot_restore_deleted_quiz(self):
+        """Only the deleted quiz owner can restore it."""
+        trash_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.TRASH)
+        quiz = Quiz.objects.create(
+            title="Deleted Quiz",
+            creator=self.user,
+            folder=trash_folder,
+            deleted_at=timezone.now(),
+        )
+
+        self.client.force_authenticate(user=self.other_user)
+        response = self.client.post(reverse("quiz-restore", kwargs={"pk": quiz.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        quiz.refresh_from_db()
+        self.assertEqual(quiz.folder, trash_folder)
+        self.assertIsNotNone(quiz.deleted_at)
 
     def test_cannot_delete_other_users_quiz(self):
         """Test that user cannot delete another user's quiz."""
@@ -247,6 +344,94 @@ class QuizCRUDTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("folder", response.data)
         self.assertEqual(str(response.data["folder"]["id"]), str(self.user.root_folder_id))
+
+
+class QuizOAuthScopeTestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="oauth-quiz@example.com",
+            password="password123",
+            first_name="OAuth",
+            last_name="Quiz",
+        )
+        self.user.refresh_from_db()
+        Application = get_application_model()
+        self.application = Application.objects.create(
+            name="NotebookLM Extension",
+            client_id="notebooklm-extension",
+            client_type=AbstractApplication.CLIENT_PUBLIC,
+            authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://extension-id.chromiumapp.org/",
+        )
+
+    def authorize_with_scope(self, scope):
+        token = AccessToken.objects.create(
+            user=self.user,
+            application=self.application,
+            token=f"token-{scope.replace(' ', '-')}",
+            expires=timezone.now() + timedelta(minutes=30),
+            scope=scope,
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+
+    def quiz_payload(self):
+        return {
+            "title": "NotebookLM import",
+            "description": "Zaimportowano z NotebookLM",
+            "questions": [
+                {
+                    "order": 1,
+                    "text": "Question?",
+                    "question_type": 0,
+                    "multiple": False,
+                    "answers": [
+                        {"order": 1, "text": "Correct", "is_correct": True},
+                        {"order": 2, "text": "Wrong", "is_correct": False},
+                    ],
+                }
+            ],
+        }
+
+    def test_oauth_token_with_quizzes_write_can_create_quiz(self):
+        self.authorize_with_scope("quizzes:write user:read")
+
+        response = self.client.post(reverse("quiz-list"), self.quiz_payload(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        quiz = Quiz.objects.get(id=response.data["id"])
+        self.assertEqual(quiz.creator, self.user)
+        self.assertEqual(quiz.folder_id, self.user.root_folder_id)
+
+    def test_oauth_token_without_quizzes_write_cannot_create_quiz(self):
+        self.authorize_with_scope("quizzes:read user:read")
+
+        response = self.client.post(reverse("quiz-list"), self.quiz_payload(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Quiz.objects.filter(title="NotebookLM import").exists())
+
+    def test_oauth_token_with_quizzes_read_can_retrieve_quiz(self):
+        quiz = Quiz.objects.create(title="Readable quiz", creator=self.user, folder=self.user.root_folder)
+        self.authorize_with_scope("quizzes:read user:read")
+
+        response = self.client.get(reverse("quiz-detail", kwargs={"pk": quiz.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_oauth_token_without_quizzes_read_cannot_retrieve_quiz(self):
+        quiz = Quiz.objects.create(title="Scoped quiz", creator=self.user, folder=self.user.root_folder)
+        self.authorize_with_scope("user:read")
+
+        response = self.client.get(reverse("quiz-detail", kwargs={"pk": quiz.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_first_party_authenticated_create_is_not_blocked_by_oauth_scope_permission(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(reverse("quiz-list"), self.quiz_payload(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
 
 class QuizQuestionAnswerTestCase(APITestCase):
