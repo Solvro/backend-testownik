@@ -67,16 +67,22 @@ def migrate_guest_to_user(guest_id: str, target_user: User) -> bool:
             target_root = target_user.root_folder
 
             if guest_root and target_root:
-                target_archive, _ = Folder.objects.get_or_create(
-                    owner=target_user,
-                    folder_type=FolderType.ARCHIVE,
-                    defaults={"name": Folder.DEFAULT_ARCHIVE_NAME, "parent": target_root},
-                )
-                guest_archive = Folder.objects.filter(owner=guest, folder_type=FolderType.ARCHIVE).first()
-                if guest_archive:
-                    Quiz.objects.filter(folder=guest_archive).update(folder=target_archive)
-                    guest_archive.folder_type = FolderType.REGULAR
-                    guest_archive.delete()
+                protected_folder_defaults = {
+                    FolderType.ARCHIVE: Folder.DEFAULT_ARCHIVE_NAME,
+                    FolderType.TRASH: Folder.DEFAULT_TRASH_NAME,
+                }
+
+                for folder_type, folder_name in protected_folder_defaults.items():
+                    target_folder, _ = Folder.objects.get_or_create(
+                        owner=target_user,
+                        folder_type=folder_type,
+                        defaults={"name": folder_name, "parent": target_root},
+                    )
+                    guest_folder = Folder.objects.filter(owner=guest, folder_type=folder_type).first()
+                    if guest_folder:
+                        Quiz.objects.filter(folder=guest_folder).update(folder=target_folder)
+                        guest_folder.folder_type = FolderType.REGULAR
+                        guest_folder.delete()
 
                 Quiz.objects.filter(folder=guest_root).update(folder=target_root)
                 Folder.objects.filter(parent=guest_root).update(parent=target_root, owner=target_user)

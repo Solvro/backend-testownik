@@ -7,5 +7,5 @@ class FeedbackSerializer(serializers.Serializer):
     title = serializers.CharField()
     content = serializers.CharField()
     sendDiagnostics = serializers.CharField(required=False)
-    diagnostic = serializers.CharField(required=False)
+    diagnostic = serializers.CharField(required=False, allow_blank=True)
     reportType = serializers.CharField(required=False)

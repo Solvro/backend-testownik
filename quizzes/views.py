@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import Avg, Count, Prefetch, Q
 from django.utils import timezone
 from django.utils.html import escape
+from django.utils.module_loading import import_string
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
@@ -14,6 +15,7 @@ from drf_spectacular.utils import (
     extend_schema,
     extend_schema_view,
 )
+from oauth2_provider.contrib.rest_framework import OAuth2Authentication
 from rest_framework import generics, mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import (
@@ -43,6 +45,9 @@ from quizzes.models import (
     SharedQuiz,
 )
 from quizzes.permissions import (
+    DELETED_OWNER_QUIZ_MESSAGE,
+    DELETED_QUIZ_MESSAGE,
+    HasOAuthQuizScopeForMethods,
     IsCommentAuthorOrReadOnly,
     IsFolderOwner,
     IsQuestionReadable,
@@ -53,6 +58,7 @@ from quizzes.permissions import (
     IsSharedQuizCreatorOrReadOnly,
     accessible_quizzes_q,
     is_internal_api_request,
+    quiz_is_deleted,
     user_has_quiz_read_access,
 )
 from quizzes.serializers import (
@@ -102,6 +108,13 @@ from users.models import AccountType
 logger = logging.getLogger(__name__)
 
 ALLOWED_STATS_SCOPES = {"me", "all"}
+
+
+def resolve_default_authentication_classes():
+    configured_classes = settings.REST_FRAMEWORK.get("DEFAULT_AUTHENTICATION_CLASSES", [])
+    return [
+        import_string(auth_class) if isinstance(auth_class, str) else auth_class for auth_class in configured_classes
+    ]
 
 
 def resolve_stats_scope_user(request, quiz):
@@ -197,7 +210,11 @@ class LastUsedQuizzesView(generics.ListAPIView):
         user = self.request.user
         user_ratings = Prefetch("ratings", queryset=QuizRating.objects.filter(user=user), to_attr="_user_rating")
         return (
-            Quiz.objects.filter(sessions__user=user, sessions__is_active=True)
+            Quiz.objects.filter(
+                sessions__user=user,
+                sessions__is_active=True,
+            )
+            .exclude(folder__folder_type=FolderType.TRASH)
             .select_related("creator", "folder", "folder__owner")
             .annotate(
                 questions_count=Count("questions", distinct=True),
@@ -290,8 +307,13 @@ class SearchQuizzesView(APIView):
 class QuizViewSet(viewsets.ModelViewSet):
     queryset = Quiz.objects.all()
     serializer_class = QuizSerializer
+    authentication_classes = [
+        OAuth2Authentication,
+        *resolve_default_authentication_classes(),
+    ]
     permission_classes = [
         permissions.IsAuthenticatedOrReadOnly,
+        HasOAuthQuizScopeForMethods,
         IsQuizCreatorOrCollaboratorOrReadOnly,
         IsQuizReadable,
     ]
@@ -304,7 +326,7 @@ class QuizViewSet(viewsets.ModelViewSet):
                 raise NotAuthenticated()
 
             return (
-                Quiz.objects.filter(creator=user)
+                Quiz.objects.filter(creator=user, folder__folder_type=FolderType.REGULAR)
                 .select_related("creator", "folder", "folder__owner")
                 .annotate(
                     questions_count=Count("questions", distinct=True),
@@ -382,7 +404,8 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         try:
             quiz = (
-                Quiz.objects.prefetch_related("questions__answers")
+                Quiz.objects.select_related("folder", "folder__owner")
+                .prefetch_related("questions__answers")
                 .annotate(questions_count=Count("questions", distinct=True))
                 .get(pk=pk)
             )
@@ -395,6 +418,14 @@ class QuizViewSet(viewsets.ModelViewSet):
             raise AuthenticationFailed("Invalid Api-Key.")
 
         user = request.user
+
+        if quiz_is_deleted(quiz):
+            message = (
+                DELETED_OWNER_QUIZ_MESSAGE
+                if user.is_authenticated and quiz.folder.owner == user
+                else DELETED_QUIZ_MESSAGE
+            )
+            raise PermissionDenied(message)
 
         if has_internal_access:
             if not (quiz.visibility >= 1 or (user.is_authenticated and user.owns_quiz_via_folder(quiz))):
@@ -436,15 +467,16 @@ class QuizViewSet(viewsets.ModelViewSet):
         if instance.folder.owner != self.request.user:
             raise PermissionDenied("Only the folder owner can delete this quiz")
 
-        if instance.folder.folder_type != FolderType.ARCHIVE:
-            archive_folder, _ = Folder.objects.get_or_create(
+        if instance.folder.folder_type != FolderType.TRASH:
+            trash_folder, _ = Folder.objects.get_or_create(
                 owner=self.request.user,
-                folder_type=FolderType.ARCHIVE,
-                defaults={"name": Folder.DEFAULT_ARCHIVE_NAME, "parent": self.request.user.root_folder},
+                folder_type=FolderType.TRASH,
+                defaults={"name": Folder.DEFAULT_TRASH_NAME, "parent": self.request.user.root_folder},
             )
-            instance.folder = archive_folder
-            instance.archived_at = timezone.now()
-            instance.save(update_fields=["folder", "archived_at", "updated_at"])
+            instance.folder = trash_folder
+            instance.archived_at = None
+            instance.deleted_at = timezone.now()
+            instance.save(update_fields=["folder", "archived_at", "deleted_at", "updated_at"])
         else:
             instance.delete()
 
@@ -481,8 +513,16 @@ class QuizViewSet(viewsets.ModelViewSet):
             new_folder_id = serializer.validated_data["folder_id"]
             destination = Folder.objects.get(pk=new_folder_id)
             quiz.folder_id = new_folder_id
-            quiz.archived_at = timezone.now() if destination.folder_type == FolderType.ARCHIVE else None
-            quiz.save(update_fields=["folder_id", "archived_at", "updated_at"])
+            if destination.folder_type == FolderType.ARCHIVE:
+                quiz.archived_at = timezone.now()
+                quiz.deleted_at = None
+            elif destination.folder_type == FolderType.TRASH:
+                quiz.archived_at = None
+                quiz.deleted_at = timezone.now()
+            else:
+                quiz.archived_at = None
+                quiz.deleted_at = None
+            quiz.save(update_fields=["folder_id", "archived_at", "deleted_at", "updated_at"])
             return Response({"status": "Quiz moved successfully"})
 
         return Response(serializer.errors, status=400)
@@ -507,8 +547,27 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         quiz.folder = archive_folder
         quiz.archived_at = timezone.now()
-        quiz.save(update_fields=["folder", "archived_at", "updated_at"])
+        quiz.deleted_at = None
+        quiz.save(update_fields=["folder", "archived_at", "deleted_at", "updated_at"])
         return Response({"status": "Quiz moved successfully"}, status=status.HTTP_200_OK)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="restore",
+        permission_classes=[permissions.IsAuthenticated, IsQuizCreator],
+    )
+    def restore(self, request, pk=None):
+        quiz = self.get_object()
+
+        if quiz.folder.folder_type != FolderType.TRASH:
+            return Response({"status": "Quiz is not deleted"}, status=status.HTTP_200_OK)
+
+        quiz.folder = request.user.root_folder
+        quiz.archived_at = None
+        quiz.deleted_at = None
+        quiz.save(update_fields=["folder", "archived_at", "deleted_at", "updated_at"])
+        return Response({"status": "Quiz restored successfully"}, status=status.HTTP_200_OK)
 
     @action(
         detail=True,
@@ -892,6 +951,7 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
             | Q(quiz__creator=self.request.user)
             | Q(quiz__folder__owner=self.request.user)
         )
+        _filter &= ~Q(quiz__folder__folder_type=FolderType.TRASH)
         if self.request.query_params.get("quiz"):
             _filter &= Q(quiz_id=self.request.query_params.get("quiz"))
         return SharedQuiz.objects.filter(_filter).prefetch_related(
@@ -1074,16 +1134,19 @@ class FolderViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         if hasattr(instance, "root_owner"):
             raise PermissionDenied("Cannot delete root folder.")
-        if instance.folder_type == FolderType.ARCHIVE:
-            raise PermissionDenied("Cannot delete archive folder.")
+        if instance.folder_type in Folder.PROTECTED_FOLDER_TYPES:
+            raise PermissionDenied(f"Cannot delete {instance.get_folder_type_display().lower()} folder.")
         instance.delete()
 
     @action(detail=True, methods=["post"], serializer_class=MoveFolderSerializer)
     def move(self, request, pk=None):
         folder = self.get_object()
 
-        if folder.folder_type == FolderType.ARCHIVE:
-            return Response({"error": "Cannot move archive folder."}, status=status.HTTP_403_FORBIDDEN)
+        if folder.folder_type in Folder.PROTECTED_FOLDER_TYPES:
+            return Response(
+                {"error": f"Cannot move {folder.get_folder_type_display().lower()} folder."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
@@ -1189,15 +1252,18 @@ class LibraryView(APIView):
         # Precompute IDs of all folders the user can directly access.
         accessible_folder_ids = set(Folder.objects.filter(self._access_predicate(user)).values_list("id", flat=True))
 
+        folder = Folder.objects.filter(id=folder_id).only("id", "parent_id", "folder_type", "owner_id").first()
+        if not folder:
+            return False
+
+        if folder.folder_type == FolderType.TRASH and folder.owner_id != user.id:
+            return False
+
         # Direct access to this folder.
         if folder_id in accessible_folder_ids:
             return True
 
         # Walk up the ancestor chain using lightweight queries and check access in-memory.
-        folder = Folder.objects.filter(id=folder_id).only("id", "parent_id").first()
-        if not folder:
-            return False
-
         current_parent_id = folder.parent_id
         while current_parent_id:
             if current_parent_id in accessible_folder_ids:
@@ -1209,7 +1275,12 @@ class LibraryView(APIView):
         return False
 
     def _get_subfolders(self, user, folder_id):
-        return Folder.objects.filter(parent_id=folder_id).distinct().order_by("-created_at")
+        return (
+            Folder.objects.filter(parent_id=folder_id)
+            .filter(Q(owner=user) | ~Q(folder_type=FolderType.TRASH))
+            .distinct()
+            .order_by("-created_at")
+        )
 
     def _get_quizzes(self, user, folder_id):
         return Quiz.objects.filter(folder_id=folder_id).distinct().order_by("-created_at")

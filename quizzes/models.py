@@ -19,11 +19,14 @@ QUIZ_VISIBILITY_CHOICES = [
 class FolderType(models.TextChoices):
     ARCHIVE = "archive", "Archive"
     REGULAR = "regular", "Regular"
+    TRASH = "trash", "Trash"
 
 
 class Folder(models.Model):
     DEFAULT_ROOT_NAME = "Moje quizy"
     DEFAULT_ARCHIVE_NAME = "Archiwum"
+    DEFAULT_TRASH_NAME = "Kosz"
+    PROTECTED_FOLDER_TYPES = {FolderType.ARCHIVE, FolderType.TRASH}
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=128)
@@ -46,7 +49,12 @@ class Folder(models.Model):
                 fields=["owner", "folder_type"],
                 condition=Q(folder_type=FolderType.ARCHIVE),
                 name="unique_archive_per_user",
-            )
+            ),
+            UniqueConstraint(
+                fields=["owner", "folder_type"],
+                condition=Q(folder_type=FolderType.TRASH),
+                name="unique_trash_per_user",
+            ),
         ]
 
     def __str__(self):
@@ -65,9 +73,9 @@ class Folder(models.Model):
                 "Cannot delete root folder.",
                 set([self]),
             )
-        if self.folder_type == FolderType.ARCHIVE:
+        if self.folder_type in self.PROTECTED_FOLDER_TYPES:
             raise ProtectedError(
-                "Cannot delete archive folder.",
+                f"Cannot delete {self.get_folder_type_display().lower()} folder.",
                 set([self]),
             )
         super().delete(*args, **kwargs)
@@ -135,6 +143,7 @@ class Quiz(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     archived_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
     folder = models.ForeignKey(Folder, on_delete=models.PROTECT, related_name="quizzes")
 
     class Meta:
