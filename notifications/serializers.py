@@ -15,6 +15,7 @@ class NotificationSerializer(serializers.ModelSerializer):
             "delivery_status",
             "delivery_error",
             "created_at",
+            "updated_at",
             "user",
         ]
         read_only_fields = [
@@ -25,5 +26,6 @@ class NotificationSerializer(serializers.ModelSerializer):
             "delivery_status",
             "delivery_error",
             "created_at",
+            "updated_at",
             "user",
         ]
