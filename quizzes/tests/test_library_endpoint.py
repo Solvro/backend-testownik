@@ -3,7 +3,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quizzes.models import Folder, Quiz, SharedFolder
+from quizzes.models import Folder, FolderType, Quiz, SharedFolder
 from users.models import StudyGroup
 
 User = get_user_model()
@@ -36,9 +36,10 @@ class LibraryTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         returned_ids = {str(item["id"]) for item in response.data["items"]}
-        # Root folder should contain: Main folder + Root Quiz + Archive folder
+        # Root folder should contain: Main folder + Root Quiz + Archive folder + Trash folder
         archive_folder = Folder.objects.get(owner=self.user_a, folder_type="archive")
-        expected_ids = {str(self.folder_main.id), str(self.quiz_root.id), str(archive_folder.id)}
+        trash_folder = Folder.objects.get(owner=self.user_a, folder_type="trash")
+        expected_ids = {str(self.folder_main.id), str(self.quiz_root.id), str(archive_folder.id), str(trash_folder.id)}
         self.assertEqual(returned_ids, expected_ids)
 
         # Sub folder and hidden quiz should NOT appear at root level
@@ -56,6 +57,24 @@ class LibraryTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         returned_names = {item.get("name") for item in response.data["items"] if item.get("type") == "quiz"}
         self.assertIn("Hidden Quiz", returned_names)
+
+    def test_shared_root_does_not_expose_trash(self):
+        """Sharing a root folder does not give access to the owner's trash."""
+        trash_folder = Folder.objects.get(owner=self.user_a, folder_type=FolderType.TRASH)
+        deleted_quiz = Quiz.objects.create(title="Deleted Quiz", creator=self.user_a, folder=trash_folder)
+        SharedFolder.objects.create(folder=self.user_a.root_folder, user=self.user_b)
+
+        self.client.force_authenticate(user=self.user_b)
+        response = self.client.get(reverse("library-folder", kwargs={"folder_id": self.user_a.root_folder.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = {str(item["id"]) for item in response.data["items"]}
+        returned_names = {item["name"] for item in response.data["items"]}
+        self.assertNotIn(str(trash_folder.id), returned_ids)
+        self.assertNotIn(deleted_quiz.title, returned_names)
+
+        response = self.client.get(reverse("library-folder", kwargs={"folder_id": trash_folder.id}))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_study_group_sharing(self):
         """Folder shared via study group is accessible."""
