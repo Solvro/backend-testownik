@@ -98,6 +98,7 @@ INSTALLED_APPS = [
     "adrf",
     "drf_spectacular",
     "django_filters",
+    "drf_standardized_errors",
     "oauth2_provider",
     "mcp_server",
 ]
@@ -143,11 +144,12 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_SCHEMA_CLASS": "drf_standardized_errors.openapi.AutoSchema",
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.OrderingFilter",
     ],
+    "EXCEPTION_HANDLER": "drf_standardized_errors.handler.exception_handler",
 }
 
 if os.getenv("JWT_SECRET") is None:

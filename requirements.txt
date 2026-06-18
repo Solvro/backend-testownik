@@ -21,3 +21,4 @@ django-storages[s3]==1.14.6
 django-unfold==0.97.1
 django-mcp-server==0.5.7
 django-oauth-toolkit>=2.0.0
+drf-standardized-errors==0.16.0
