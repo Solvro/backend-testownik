@@ -18,6 +18,6 @@ Authlib==1.7.2
 nh3==0.3.5
 Pillow==12.2.0
 django-storages[s3]==1.14.6
-django-unfold==0.97.1
+django-unfold==0.97.2
 django-mcp-server==0.5.7
 django-oauth-toolkit>=3.3.0
