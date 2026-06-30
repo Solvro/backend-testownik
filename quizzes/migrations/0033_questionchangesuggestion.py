@@ -8,9 +8,8 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ("quizzes", "0031_quiz_is_ai_generated"),
+        ("quizzes", "0032_add_trash_folder_type"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

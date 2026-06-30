@@ -9,13 +9,14 @@ from django.utils import timezone
 
 from quizzes.models import (
     AnswerRecord,
+    FolderType,
     Question,
     QuestionType,
     Quiz,
     QuizSession,
     SharedQuiz,
 )
-from quizzes.permissions import user_has_quiz_read_access
+from quizzes.permissions import DELETED_QUIZ_MESSAGE, quiz_is_deleted, user_has_quiz_read_access
 from quizzes.services.normalizer import normalize
 
 PUBLIC_VISIBILITY = 3
@@ -47,7 +48,7 @@ class AnswerResult:
 
 def owned_quizzes_queryset(user):
     return (
-        Quiz.objects.filter(folder__owner=user, archived_at__isnull=True)
+        Quiz.objects.filter(folder__owner=user, folder__folder_type=FolderType.REGULAR)
         .select_related("creator")
         .annotate(questions_count=Count("questions"))
         .order_by("-updated_at")
@@ -55,7 +56,7 @@ def owned_quizzes_queryset(user):
 
 
 def searchable_quizzes_queryset(user, query: str):
-    base = Quiz.objects.filter(title__icontains=query, archived_at__isnull=True)
+    base = Quiz.objects.filter(title__icontains=query).exclude(folder__folder_type=FolderType.TRASH)
     return (
         base.filter(
             Q(folder__owner=user)
@@ -73,22 +74,28 @@ def searchable_quizzes_queryset(user, query: str):
 
 
 def grouped_search_quizzes(user, query: str, *, include_public: bool):
-    user_quizzes = Quiz.objects.filter(creator=user, title__icontains=query).select_related("creator")
+    active_quiz_filter = ~Q(folder__folder_type=FolderType.TRASH)
+    active_shared_quiz_filter = ~Q(quiz__folder__folder_type=FolderType.TRASH)
+    user_quizzes = Quiz.objects.filter(active_quiz_filter, creator=user, title__icontains=query).select_related(
+        "creator"
+    )
     shared_quizzes = SharedQuiz.objects.filter(
+        active_shared_quiz_filter,
         user=user,
         quiz__title__icontains=query,
         quiz__visibility__gte=1,
     ).select_related("quiz__creator")
     group_quizzes = SharedQuiz.objects.filter(
+        active_shared_quiz_filter,
         study_group__in=user.study_groups.all(),
         quiz__title__icontains=query,
         quiz__visibility__gte=1,
     ).select_related("quiz__creator")
     public_quizzes = Quiz.objects.none()
     if include_public:
-        public_quizzes = Quiz.objects.filter(title__icontains=query, visibility__gte=PUBLIC_VISIBILITY).select_related(
-            "creator"
-        )
+        public_quizzes = Quiz.objects.filter(
+            active_quiz_filter, title__icontains=query, visibility__gte=PUBLIC_VISIBILITY
+        ).select_related("creator")
     return {
         "user_quizzes": user_quizzes,
         "shared_quizzes": [share.quiz for share in shared_quizzes],
@@ -105,6 +112,8 @@ def get_readable_quiz(user, quiz_id, *, queryset=None, prefetch_questions: bool 
         quiz = queryset.get(pk=quiz_id)
     except (Quiz.DoesNotExist, ValueError, TypeError, DjangoValidationError) as exc:
         raise QuizOperationError("Quiz not found.", status_code=404) from exc
+    if quiz_is_deleted(quiz):
+        raise QuizOperationError(DELETED_QUIZ_MESSAGE, status_code=403)
     if not user_has_quiz_read_access(user, quiz):
         raise QuizOperationError("You do not have access to this quiz.", status_code=403)
     return quiz
@@ -115,6 +124,8 @@ def get_editable_quiz(user, quiz_id):
         quiz = Quiz.objects.get(pk=quiz_id)
     except (Quiz.DoesNotExist, ValueError, TypeError, DjangoValidationError) as exc:
         raise QuizOperationError("Quiz not found.", status_code=404) from exc
+    if quiz_is_deleted(quiz):
+        raise QuizOperationError(DELETED_QUIZ_MESSAGE, status_code=403)
     if not quiz.can_edit(user):
         raise QuizOperationError("You do not have permission to edit this quiz.", status_code=403)
     return quiz
@@ -125,6 +136,8 @@ def get_editable_question(user, question_id):
         question = Question.objects.select_related("quiz").get(pk=question_id)
     except (Question.DoesNotExist, ValueError, TypeError, DjangoValidationError) as exc:
         raise QuizOperationError("Question not found.", status_code=404) from exc
+    if quiz_is_deleted(question.quiz):
+        raise QuizOperationError(DELETED_QUIZ_MESSAGE, status_code=403)
     if not question.quiz.can_edit(user):
         raise QuizOperationError("You do not have permission to edit this question.", status_code=403)
     return question
@@ -185,17 +198,13 @@ def get_random_recent_question(user, *, days: int = 90):
     if not recent_quiz_ids:
         raise QuizOperationError("No recent quizzes found.", status_code=404)
 
-    total_questions = Question.objects.filter(quiz_id__in=recent_quiz_ids).count()
+    questions = Question.objects.filter(quiz_id__in=recent_quiz_ids).exclude(quiz__folder__folder_type=FolderType.TRASH)
+    total_questions = questions.count()
     if total_questions == 0:
         raise QuizOperationError("No questions found in recent quizzes.", status_code=404)
 
     random_offset = random.randint(0, total_questions - 1)
-    return (
-        Question.objects.filter(quiz_id__in=recent_quiz_ids)
-        .select_related("quiz")
-        .prefetch_related("answers")
-        .order_by("id")[random_offset]
-    )
+    return questions.select_related("quiz").prefetch_related("answers").order_by("id")[random_offset]
 
 
 def _resolve_answer_correctness(question, selected_answers, *, closed_only: bool):

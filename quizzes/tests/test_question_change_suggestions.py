@@ -4,7 +4,8 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from quizzes.models import Answer, Comment, Folder, Question, QuestionChangeSuggestion, Quiz, SharedQuiz
+from quizzes.models import Answer, Comment, Folder, Question, QuestionChangeSuggestion, Quiz, SharedFolder, SharedQuiz
+from quizzes.services.notifications import get_comment_notification_recipients
 from users.models import User
 
 
@@ -108,6 +109,60 @@ class QuestionChangeSuggestionTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.question.refresh_from_db()
         self.assertEqual(self.question.text, "Old question")
+
+    @patch("quizzes.services.notifications.send_question_comment_emails_task")
+    def test_direct_question_update_makes_suggestion_stale(self, _mock_email_task):
+        response = self._create_suggestion()
+        comment_id = response.data["id"]
+
+        self.client.force_authenticate(user=self.editor)
+        response = self.client.patch(
+            f"/api/questions/{self.question.id}/",
+            {"text": "Edited directly"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.quiz.refresh_from_db()
+        self.assertEqual(self.quiz.version, 2)
+
+        response = self.client.post(f"/api/comments/{comment_id}/accept-suggestion/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.text, "Edited directly")
+
+    @patch("quizzes.services.notifications.send_question_comment_emails_task")
+    def test_deleted_comment_hides_and_blocks_suggestion(self, _mock_email_task):
+        response = self._create_suggestion()
+        comment_id = response.data["id"]
+
+        self.client.force_authenticate(user=self.reporter)
+        response = self.client.delete(f"/api/comments/{comment_id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        self.client.force_authenticate(user=self.editor)
+        response = self.client.get(f"/api/comments/{comment_id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["content"], "")
+        self.assertIsNone(response.data["suggestion"])
+
+        response = self.client.post(f"/api/comments/{comment_id}/accept-suggestion/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_comment_notification_recipients_include_shared_folder_editors(self):
+        folder_editor = User.objects.create_user(email="folder-editor@example.com", password="password")
+        SharedFolder.objects.create(folder=self.folder, user=folder_editor, allow_edit=True)
+        comment = Comment.objects.create(
+            author=self.reporter,
+            quiz=self.quiz,
+            question=self.question,
+            content="Please review this suggestion",
+        )
+
+        recipients = get_comment_notification_recipients(comment)
+
+        self.assertIn(folder_editor, recipients)
 
     @patch("quizzes.services.notifications.send_question_comment_emails_task")
     def test_report_question_issue_creates_comment_with_suggestion(self, mock_email_task):

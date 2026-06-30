@@ -49,7 +49,7 @@ class QuizArchiveTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.quiz.refresh_from_db()
         self.assertEqual(self.quiz.folder, archive_folder)
-        # Re-archiving must not refresh archived_at — otherwise users could reset the TTL.
+        # Re-archiving must not refresh the original archive timestamp.
         self.assertEqual(self.quiz.archived_at, original_archived_at)
 
     def test_cannot_archive_other_users_quiz(self):
@@ -166,6 +166,28 @@ class FolderArchiveProtectionTests(APITestCase):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_trash_folder_created_automatically(self):
+        trash_exists = Folder.objects.filter(owner=self.user, folder_type=FolderType.TRASH).exists()
+        self.assertTrue(trash_exists)
+
+    def test_cannot_delete_trash_folder(self):
+        trash_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.TRASH)
+        url = reverse("folder-detail", kwargs={"pk": trash_folder.id})
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Folder.objects.filter(id=trash_folder.id).exists())
+
+    def test_cannot_move_folder_into_trash(self):
+        trash_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.TRASH)
+        regular_folder = Folder.objects.create(name="Regular", owner=self.user)
+        url = reverse("folder-move", kwargs={"pk": regular_folder.id})
+        response = self.client.post(url, {"parent_id": str(trash_folder.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        regular_folder.refresh_from_db()
+        self.assertNotEqual(regular_folder.parent_id, trash_folder.id)
 
     def test_regular_folder_can_be_deleted(self):
         regular_folder = Folder.objects.create(name="Regular", owner=self.user)

@@ -37,6 +37,9 @@ def apply_question_change_suggestion(suggestion: QuestionChangeSuggestion, user,
         if suggestion.status != QuestionChangeSuggestionStatus.PENDING:
             raise SuggestionApplyError("Suggestion is not pending.")
 
+        if suggestion.comment.is_deleted:
+            raise SuggestionApplyError("Cannot apply suggestions from deleted comments.")
+
         question = suggestion.question
         quiz = suggestion.comment.quiz
 
@@ -74,6 +77,9 @@ def apply_question_change_suggestion(suggestion: QuestionChangeSuggestion, user,
 def reject_question_change_suggestion(suggestion: QuestionChangeSuggestion, user):
     if suggestion.status != QuestionChangeSuggestionStatus.PENDING:
         raise SuggestionApplyError("Suggestion is not pending.")
+
+    if suggestion.comment.is_deleted:
+        raise SuggestionApplyError("Cannot reject suggestions from deleted comments.")
 
     suggestion.status = QuestionChangeSuggestionStatus.REJECTED
     suggestion.resolved_by = user

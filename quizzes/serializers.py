@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.db import models, transaction
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -25,6 +26,10 @@ from users.serializers import (
     StudyGroupSerializer,
     UserSettingsSerializer,
 )
+
+
+def bump_quiz_version(quiz_id):
+    Quiz.objects.filter(id=quiz_id).update(version=models.F("version") + 1, updated_at=timezone.now())
 
 
 class AnswerSerializer(serializers.ModelSerializer):
@@ -109,6 +114,9 @@ class QuestionSerializer(serializers.ModelSerializer):
         if new_quiz and not new_quiz.can_edit(user):
             raise serializers.ValidationError({"quiz": "You do not have permission to add a question to this quiz."})
 
+        if new_quiz and new_quiz.folder.folder_type == FolderType.TRASH:
+            raise serializers.ValidationError({"quiz": "Cannot add questions to a deleted quiz."})
+
         return data
 
     @transaction.atomic
@@ -123,6 +131,7 @@ class QuestionSerializer(serializers.ModelSerializer):
         for answer_data in answers_data:
             Answer.objects.create(question=question, **answer_data)
 
+        bump_quiz_version(question.quiz_id)
         return question
 
     @transaction.atomic
@@ -166,6 +175,7 @@ class QuestionSerializer(serializers.ModelSerializer):
                         del answer_data["id"]
                     Answer.objects.create(question=instance, **answer_data)
 
+        bump_quiz_version(instance.quiz_id)
         return instance
 
     @extend_schema_field(serializers.URLField(allow_null=True))
@@ -188,6 +198,8 @@ class BulkCreateQuestionsSerializer(serializers.Serializer):
         quiz = data["quiz"]
         if not quiz.can_edit(user):
             raise serializers.ValidationError({"quiz": "You do not have permission to add questions to this quiz."})
+        if quiz.folder.folder_type == FolderType.TRASH:
+            raise serializers.ValidationError({"quiz": "Cannot add questions to a deleted quiz."})
         if not data["questions"]:
             raise serializers.ValidationError({"questions": "At least one question is required."})
         return data
@@ -221,6 +233,7 @@ class BulkCreateQuestionsSerializer(serializers.Serializer):
         if all_answers:
             Answer.objects.bulk_create(all_answers)
 
+        bump_quiz_version(quiz.id)
         return created_questions
 
 
@@ -294,6 +307,8 @@ class QuizSerializer(serializers.ModelSerializer):
             "allow_anonymous",
             "is_ai_generated",
             "version",
+            "archived_at",
+            "deleted_at",
             "questions",
             "can_edit",
             "folder",
@@ -301,7 +316,7 @@ class QuizSerializer(serializers.ModelSerializer):
             "current_session",
             "has_external_images",
         ]
-        read_only_fields = ["creator", "version", "can_edit", "folder"]
+        read_only_fields = ["creator", "version", "archived_at", "deleted_at", "can_edit", "folder"]
 
     def get_can_edit(self, obj) -> bool:
         request = self.context.get("request")
@@ -539,6 +554,8 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "is_ai_generated",
             "created_at",
             "updated_at",
+            "archived_at",
+            "deleted_at",
             "last_used_at",
             "version",
             "can_edit",
@@ -552,6 +569,8 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
             "is_ai_generated",
             "created_at",
             "updated_at",
+            "archived_at",
+            "deleted_at",
             "last_used_at",
             "version",
             "can_edit",
@@ -680,12 +699,13 @@ class FolderSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         instance = self.instance
 
-        if instance and instance.folder_type == FolderType.ARCHIVE:
+        if instance and instance.folder_type in Folder.PROTECTED_FOLDER_TYPES:
+            folder_type = instance.get_folder_type_display().lower()
             if "name" in attrs and attrs["name"] != instance.name:
-                raise serializers.ValidationError({"name": "Cannot rename archive folder."})
+                raise serializers.ValidationError({"name": f"Cannot rename {folder_type} folder."})
 
             if "parent" in attrs:
-                raise serializers.ValidationError({"parent": "Cannot move archive folder."})
+                raise serializers.ValidationError({"parent": f"Cannot move {folder_type} folder."})
 
         return attrs
 
@@ -697,8 +717,10 @@ class FolderSerializer(serializers.ModelSerializer):
         if value.owner != user:
             raise serializers.ValidationError("You can only create folders inside your own folders.")
 
-        if value.folder_type == FolderType.ARCHIVE:
-            raise serializers.ValidationError("Cannot create subfolders in archive folder.")
+        if value.folder_type in Folder.PROTECTED_FOLDER_TYPES:
+            raise serializers.ValidationError(
+                f"Cannot create subfolders in {value.get_folder_type_display().lower()} folder."
+            )
 
         return value
 
@@ -733,8 +755,10 @@ class MoveFolderSerializer(serializers.Serializer):
             if str(value) == str(folder_to_move.id):
                 raise serializers.ValidationError("You cannot move a folder into itself.")
 
-            if target_parent.folder_type == FolderType.ARCHIVE:
-                raise serializers.ValidationError("Cannot move folders into archive folder.")
+            if target_parent.folder_type in Folder.PROTECTED_FOLDER_TYPES:
+                raise serializers.ValidationError(
+                    f"Cannot move folders into {target_parent.get_folder_type_display().lower()} folder."
+                )
 
             current = target_parent
             while current:
@@ -811,6 +835,8 @@ class LibraryItemSerializer(serializers.Serializer):
                 "owner": owner,
                 "can_edit": instance.can_edit(user),
                 "created_at": instance.created_at,
+                "archived_at": instance.archived_at,
+                "deleted_at": instance.deleted_at,
             }
 
         return super().to_representation(instance)
@@ -1050,6 +1076,8 @@ class CommentSerializer(serializers.ModelSerializer):
             # Hide the original text but keep author attribution so the
             # thread still shows who posted the (now removed) comment.
             data["content"] = ""
+            data["suggestion"] = None
+            return data
 
         try:
             suggestion = instance.suggestion

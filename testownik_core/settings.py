@@ -48,7 +48,7 @@ CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000"
 ALLOW_PREVIEW_ENVIRONMENTS = os.getenv("ALLOW_PREVIEW_ENVIRONMENTS", "False") == "True"
 
 PREVIEW_ORIGIN_REGEXES = [
-    r"^https://[\w-]+-testownik\.b\.solvro\.pl$",
+    r"^https://testownik-frontend-pr\d+\.preview\.b\.solvro\.pl$",
 ]
 
 if ALLOW_PREVIEW_ENVIRONMENTS:
@@ -156,7 +156,7 @@ if os.getenv("JWT_SECRET") is None:
 
 SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
-    "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=3),
     "ROTATE_REFRESH_TOKENS": True,
     "SIGNING_KEY": os.getenv("JWT_SECRET", SECRET_KEY),
 }
@@ -311,7 +311,7 @@ SPECTACULAR_SETTINGS = spectacular.SPECTACULAR_SETTINGS
 
 TASKS = {"default": {"BACKEND": "django.tasks.backends.immediate.ImmediateBackend"}}
 
-ARCHIVE_TTL_DAYS = 30
+TRASH_TTL_DAYS = 30
 
 UNFOLD = get_unfold_settings(FRONTEND_URL)
 

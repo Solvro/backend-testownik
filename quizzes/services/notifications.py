@@ -35,6 +35,8 @@ def get_comment_notification_recipients(comment: Comment):
     quiz = comment.quiz
     users = User.objects.filter(
         Q(id=quiz.folder.owner_id)
+        | Q(shared_folders__folder=quiz.folder, shared_folders__allow_edit=True)
+        | Q(study_groups__shared_folders__folder=quiz.folder, study_groups__shared_folders__allow_edit=True)
         | Q(shared_quizzes__quiz=quiz, shared_quizzes__allow_edit=True)
         | Q(study_groups__shared_quizzes__quiz=quiz, study_groups__shared_quizzes__allow_edit=True)
     ).distinct()

@@ -1,9 +1,10 @@
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from quizzes.models import Answer, Question, Quiz, QuizSession
+from quizzes.models import Answer, Folder, FolderType, Question, Quiz, QuizSession
 from users.models import User
 
 
@@ -61,6 +62,22 @@ class LastUsedQuizzesViewTest(TestCase):
         # Verify that can_edit is True since user is the creator
         self.assertTrue(result["can_edit"])
 
+    def test_last_used_quizzes_includes_archived_and_excludes_deleted_quizzes(self):
+        archive_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.ARCHIVE)
+        trash_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.TRASH)
+        archived_quiz = Quiz.objects.create(title="Archived", creator=self.user, folder=archive_folder, visibility=2)
+        deleted_quiz = Quiz.objects.create(title="Deleted", creator=self.user, folder=trash_folder, visibility=2)
+        Quiz.objects.filter(id=archived_quiz.id).update(archived_at="2026-01-01T00:00:00Z")
+        Quiz.objects.filter(id=deleted_quiz.id).update(deleted_at="2026-01-01T00:00:00Z")
+        QuizSession.objects.create(quiz=archived_quiz, user=self.user, is_active=True)
+        QuizSession.objects.create(quiz=deleted_quiz, user=self.user, is_active=True)
+
+        response = self.client.get(reverse("last-used-quizzes"), {"limit": 10})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = {item["id"] for item in response.data["results"]}
+        self.assertEqual(returned_ids, {str(self.quiz.id), str(archived_quiz.id)})
+
     def test_pagination(self):
         """Test that pagination works correctly"""
         # Create 5 more sessions to have total 6 items
@@ -90,3 +107,27 @@ class LastUsedQuizzesViewTest(TestCase):
         response = self.client.get(url, {"limit": 2, "offset": 2})
         self.assertEqual(len(response.data["results"]), 2)
         self.assertIsNotNone(response.data["previous"])
+
+
+class RandomQuestionViewTest(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create(
+            first_name="Random", last_name="User", email="random@example.com", student_number="654321"
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def test_random_question_excludes_deleted_quizzes(self):
+        trash_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.TRASH)
+        deleted_quiz = Quiz.objects.create(
+            title="Deleted Quiz",
+            creator=self.user,
+            folder=trash_folder,
+            deleted_at=timezone.now(),
+        )
+        Question.objects.create(quiz=deleted_quiz, order=1, text="Deleted question")
+        QuizSession.objects.create(quiz=deleted_quiz, user=self.user, is_active=True)
+
+        response = self.client.get(reverse("random-question"))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
