@@ -212,6 +212,7 @@ class UserSettings(models.Model):
 
     # ai settings
     ai_disabled = models.BooleanField(default=False)
+    default_ai_model = models.CharField(max_length=64, null=True, blank=True, default=None)
 
     # user notification preferences
     notify_quiz_shared = models.BooleanField(default=True)
@@ -236,6 +237,19 @@ class Term(models.Model):
     @extend_schema_field(serializers.BooleanField(allow_null=True))
     def is_current(self) -> bool | None:
         return self.start_date <= date.today() <= self.finish_date if self.start_date and self.finish_date else None
+
+
+class CourseClassType(models.Model):
+    id = models.CharField(max_length=32, primary_key=True)
+    name_pl = models.CharField(max_length=255, blank=True)
+    name_en = models.CharField(max_length=255, blank=True)
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return self.name_pl or self.name_en or self.id
 
 
 class StudyGroup(models.Model):

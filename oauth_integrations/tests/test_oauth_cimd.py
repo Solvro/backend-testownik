@@ -84,9 +84,17 @@ class CIMDValidationTests(SimpleTestCase):
             _validate_fetch_url("https://client.example/%2e%2e/admin/oauth-client")
 
     @override_settings(DEBUG=False)
-    def test_validate_fetch_url_rejects_query_string(self):
-        with self.assertRaisesMessage(CIMDError, "query string"):
-            _validate_fetch_url("https://client.example/.well-known/oauth-client?target=internal")
+    @patch("oauth_integrations.oauth_cimd.socket.getaddrinfo", return_value=_addrinfo("8.8.8.8"))
+    def test_validate_fetch_url_allows_query_string(self, mock_getaddrinfo):
+        fetch_url = _validate_fetch_url("https://client.example/.well-known/oauth-client?target=metadata")
+
+        self.assertEqual(fetch_url.parsed.query, "target=metadata")
+        mock_getaddrinfo.assert_called_once_with("client.example", 443, type=socket.SOCK_STREAM)
+
+    @override_settings(DEBUG=False)
+    def test_validate_fetch_url_rejects_params(self):
+        with self.assertRaisesMessage(CIMDError, "params"):
+            _validate_fetch_url("https://client.example/.well-known/oauth-client;v=1")
 
     @override_settings(DEBUG=False)
     def test_validate_fetch_url_rejects_invalid_port(self):

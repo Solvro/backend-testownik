@@ -2,7 +2,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quizzes.models import Answer, Question, Quiz, SharedQuiz, StudyGroup
+from quizzes.models import Answer, FolderType, Question, Quiz, SharedQuiz, StudyGroup
 from users.models import User
 
 
@@ -78,6 +78,42 @@ class QuestionCRUDTestCase(APITestCase):
 
         new_q = Question.objects.get(text="Question with no answers")
         self.assertEqual(new_q.answers.count(), 0)
+
+    def test_cannot_create_question_in_deleted_quiz(self):
+        trash_folder = self.user.folders.get(folder_type=FolderType.TRASH)
+        deleted_quiz = Quiz.objects.create(title="Deleted quiz", creator=self.user, folder=trash_folder)
+
+        data = {
+            "quiz": deleted_quiz.id,
+            "order": 1,
+            "text": "Should not be created",
+            "multiple": False,
+            "answers": [],
+        }
+        response = self.client.post(self.list_url, data, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Question.objects.filter(quiz=deleted_quiz).exists())
+
+    def test_cannot_bulk_create_questions_in_deleted_quiz(self):
+        trash_folder = self.user.folders.get(folder_type=FolderType.TRASH)
+        deleted_quiz = Quiz.objects.create(title="Deleted quiz", creator=self.user, folder=trash_folder)
+
+        data = {
+            "quiz": deleted_quiz.id,
+            "questions": [
+                {
+                    "order": 1,
+                    "text": "Should not be created",
+                    "multiple": False,
+                    "answers": [],
+                }
+            ],
+        }
+        response = self.client.post(reverse("question-bulk-create"), data, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Question.objects.filter(quiz=deleted_quiz).exists())
 
     def test_smart_update_answers(self):
         data = {
