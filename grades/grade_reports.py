@@ -1,12 +1,14 @@
-from typing import NotRequired, TypedDict
+from datetime import date, datetime
+from typing import TypedDict
 
-from usos_api.services.exam_reports import (
+from usos_api.models import (
     ExamReport,
     ExamReportCourseUnit,
     ExamReportGradeDistributionItem,
     ExamReportIssuerGrade,
     ExamReportSession,
-    LangDictData,
+    LangDict,
+    User,
     UserExamReportsByTerm,
 )
 
@@ -18,7 +20,7 @@ GRADE_REPORT_FIELDS = [
     "counts_into_average",
     "grades_distribution",
     "id",
-    "sessions[issuer_grades[comment|counts_into_average|date_acquisition|date_modified|modification_author|passes|value_symbol]|number]",
+    "sessions[issuer_grades[comment|counts_into_average|date_modified|modification_author|passes|value_symbol]|number]",
     "term_id",
     "type_description",
     "type_id",
@@ -29,6 +31,30 @@ class SerializedClassType(TypedDict):
     id: str
     name_pl: str | None
     name_en: str | None
+
+
+class SerializedModificationAuthor(TypedDict, total=False):
+    id: str | int | None
+    first_name: str | None
+    last_name: str | None
+
+
+class SerializedLangDict(TypedDict, total=False):
+    pl: str | None
+    en: str | None
+
+
+class SerializedCourseUnit(TypedDict):
+    id: str | None
+    course_id: str | None
+    course_name: SerializedLangDict | None
+    classtype_id: str | None
+    term_id: str | None
+
+
+class SerializedGradeDistributionItem(TypedDict):
+    grade_symbol: str | None
+    percentage: float | None
 
 
 class SerializedGrade(TypedDict):
@@ -51,8 +77,7 @@ class SerializedGrade(TypedDict):
     class_type: SerializedClassType | None
     comment: str | None
     date_modified: str | None
-    date_acquisition: str | None
-    modification_author: str | int | None
+    modification_author: SerializedModificationAuthor | None
 
 
 class SerializedReport(TypedDict):
@@ -62,8 +87,8 @@ class SerializedReport(TypedDict):
     scope: str
     class_type_id: str | None
     class_type: SerializedClassType | None
-    course_unit: ExamReportCourseUnit | None
-    grades_distribution: list[ExamReportGradeDistributionItem]
+    course_unit: SerializedCourseUnit | None
+    grades_distribution: list[SerializedGradeDistributionItem]
     grades: list[SerializedGrade]
 
 
@@ -74,6 +99,7 @@ class SerializedCourse(TypedDict):
     ects: float
     weighted_average: float | None
     passing_status: str
+    class_types: list[SerializedClassType]
     reports: list[SerializedReport]
 
 
@@ -88,16 +114,31 @@ class SerializedCoursesResult(TypedDict):
     grades_by_term: dict[str, list[SerializedGrade]]
 
 
-class WeightedGrade(TypedDict):
-    counts_into_average: bool
-    value: NotRequired[float | None]
-    ects: float | None
+COURSE_GROUP_CLASS_TYPE: SerializedClassType = {
+    "id": "G",
+    "name_pl": "Grupa kursów",
+    "name_en": "Course group",
+}
 
 
-def lang_text(value: LangDictData | None, lang: str = "pl") -> str | None:
+def lang_text(value: LangDict | dict[str, str | None] | str | None, lang: str = "pl") -> str | None:
     if value is None:
         return None
-    return value.get(lang) or value.get("en") or value.get("pl")
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return value.get(lang) or value.get("en") or value.get("pl")
+    return getattr(value, lang, None) or value.en or value.pl
+
+
+def lang_payload(value: LangDict | dict[str, str | None] | None) -> SerializedLangDict | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        payload: SerializedLangDict = {"pl": value.get("pl"), "en": value.get("en")}
+        return payload
+    payload: SerializedLangDict = {"pl": value.pl, "en": value.en}
+    return payload
 
 
 def serialize_class_type(
@@ -107,11 +148,28 @@ def serialize_class_type(
     if not class_type_id:
         return None
     class_type = class_types_by_id.get(class_type_id)
-    return {
+    payload: SerializedClassType = {
         "id": class_type_id,
         "name_pl": class_type.name_pl if class_type else None,
         "name_en": class_type.name_en if class_type else None,
     }
+    return payload
+
+
+def course_class_type_from_suffix(
+    course_id: str,
+    class_types_by_id: dict[str, CourseClassType],
+) -> SerializedClassType | None:
+    if not course_id:
+        return None
+
+    suffix = course_id[-1].upper()
+    if suffix == COURSE_GROUP_CLASS_TYPE["id"]:
+        return COURSE_GROUP_CLASS_TYPE
+    if suffix not in class_types_by_id:
+        return None
+
+    return serialize_class_type(suffix, class_types_by_id)
 
 
 def numeric_grade(value_symbol: str | None) -> float | None:
@@ -123,22 +181,70 @@ def numeric_grade(value_symbol: str | None) -> float | None:
         return None
 
 
+def date_text(value: date | datetime | str | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ", timespec="seconds")
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+def serialize_user(value: User | None) -> SerializedModificationAuthor | None:
+    if value is None:
+        return None
+
+    payload: SerializedModificationAuthor = {
+        "id": value.id,
+        "first_name": value.first_name,
+        "last_name": value.last_name,
+    }
+    return payload
+
+
+def serialize_course_unit(course_unit: ExamReportCourseUnit | None) -> SerializedCourseUnit | None:
+    if course_unit is None:
+        return None
+
+    payload: SerializedCourseUnit = {
+        "id": course_unit.id,
+        "course_id": course_unit.course_id,
+        "course_name": lang_payload(course_unit.course_name),
+        "classtype_id": course_unit.classtype_id,
+        "term_id": course_unit.term_id,
+    }
+    return payload
+
+
+def serialize_distribution_item(
+    item: ExamReportGradeDistributionItem,
+) -> SerializedGradeDistributionItem:
+    return {
+        "grade_symbol": item.grade_symbol,
+        "percentage": item.percentage,
+    }
+
+
 def issuer_grades(session: ExamReportSession) -> list[ExamReportIssuerGrade]:
-    grade = session.get("issuer_grades")
-    if grade is None:
-        return []
-    if isinstance(grade, list):
-        return grade
-    return [grade]
+    return session.issuer_grades or []
+
+
+def counts_into_average(report: ExamReport, grade: ExamReportIssuerGrade) -> bool:
+    if grade.counts_into_average is not None:
+        return bool(grade.counts_into_average)
+    if report.counts_into_average is not None:
+        return bool(report.counts_into_average)
+    return True
 
 
 def course_name_from_reports(reports: list[ExamReport]) -> str | None:
     for report in reports:
-        course_name = lang_text(report.get("course", {}).get("name"))
+        course_name = lang_text(report.course.name if report.course is not None else None)
         if course_name:
             return course_name
 
-        course_unit_name = lang_text((report.get("course_unit") or {}).get("course_name"))
+        course_unit_name = lang_text(report.course_unit.course_name if report.course_unit is not None else None)
         if course_unit_name:
             return course_unit_name
 
@@ -166,8 +272,8 @@ def serialize_grade(
     class_type_id: str | None,
     class_types_by_id: dict[str, CourseClassType],
 ) -> SerializedGrade:
-    course_unit = report.get("course_unit")
-    value_symbol = grade.get("value_symbol")
+    course_unit = report.course_unit
+    value_symbol = grade.value_symbol
     scope = "course_unit" if course_unit else "course"
 
     return {
@@ -177,21 +283,20 @@ def serialize_grade(
         "ects": ects,
         "value": numeric_grade(value_symbol),
         "value_symbol": value_symbol,
-        "value_description": value_symbol,
-        "counts_into_average": grade.get("counts_into_average", report.get("counts_into_average", True)),
-        "passes": grade.get("passes", False),
-        "exam_id": report.get("id"),
-        "exam_session_number": session.get("number"),
-        "report_type_id": report.get("type_id"),
-        "report_type_description": lang_text(report.get("type_description")),
+        "value_description": lang_text(grade.value_description) or value_symbol,
+        "counts_into_average": counts_into_average(report, grade),
+        "passes": grade.passes or False,
+        "exam_id": report.id,
+        "exam_session_number": session.number,
+        "report_type_id": report.type_id,
+        "report_type_description": lang_text(report.type_description),
         "scope": scope,
-        "course_unit_id": course_unit.get("id") if course_unit else None,
+        "course_unit_id": course_unit.id if course_unit else None,
         "class_type_id": class_type_id,
         "class_type": serialize_class_type(class_type_id, class_types_by_id),
-        "comment": grade.get("comment"),
-        "date_modified": grade.get("date_modified"),
-        "date_acquisition": grade.get("date_acquisition"),
-        "modification_author": grade.get("modification_author"),
+        "comment": grade.comment,
+        "date_modified": date_text(grade.date_modified),
+        "modification_author": serialize_user(grade.modification_author),
     }
 
 
@@ -217,12 +322,12 @@ def serialize_report_grades(
             class_type_id=class_type_id,
             class_types_by_id=class_types_by_id,
         )
-        for session in report.get("sessions", [])
+        for session in (report.sessions or [])
         for grade in issuer_grades(session)
     ]
 
 
-def weighted_totals(grades: list[WeightedGrade]) -> tuple[float | None, float, float]:
+def weighted_totals(grades: list[SerializedGrade]) -> tuple[float | None, float, float]:
     numeric_weighted_grades = [
         grade
         for grade in grades
@@ -252,9 +357,9 @@ def serialize_course(
     final_grades: list[SerializedGrade] = []
 
     for report in reports:
-        course_unit = report.get("course_unit")
+        course_unit = report.course_unit
         scope = "course_unit" if course_unit else "course"
-        class_type_id = course_unit.get("classtype_id") if course_unit else None
+        class_type_id = course_unit.classtype_id if course_unit else None
         grades = serialize_report_grades(
             term_id=term_id,
             course_id=course_id,
@@ -267,21 +372,22 @@ def serialize_course(
         if scope == "course":
             final_grades.extend(grades)
 
-        report_payloads.append(
-            {
-                "id": report.get("id"),
-                "type_id": report.get("type_id"),
-                "type_description": lang_text(report.get("type_description")),
-                "scope": scope,
-                "class_type_id": class_type_id,
-                "class_type": serialize_class_type(class_type_id, class_types_by_id),
-                "course_unit": course_unit,
-                "grades_distribution": report.get("grades_distribution", []),
-                "grades": grades,
-            }
-        )
+        report_payload: SerializedReport = {
+            "id": report.id,
+            "type_id": report.type_id,
+            "type_description": lang_text(report.type_description),
+            "scope": scope,
+            "class_type_id": class_type_id,
+            "class_type": serialize_class_type(class_type_id, class_types_by_id),
+            "course_unit": serialize_course_unit(course_unit),
+            "grades_distribution": [serialize_distribution_item(item) for item in (report.grades_distribution or [])],
+            "grades": grades,
+        }
+        report_payloads.append(report_payload)
 
     weighted_average, _, _ = weighted_totals(final_grades)
+    course_class_type = course_class_type_from_suffix(course_id, class_types_by_id)
+    class_types: list[SerializedClassType] = [] if course_class_type is None else [course_class_type]
     course_payload: SerializedCourse = {
         "course_id": course_id,
         "course_name": course_name,
@@ -289,6 +395,7 @@ def serialize_course(
         "ects": ects or 0,
         "weighted_average": weighted_average,
         "passing_status": passing_status(final_grades),
+        "class_types": class_types,
         "reports": report_payloads,
     }
     return course_payload, final_grades
