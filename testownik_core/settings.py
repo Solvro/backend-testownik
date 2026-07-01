@@ -91,6 +91,7 @@ INSTALLED_APPS = [
     "testownik_core.apps.TestownikCoreConfig",
     "oauth_integrations.apps.OAuthIntegrationsConfig",
     "uploads.apps.UploadsConfig",
+    "blog.apps.BlogConfig",
     "constance",
     "constance.backends.database",
     "rest_framework",
