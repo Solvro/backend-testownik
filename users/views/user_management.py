@@ -11,7 +11,7 @@ from rest_framework.views import APIView
 from quizzes.models import QuizSession, SharedQuiz
 from quizzes.permissions import IsInternalApiRequest
 from users.auth_cookies import set_jwt_cookies
-from users.models import StudyGroup, User, UserSettings
+from users.models import AccountType, StudyGroup, User, UserSettings
 from users.serializers import (
     PublicUserSerializer,
     StudyGroupSerializer,
@@ -129,6 +129,9 @@ class CurrentUserView(GenericAPIView):
     def patch(self, request):
         allowed_fields_patch = {"overriden_photo_url", "hide_profile"}
         data = request.data
+
+        if request.user.account_type == AccountType.EMAIL:
+            allowed_fields_patch |= {"first_name", "last_name", "sex"}
 
         disallowed = set(data) - allowed_fields_patch
         if disallowed:
