@@ -87,6 +87,11 @@ def get_unfold_settings(frontend_url):
                             "icon": "key",
                             "link": reverse_lazy("admin:users_emaillogintoken_changelist"),
                         },
+                        {
+                            "title": "Wrapped Reports",
+                            "icon": "featured_seasonal_and_gifts",
+                            "link": reverse_lazy("admin:wrapped_wrappedreport_changelist"),
+                        },
                     ],
                 },
                 {

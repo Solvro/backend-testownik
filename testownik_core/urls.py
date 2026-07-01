@@ -87,6 +87,7 @@ base_urlpatterns = [
     path("", include("users.urls")),
     path("", include("quizzes.urls")),
     path("", include("grades.urls")),
+    path("", include("wrapped.urls")),
     path("", include("feedback.urls")),
     path("", include("uploads.urls")),
     # OAuth 2.0
