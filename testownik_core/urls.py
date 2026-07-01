@@ -99,6 +99,7 @@ base_urlpatterns = [
         AuthorizedAppsViewSet.as_view({"delete": "destroy"}),
         name="authorized_app_detail",
     ),
+    path("", include("notifications.urls")),
 ]
 
 urlpatterns = [

@@ -31,6 +31,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from notifications.models import NotificationType
+from notifications.utils import send_notification
 from quizzes.models import (
     Answer,
     Comment,
@@ -101,7 +103,6 @@ from quizzes.services.stats import (
 )
 from quizzes.throttling import CopyQuizThrottle, QuizStatsThrottle
 from quizzes.utils import parse_include_values, parse_positive_int_query_param
-from testownik_core.emails import send_email
 from users.models import AccountType
 
 logger = logging.getLogger(__name__)
@@ -1036,15 +1037,15 @@ class ReportQuestionIssueView(APIView):
             f"{escape(data.get('issue'))}"
         )
 
-        recipient_list = [quiz.creator.email]
         reply_to = [request.user.email]
 
         try:
-            send_email(
-                subject=subject,
-                recipient_list=recipient_list,
+            send_notification(
+                user=quiz.creator,
                 title="Zgłoszenie błędu w pytaniu",
                 content=content,
+                notification_type=NotificationType.EMAIL,
+                subject=subject,
                 cta_url=cta_url,
                 cta_text="Przejdź do edycji",
                 reply_to=reply_to,
