@@ -86,6 +86,7 @@ INSTALLED_APPS = [
     "users.apps.UsersConfig",
     "grades.apps.GradesConfig",
     "quizzes.apps.QuizzesConfig",
+    "wrapped.apps.WrappedConfig",
     "maintenance.apps.MaintenanceConfig",
     "testownik_core.apps.TestownikCoreConfig",
     "oauth_integrations.apps.OAuthIntegrationsConfig",
@@ -116,10 +117,15 @@ CONSTANCE_ADDITIONAL_FIELDS = {
 
 CONSTANCE_CONFIG = {
     "MAINTENANCE_MODE": (False, "Is the site in maintenance mode?"),
+    "WRAPPED_ENABLED": (
+        False,
+        "Is Testownik Wrapped live? When off, the endpoint returns nothing even if reports exist.",
+    ),
 }
 
 CONSTANCE_CONFIG_FIELDSETS = {
     "Maintenance Mode": ("MAINTENANCE_MODE",),
+    "Wrapped": ("WRAPPED_ENABLED",),
 }
 
 MIDDLEWARE = [
