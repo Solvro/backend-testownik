@@ -20,6 +20,7 @@ class FolderType(models.TextChoices):
     ARCHIVE = "archive", "Archive"
     REGULAR = "regular", "Regular"
     SHARED_DRIVE = "shared_drive", "Shared Drive"
+    TRASH = "trash", "Trash"
 
 
 class SharedDriveRole(models.TextChoices):
@@ -45,6 +46,8 @@ class SharedDriveRole(models.TextChoices):
 class Folder(models.Model):
     DEFAULT_ROOT_NAME = "Moje quizy"
     DEFAULT_ARCHIVE_NAME = "Archiwum"
+    DEFAULT_TRASH_NAME = "Kosz"
+    PROTECTED_FOLDER_TYPES = {FolderType.ARCHIVE, FolderType.TRASH}
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=128)
@@ -78,7 +81,12 @@ class Folder(models.Model):
                 fields=["owner", "folder_type"],
                 condition=Q(folder_type=FolderType.ARCHIVE),
                 name="unique_archive_per_user",
-            )
+            ),
+            UniqueConstraint(
+                fields=["owner", "folder_type"],
+                condition=Q(folder_type=FolderType.TRASH),
+                name="unique_trash_per_user",
+            ),
         ]
 
     def __str__(self):
@@ -97,9 +105,9 @@ class Folder(models.Model):
                 "Cannot delete root folder.",
                 set([self]),
             )
-        if self.folder_type == FolderType.ARCHIVE:
+        if self.folder_type in self.PROTECTED_FOLDER_TYPES:
             raise ProtectedError(
-                "Cannot delete archive folder.",
+                f"Cannot delete {self.get_folder_type_display().lower()} folder.",
                 set([self]),
             )
         super().delete(*args, **kwargs)
@@ -223,9 +231,14 @@ class Quiz(models.Model):
         help_text="Nie będzie wyświetlany autor testu, cały czas będzie można zgłosić błąd w pytaniu",
     )
     version = models.PositiveIntegerField(default=1)
+    is_ai_generated = models.BooleanField(
+        default=False,
+        help_text="Cała baza została wygenerowana przez AI (np. przez asystenta MCP)",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     archived_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
     folder = models.ForeignKey(Folder, on_delete=models.PROTECT, related_name="quizzes")
 
     class Meta:
@@ -363,7 +376,7 @@ class QuizSession(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="sessions")
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="quiz_sessions")
-    started_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     ended_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
@@ -408,7 +421,7 @@ class AnswerRecord(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     session = models.ForeignKey(QuizSession, on_delete=models.CASCADE, related_name="answers")
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="answer_records")
-    answered_at = models.DateTimeField(auto_now_add=True)
+    answered_at = models.DateTimeField(auto_now_add=True, db_index=True)
     selected_answers = models.JSONField(
         default=list
     )  # List of Answer UUIDs for Closed questions, free-form text for OPEN, booelan values for TRUE_FALSE

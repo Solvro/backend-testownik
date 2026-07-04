@@ -1,0 +1,9 @@
+{
+	"servers": {
+		"testownik_local": {
+			"url": "http://localhost:8000/api/mcp",
+			"type": "http"
+		}
+	},
+	"inputs": []
+}

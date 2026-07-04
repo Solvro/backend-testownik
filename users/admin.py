@@ -1,8 +1,35 @@
+import contextlib
+
 from django.contrib import admin
+from django.contrib.admin.sites import NotRegistered
 from django.contrib.auth.models import Group
+from oauth2_provider.admin import AccessTokenAdmin as BaseAccessTokenAdmin
+from oauth2_provider.admin import ApplicationAdmin as BaseApplicationAdmin
+from oauth2_provider.admin import GrantAdmin as BaseGrantAdmin
+from oauth2_provider.admin import IDTokenAdmin as BaseIDTokenAdmin
+from oauth2_provider.admin import RefreshTokenAdmin as BaseRefreshTokenAdmin
+from oauth2_provider.models import (
+    get_access_token_model,
+    get_application_model,
+    get_grant_model,
+    get_id_token_model,
+    get_refresh_token_model,
+)
+from rest_framework_simplejwt.token_blacklist.admin import (
+    BlacklistedTokenAdmin as BaseBlacklistedTokenAdmin,
+)
+from rest_framework_simplejwt.token_blacklist.admin import (
+    OutstandingTokenAdmin as BaseOutstandingTokenAdmin,
+)
+from rest_framework_simplejwt.token_blacklist.models import (
+    BlacklistedToken,
+    OutstandingToken,
+)
 from unfold.admin import ModelAdmin, StackedInline
 
-from .models import EmailLoginToken, StudyGroup, Term, User, UserSettings
+from oauth_integrations.models import OAuthApplicationMetadata
+
+from .models import CourseClassType, EmailLoginToken, StudyGroup, Term, User, UserSettings
 
 
 class UserSettingsInline(StackedInline):
@@ -116,6 +143,13 @@ class TermAdmin(ModelAdmin):
     date_hierarchy = "start_date"
 
 
+@admin.register(CourseClassType)
+class CourseClassTypeAdmin(ModelAdmin):
+    list_display = ["id", "name_pl", "name_en", "synced_at"]
+    search_fields = ["id", "name_pl", "name_en"]
+    readonly_fields = ["synced_at"]
+
+
 @admin.register(EmailLoginToken)
 class EmailLoginTokenAdmin(ModelAdmin):
     list_display = ["user", "created_at", "expires_at", "retry_count"]
@@ -134,3 +168,64 @@ class EmailLoginTokenAdmin(ModelAdmin):
 
 
 admin.site.unregister(Group)
+
+
+# Re-register django-oauth-toolkit models with Unfold's ModelAdmin styling.
+Application = get_application_model()
+AccessToken = get_access_token_model()
+Grant = get_grant_model()
+RefreshToken = get_refresh_token_model()
+IDToken = get_id_token_model()
+
+
+for model in (Application, AccessToken, Grant, RefreshToken, IDToken):
+    with contextlib.suppress(NotRegistered):
+        admin.site.unregister(model)
+
+
+@admin.register(Application)
+class ApplicationAdmin(BaseApplicationAdmin, ModelAdmin):
+    class OAuthApplicationMetadataInline(StackedInline):
+        model = OAuthApplicationMetadata
+        can_delete = True
+        extra = 0
+        max_num = 1
+        verbose_name_plural = "Testownik metadata"
+
+    inlines = [OAuthApplicationMetadataInline]
+
+
+@admin.register(AccessToken)
+class AccessTokenAdmin(BaseAccessTokenAdmin, ModelAdmin):
+    pass
+
+
+@admin.register(Grant)
+class GrantAdmin(BaseGrantAdmin, ModelAdmin):
+    pass
+
+
+@admin.register(RefreshToken)
+class RefreshTokenAdmin(BaseRefreshTokenAdmin, ModelAdmin):
+    pass
+
+
+@admin.register(IDToken)
+class IDTokenAdmin(BaseIDTokenAdmin, ModelAdmin):
+    pass
+
+
+# Re-register Simple JWT token blacklist models with Unfold's ModelAdmin styling.
+for model in (OutstandingToken, BlacklistedToken):
+    with contextlib.suppress(NotRegistered):
+        admin.site.unregister(model)
+
+
+@admin.register(OutstandingToken)
+class OutstandingTokenAdmin(BaseOutstandingTokenAdmin, ModelAdmin):
+    pass
+
+
+@admin.register(BlacklistedToken)
+class BlacklistedTokenAdmin(BaseBlacklistedTokenAdmin, ModelAdmin):
+    autocomplete_fields = ["token"]

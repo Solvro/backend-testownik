@@ -56,13 +56,13 @@ class IsSafeRedirectUrlTestCase(TestCase):
     @patch("users.views.utils.ALLOW_PREVIEW_ENVIRONMENTS", True)
     @patch(
         "users.views.utils.PREVIEW_ORIGIN_REGEXES",
-        [r"^https://[\w-]+-testownik\.b\.solvro\.pl$"],
+        [r"^https://testownik-frontend-pr\d+\.preview\.b\.solvro\.pl$"],
     )
     @patch("users.views.utils.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000"])
     def test_preview_environment_regex_is_safe(self):
         """Preview environment URLs matching regex should be allowed when enabled."""
-        self.assertTrue(is_safe_redirect_url("https://pr-123-testownik.b.solvro.pl/callback"))
-        self.assertTrue(is_safe_redirect_url("https://feature-branch-testownik.b.solvro.pl"))
+        self.assertTrue(is_safe_redirect_url("https://testownik-frontend-pr123.preview.b.solvro.pl/callback"))
+        self.assertTrue(is_safe_redirect_url("https://testownik-frontend-pr456.preview.b.solvro.pl"))
 
     # --- INVALID CASES: Protocol-relative URLs ---
 
@@ -147,12 +147,12 @@ class IsSafeRedirectUrlTestCase(TestCase):
     @patch("users.views.utils.ALLOW_PREVIEW_ENVIRONMENTS", False)
     @patch(
         "users.views.utils.PREVIEW_ORIGIN_REGEXES",
-        [r"^https://[\w-]+-testownik\.b\.solvro\.pl$"],
+        [r"^https://testownik-frontend-pr\d+\.preview\.b\.solvro\.pl$"],
     )
     @patch("users.views.utils.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000"])
     def test_preview_url_blocked_when_disabled(self):
         """Preview environment URLs should be blocked when feature is disabled."""
-        self.assertFalse(is_safe_redirect_url("https://pr-123-testownik.b.solvro.pl/callback"))
+        self.assertFalse(is_safe_redirect_url("https://testownik-frontend-pr123.preview.b.solvro.pl/callback"))
 
     # --- Scheme handling ---
 

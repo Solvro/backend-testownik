@@ -15,6 +15,9 @@ def initialize_user_folders(sender, instance, created, **kwargs):
             Folder.objects.create(
                 name=Folder.DEFAULT_ARCHIVE_NAME, owner=instance, parent=folder, folder_type=FolderType.ARCHIVE
             )
+            Folder.objects.create(
+                name=Folder.DEFAULT_TRASH_NAME, owner=instance, parent=folder, folder_type=FolderType.TRASH
+            )
 
 
 def register_signals():
