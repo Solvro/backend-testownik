@@ -728,6 +728,7 @@ class MoveFolderSerializer(serializers.Serializer):
     def validate_parent_id(self, value):
         user = self.context["request"].user
         folder_to_move = self.context["view"].get_object()
+        target_parent = None
 
         if folder_to_move.is_root:
             raise serializers.ValidationError("The root folder cannot be moved.")
@@ -767,6 +768,11 @@ class MoveFolderSerializer(serializers.Serializer):
                 if current.id == folder_to_move.id:
                     raise serializers.ValidationError("You cannot move a folder into its own subfolder.")
                 current = current.parent
+
+        source_drive = folder_to_move.get_shared_drive_root()
+        destination_drive = target_parent.get_shared_drive_root() if target_parent else None
+        if source_drive != destination_drive:
+            raise serializers.ValidationError("Folders cannot be moved into or out of a shared drive.")
 
         return value
 
@@ -882,6 +888,22 @@ class MoveQuizSerializer(serializers.Serializer):
             return value
 
         raise serializers.ValidationError("The folder does not exist or you do not have access to it.")
+
+    def validate(self, attrs):
+        quiz = self.context.get("quiz")
+        if quiz is None:
+            return attrs
+
+        destination = Folder.objects.get(id=attrs["folder_id"])
+        source_drive = quiz.folder.get_shared_drive_root()
+        destination_drive = destination.get_shared_drive_root()
+
+        if source_drive is not None and source_drive != destination_drive:
+            raise serializers.ValidationError(
+                {"folder_id": "Quizzes in a shared drive can only be moved within the same shared drive."}
+            )
+
+        return attrs
 
 
 class LibraryItemSerializer(serializers.Serializer):

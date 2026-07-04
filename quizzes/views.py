@@ -538,7 +538,10 @@ class QuizViewSet(viewsets.ModelViewSet):
     def move(self, request, pk=None):
         quiz = self.get_object()
 
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(
+            data=request.data,
+            context={**self.get_serializer_context(), "quiz": quiz},
+        )
         if serializer.is_valid():
             new_folder_id = serializer.validated_data["folder_id"]
             destination = Folder.objects.get(pk=new_folder_id)

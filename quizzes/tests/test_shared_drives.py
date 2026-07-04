@@ -409,6 +409,14 @@ class SharedDriveQuizTests(APITestCase):
         self.quiz.refresh_from_db()
         self.assertEqual(self.quiz.folder, subfolder)
 
+    def test_contributor_cannot_move_drive_quiz_to_personal_folder(self):
+        self.client.force_authenticate(self.contributor)
+        url = reverse("quiz-move", kwargs={"pk": self.quiz.id})
+        response = self.client.post(url, {"folder_id": None}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.quiz.refresh_from_db()
+        self.assertEqual(self.quiz.folder, self.drive)
+
     def test_viewer_cannot_move_quiz(self):
         subfolder = Folder.objects.create(name="Sub", parent=self.drive, owner=None, shared_drive=self.drive)
         self.client.force_authenticate(self.viewer)
@@ -506,7 +514,7 @@ class SharedDriveFkPropagationTests(APITestCase):
         self.drive = make_drive()
         add_member(self.drive, self.admin, SharedDriveRole.ADMIN)
 
-    def test_moving_folder_out_of_drive_clears_shared_drive(self):
+    def test_personal_folder_cannot_be_moved_into_drive(self):
         owner = make_user("owner@test.com")
         personal_folder = Folder.objects.create(name="OutTest", parent=owner.root_folder, owner=owner)
         add_member(self.drive, owner, SharedDriveRole.CONTRIBUTOR)
@@ -514,16 +522,29 @@ class SharedDriveFkPropagationTests(APITestCase):
         self.client.force_authenticate(owner)
         move_url = reverse("folder-move", kwargs={"pk": personal_folder.id})
 
-        r = self.client.post(move_url, {"parent_id": str(self.drive.id)}, format="json")
-        if r.status_code != status.HTTP_200_OK:
-            self.skipTest("Moving personal folder into drive not supported in this configuration")
+        response = self.client.post(move_url, {"parent_id": str(self.drive.id)}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         personal_folder.refresh_from_db()
-        self.assertEqual(personal_folder.shared_drive, self.drive)
-
-        r = self.client.post(move_url, {"parent_id": str(owner.root_folder.id)}, format="json")
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
-        personal_folder.refresh_from_db()
+        self.assertEqual(personal_folder.parent, owner.root_folder)
         self.assertIsNone(personal_folder.shared_drive)
+
+    def test_owner_owned_folder_cannot_be_moved_out_of_drive(self):
+        owner = make_user("owner@test.com")
+        add_member(self.drive, owner, SharedDriveRole.CONTRIBUTOR)
+        personal_folder = Folder.objects.create(
+            name="InDrive",
+            parent=self.drive,
+            owner=owner,
+            shared_drive=self.drive,
+        )
+
+        self.client.force_authenticate(owner)
+        move_url = reverse("folder-move", kwargs={"pk": personal_folder.id})
+        response = self.client.post(move_url, {"parent_id": str(owner.root_folder.id)}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        personal_folder.refresh_from_db()
+        self.assertEqual(personal_folder.parent, self.drive)
+        self.assertEqual(personal_folder.shared_drive, self.drive)
 
     def test_subfolder_created_via_api_has_shared_drive_set(self):
         self.client.force_authenticate(self.admin)
