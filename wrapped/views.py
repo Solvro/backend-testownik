@@ -1,7 +1,7 @@
 from constance import config as constance_config
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -44,10 +44,10 @@ def get_wrapped(request: Request) -> Response:
 
 @extend_schema(
     summary="Get global Testownik Wrapped",
-    description="Platform-wide Wrapped for the latest term (all users, guests included).",
+    description="Public platform-wide Wrapped for the latest term (all users, guests included).",
 )
 @api_view(["GET"])
-@permission_classes([IsAdminUser])
+@permission_classes([AllowAny])
 def get_wrapped_global(request: Request) -> Response:
     if not constance_config.WRAPPED_ENABLED:
         return Response({"detail": "Wrapped is not available."}, status=404)

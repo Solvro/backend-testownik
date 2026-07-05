@@ -116,7 +116,7 @@ def compute_ranking(start: datetime, end: datetime) -> dict[Any, dict[str, Any]]
 
 def _first_attempt_accuracy(answers: QuerySet) -> int:
     first_sub = (
-        AnswerRecord.objects.filter(session=OuterRef("session"), question=OuterRef("question"))
+        answers.filter(session__user_id=OuterRef("session__user_id"), question_id=OuterRef("question_id"))
         .order_by("answered_at", "id")
         .values("id")[:1]
     )

@@ -73,15 +73,19 @@ def get_quiz_stats(quiz, user=None, *, include_per_question: bool = False) -> di
 
     accuracy = round(correct_answers / total_answers * 100, 2) if total_answers > 0 else 0.0
 
-    # Aggregate first answers for accuracy. The `id` tiebreaker keeps the
+    # Aggregate first answers per user/question. The `id` tiebreaker keeps the
     # picked row deterministic when two answers share `answered_at`.
-    first_answers = AnswerRecord.objects.filter(
+    scoped_answers = AnswerRecord.objects.filter(session__in=sessions)
+    first_answers = scoped_answers.filter(
         id=Subquery(
-            AnswerRecord.objects.filter(session_id=OuterRef("session_id"), question_id=OuterRef("question_id"))
+            scoped_answers.filter(
+                session__user_id=OuterRef("session__user_id"),
+                question_id=OuterRef("question_id"),
+            )
             .order_by("answered_at", "id")
             .values("id")[:1]
         )
-    ).filter(session__in=sessions)
+    )
 
     first_aggregates = first_answers.aggregate(total=Count("id"), correct=Count("id", filter=Q(was_correct=True)))
     first_total = first_aggregates["total"] or 0
