@@ -918,7 +918,7 @@ class QuizStatsPerQuestionOrderingTestCase(APITestCase):
 
 
 class QuizStatsFirstAnswerAccuracyTestCase(APITestCase):
-    """First-answer accuracy looks at the earliest answer per (session, question)."""
+    """First-answer accuracy looks at the earliest answer per (user, question)."""
 
     def setUp(self):
         self.user = _make_user("first-answer@example.com")
@@ -947,5 +947,29 @@ class QuizStatsFirstAnswerAccuracyTestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # accuracy counts both: 1/2 = 50%; first_answer_accuracy looks at the first attempt only: 0%.
+        self.assertEqual(response.data["accuracy"], 50.0)
+        self.assertEqual(response.data["first_answer_accuracy"], 0.0)
+
+    def test_first_answer_accuracy_is_unique_per_user_question_across_sessions(self):
+        first_session = QuizSession.objects.create(quiz=self.quiz, user=self.user, is_active=False)
+        second_session = QuizSession.objects.create(quiz=self.quiz, user=self.user, is_active=True)
+
+        now = timezone.now()
+        wrong_first = AnswerRecord.objects.create(
+            session=first_session, question=self.q1, selected_answers=[], was_correct=False
+        )
+        AnswerRecord.objects.filter(id=wrong_first.id).update(answered_at=now - timedelta(minutes=10))
+
+        right_later = AnswerRecord.objects.create(
+            session=second_session, question=self.q1, selected_answers=[], was_correct=True
+        )
+        AnswerRecord.objects.filter(id=right_later.id).update(answered_at=now)
+
+        url = reverse("quiz-stats", kwargs={"pk": self.quiz.id})
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Regular accuracy counts both answers, but first-answer accuracy counts
+        # only the user's earliest answer for this question.
         self.assertEqual(response.data["accuracy"], 50.0)
         self.assertEqual(response.data["first_answer_accuracy"], 0.0)

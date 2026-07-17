@@ -239,6 +239,19 @@ class Term(models.Model):
         return self.start_date <= date.today() <= self.finish_date if self.start_date and self.finish_date else None
 
 
+class CourseClassType(models.Model):
+    id = models.CharField(max_length=32, primary_key=True)
+    name_pl = models.CharField(max_length=255, blank=True)
+    name_en = models.CharField(max_length=255, blank=True)
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return self.name_pl or self.name_en or self.id
+
+
 class StudyGroup(models.Model):
     id = models.CharField(max_length=100, primary_key=True)
     name = models.CharField(max_length=255)

@@ -5,6 +5,7 @@ from django.urls import reverse
 from oauth2_provider.models import AbstractApplication, get_application_model
 from rest_framework.test import APITestCase
 
+from oauth_integrations.models import OAuthApplicationMetadata
 from oauth_integrations.oauth_cimd import CIMDError
 from users.models import User
 
@@ -57,6 +58,18 @@ class OAuthAuthorizationAPITests(APITestCase):
             [scope["value"] for scope in response.data["scopes"]],
             ["quizzes:read", "user:read"],
         )
+
+    def test_authorization_request_returns_application_logo_uri(self):
+        OAuthApplicationMetadata.objects.create(
+            application=self.application,
+            logo_uri="https://example.com/logo.png",
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(reverse("oauth_authorize_request"), self.authorization_params)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["logo_uri"], "https://example.com/logo.png")
 
     def test_authorization_request_hides_cimd_preflight_error_details(self):
         self.client.force_authenticate(user=self.user)

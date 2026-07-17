@@ -53,8 +53,8 @@ class FolderPermissionTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
         quiz.refresh_from_db()
-        archive_folder = Folder.objects.get(owner=self.owner, folder_type=FolderType.ARCHIVE)
-        self.assertEqual(quiz.folder, archive_folder)
+        trash_folder = Folder.objects.get(owner=self.owner, folder_type=FolderType.TRASH)
+        self.assertEqual(quiz.folder, trash_folder)
 
     def test_creator_cannot_delete_quiz_in_other_users_folder(self):
         """Quiz creator cannot delete quiz if it's in someone else's folder."""
