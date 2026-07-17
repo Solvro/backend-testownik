@@ -118,7 +118,7 @@ class AuthorizedAppsViewSetTests(APITestCase):
         response = self.client.delete(reverse("authorized_app_detail", kwargs={"client_id": "mcp-client"}))
 
         self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.data["error"], "No tokens found for this app")
+        self.assertEqual(response.data["errors"][0]["detail"], "No tokens found for this app")
 
     def test_destroy_supports_cimd_client_id_url(self):
         client_id_url = "https://client.example/.well-known/oauth-client"
