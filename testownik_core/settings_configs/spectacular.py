@@ -10,6 +10,7 @@ SPECTACULAR_SETTINGS = {
     },
     "SERVE_PUBLIC": True,
     "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
+    "POSTPROCESSING_HOOKS": ["drf_standardized_errors.openapi_hooks.postprocess_schema_enums"],
     "ENUM_NAME_OVERRIDES": {
         "ValidationErrorEnum": "drf_standardized_errors.openapi_serializers.ValidationErrorEnum.choices",
         "ClientErrorEnum": "drf_standardized_errors.openapi_serializers.ClientErrorEnum.choices",
