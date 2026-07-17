@@ -1,6 +1,7 @@
 from django.utils.decorators import method_decorator
 from django_ratelimit.decorators import ratelimit
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
+from mcp.server.fastmcp.exceptions import ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -172,18 +173,18 @@ class LoginOtpView(APIView):
         guest_id = request.data.get("guest_id", "")
 
         if not email or not otp_code:
-            return Response({"error": "Email and OTP code must be provided"}, status=400)
+            raise ValidationError("Email and OTP code must be provided")
 
         email_login_token = EmailLoginToken.objects.filter(user__email=email, otp_code=otp_code).first()
 
         if not email_login_token:
             for token in EmailLoginToken.objects.filter(user__email=email):
                 token.add_retry()
-            return Response({"error": "Invalid OTP code"}, status=400)
+            raise ValidationError("Invalid OTP code")
 
         if email_login_token.is_expired() or email_login_token.is_locked:
             email_login_token.delete()
-            return Response({"error": "OTP code expired or retries limit reached"}, status=400)
+            raise ValidationError("OTP code expired or retries limit reached")
 
         return _finalize_token_login(email_login_token, guest_id)
 
@@ -241,13 +242,13 @@ class LoginLinkView(APIView):
         token = request.data.get("token")
         guest_id = request.data.get("guest_id", "")
         if not token:
-            return Response({"error": "Token not provided"}, status=400)
+            raise ValidationError("Token not provided")
 
         email_login_token = EmailLoginToken.objects.filter(token=token).first()
 
         if not email_login_token or email_login_token.is_expired() or email_login_token.is_locked:
             if email_login_token:
                 email_login_token.delete()
-            return Response({"error": "Invalid or expired login link"}, status=400)
+            raise ValidationError("Invalid or expired login link")
 
         return _finalize_token_login(email_login_token, guest_id)

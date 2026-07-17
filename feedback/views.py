@@ -7,6 +7,7 @@ from adrf.generics import GenericAPIView
 from django.utils.decorators import method_decorator
 from django_ratelimit.decorators import ratelimit
 from drf_spectacular.utils import OpenApiResponse, extend_schema
+from rest_framework.exceptions import APIException
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
@@ -41,10 +42,11 @@ class FeedbackAddView(GenericAPIView):
     )
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
-        if not serializer.is_valid():
-            return Response({"error": serializer.errors}, status=400)
-        elif N8N_WEBHOOK is None:
-            return Response({"error": "Webhook not configured"}, status=500)
+
+        serializer.is_valid(raise_exception=True)
+
+        if N8N_WEBHOOK is None:
+            raise APIException("Webhook not configured")
 
         try:
             payload = serializer.validated_data
@@ -60,8 +62,8 @@ class FeedbackAddView(GenericAPIView):
                     response.status_code,
                     response.text,
                 )
-                return Response({"error": "Error while sending feedback form"}, status=500)
+                raise APIException("Error while sending feedback form")
 
         except Exception as e:
             logger.exception("Unexpected error in feedback endpoint: %s", str(e))
-            return Response({"error": "Internal Server Error"}, status=500)
+            raise APIException("Internal Server Error")

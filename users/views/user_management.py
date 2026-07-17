@@ -3,6 +3,7 @@ from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework import mixins, permissions, viewsets
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -132,16 +133,14 @@ class CurrentUserView(GenericAPIView):
 
         disallowed = set(data) - allowed_fields_patch
         if disallowed:
-            return Response(
-                f"Field '{next(iter(disallowed))}' is not allowed to be updated",
-                status=400,
-            )
+            raise ValidationError(f"Field '{next(iter(disallowed))}' is not allowed to be updated")
 
         serializer = self.get_serializer(request.user, data=data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=400)
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data)
 
 
 class UserViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -298,12 +297,9 @@ class DeleteAccountView(APIView):
             try:
                 transfer_to_user = User.objects.get(id=transfer_to_user_id)
             except User.DoesNotExist:
-                return Response({"error": "User to transfer quizzes to not found"}, status=404)
+                raise NotFound("User to transfer quizzes to not found")
             if transfer_to_user.root_folder is None:
-                return Response(
-                    {"error": "Transfer target user has no root folder"},
-                    status=400,
-                )
+                raise ValidationError("Transfer target user has no root folder")
 
         with transaction.atomic():
             if transfer_to_user is not None:

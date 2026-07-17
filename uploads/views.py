@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.utils.text import Truncator
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import permissions, status
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -74,17 +75,15 @@ class ImageUploadView(APIView):
                 image_file.name,
                 str(e),
             )
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise DRFValidationError(str(e))
+
         except Exception:
             logger.exception(
                 "Image processing failed for user %s: %s",
                 request.user.id,
                 image_file.name,
             )
-            return Response(
-                {"error": "Image processing failed. Please try a different file."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise DRFValidationError("Image processing failed. Please try a different file.")
 
         uploaded_image = UploadedImage.objects.create(
             image=processed_file,
