@@ -75,7 +75,7 @@ class ImageUploadView(APIView):
                 image_file.name,
                 str(e),
             )
-            raise DRFValidationError(str(e))
+            raise DRFValidationError("Invalid image file. Please check format, size, and dimensions.")
 
         except Exception:
             logger.exception(
