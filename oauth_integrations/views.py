@@ -3,7 +3,6 @@ import logging
 from django.conf import settings
 from django.http import Http404, QueryDict
 from django.urls import reverse
-from mcp.server.fastmcp.exceptions import ValidationError
 from oauth2_provider.exceptions import OAuthToolkitError
 from oauth2_provider.models import (
     AccessToken,
@@ -13,7 +12,7 @@ from oauth2_provider.models import (
 from oauth2_provider.scopes import get_scopes_backend
 from oauth2_provider.views.mixins import OAuthLibMixin
 from rest_framework import mixins, viewsets
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
