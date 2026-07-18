@@ -190,8 +190,8 @@ class QuizCRUDTestCase(APITestCase):
         response = self.client.get(reverse("quiz-detail", kwargs={"pk": quiz.id}))
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("deleted", str(response.data["detail"]).lower())
-        self.assertIn("restore", str(response.data["detail"]).lower())
+        self.assertIn("deleted", str(response.data["errors"][0]["detail"]).lower())
+        self.assertIn("restore", str(response.data["errors"][0]["detail"]).lower())
 
     # --- UPDATE ---
     def test_update_quiz_title(self):

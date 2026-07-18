@@ -161,8 +161,8 @@ class MetadataActionTestCase(APITestCase):
         response = self.client.get(url, HTTP_API_KEY="test-api-key")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("deleted", str(response.data["detail"]).lower())
-        self.assertIn("restore", str(response.data["detail"]).lower())
+        self.assertIn("deleted", str(response.data["errors"][0]["detail"]).lower())
+        self.assertIn("restore", str(response.data["errors"][0]["detail"]).lower())
 
     def test_metadata_shared_quiz_internal_api_key_keeps_existing_visibility_behavior(self):
         """Internal API key keeps existing behavior for shared-visibility metadata."""

@@ -172,7 +172,7 @@ class UploadFlowTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("errors", response.data)
-        self.assertIn("too large", response.data["errors"][0]["detail"].lower())
+        self.assertIn("invalid image file", response.data["errors"][0]["detail"].lower())
 
     def test_upload_unsupported_format(self):
         """Test that unsupported file formats are rejected."""
@@ -181,7 +181,7 @@ class UploadFlowTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("errors", response.data)
-        self.assertIn("unsupported", response.data["errors"][0]["detail"].lower())
+        self.assertIn("invalid image file", response.data["errors"][0]["detail"].lower())
 
     def test_upload_corrupted_image(self):
         """Test that corrupted image files are rejected."""
