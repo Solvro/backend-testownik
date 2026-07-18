@@ -517,7 +517,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         new_folder_id = serializer.validated_data["folder_id"]
         destination = Folder.objects.get(pk=new_folder_id)
         quiz.folder_id = new_folder_id
-        
+
         if destination.folder_type == FolderType.ARCHIVE:
             quiz.archived_at = timezone.now()
             quiz.deleted_at = None
@@ -527,11 +527,11 @@ class QuizViewSet(viewsets.ModelViewSet):
         else:
             quiz.archived_at = None
             quiz.deleted_at = None
-            
+
         quiz.save(update_fields=["folder_id", "archived_at", "deleted_at", "updated_at"])
         return Response({"status": "Quiz moved successfully"})
 
-        @action(
+    @action(
         detail=True,
         methods=["post"],
         url_path="move-to-archive",
