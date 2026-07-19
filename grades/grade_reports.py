@@ -380,9 +380,7 @@ def serialize_course(
             "class_type_id": class_type_id,
             "class_type": serialize_class_type(class_type_id, class_types_by_id),
             "course_unit": serialize_course_unit(course_unit),
-            "grades_distribution": [
-                serialize_distribution_item(item) for item in (report.grades_distribution or [])
-            ],
+            "grades_distribution": [serialize_distribution_item(item) for item in (report.grades_distribution or [])],
             "grades": grades,
         }
         report_payloads.append(report_payload)
