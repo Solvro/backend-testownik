@@ -257,6 +257,7 @@ class RecordAnswerTestCase(APITestCase):
         response = self.client.post(url, data, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["type"], "client_error")
         self.assertIn("do not belong to this question", response.data["errors"][0]["detail"])
 
     def test_record_answer_invalid_study_time(self):
@@ -270,6 +271,7 @@ class RecordAnswerTestCase(APITestCase):
         response = self.client.post(url, data, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["type"], "client_error")
         self.assertEqual(response.data["errors"][0]["detail"], "study_time must be a numeric value")
 
     def test_record_answer_invalid_next_question_uuid(self):
@@ -283,6 +285,7 @@ class RecordAnswerTestCase(APITestCase):
         response = self.client.post(url, data, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["type"], "client_error")
         self.assertEqual(response.data["errors"][0]["detail"], "next_question must be a valid question in this quiz")
 
     def test_record_answer_next_question_not_in_quiz(self):
