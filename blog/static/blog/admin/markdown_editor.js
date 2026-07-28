@@ -3,12 +3,27 @@
 
     var STORAGE_KEY = "blogMarkdownPreviewTheme";
 
+    function canRenderHtml() {
+        return (
+            window.marked &&
+            typeof window.marked.parse === "function" &&
+            window.DOMPurify &&
+            typeof window.DOMPurify.sanitize === "function"
+        );
+    }
+
     function renderPreview(textarea, preview) {
-        if (window.marked && typeof window.marked.parse === "function") {
-            preview.innerHTML = window.marked.parse(textarea.value || "");
+        var source = textarea.value || "";
+        if (canRenderHtml()) {
+            // marked deliberately passes raw HTML through, and post content is not
+            // trusted input: any staff author can save a `<img onerror=...>` that
+            // would then run in the browser of the next person to open the post.
+            // Never assign marked's output to innerHTML without sanitizing it.
+            preview.innerHTML = window.DOMPurify.sanitize(window.marked.parse(source));
         } else {
-            // marked.js not loaded (e.g. offline) — fall back to raw text.
-            preview.textContent = textarea.value || "";
+            // marked.js or DOMPurify not loaded (e.g. offline) — fall back to raw
+            // text rather than rendering HTML we cannot sanitize.
+            preview.textContent = source;
         }
     }
 

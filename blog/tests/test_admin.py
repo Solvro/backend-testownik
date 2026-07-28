@@ -1,11 +1,18 @@
+import re
+from pathlib import Path
+
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, SimpleTestCase, TestCase
 
+import blog
 from blog.admin import BlogPostAdmin
 from blog.models import BlogPost
+from blog.widgets import MarkdownEditorWidget
 
 User = get_user_model()
+
+EDITOR_JS = Path(blog.__file__).resolve().parent / "static" / "blog" / "admin" / "markdown_editor.js"
 
 
 class BlogPostAdminTestCase(TestCase):
@@ -43,3 +50,24 @@ class BlogPostAdminTestCase(TestCase):
         post = BlogPost(title="T", slug="t", content="x", is_published=False)
         self._save(post)
         self.assertEqual(post.author, self.staff)
+
+
+class MarkdownEditorSanitizerTestCase(SimpleTestCase):
+    """
+    The preview pane renders post content authored by other staff members, so the
+    sanitizer must stay wired up — without it, saved Markdown containing raw HTML
+    runs as script in the reviewer's admin session.
+    """
+
+    def test_media_loads_sanitizer_before_the_editor_script(self):
+        scripts = list(MarkdownEditorWidget.Media.js)
+        sanitizer = [path for path in scripts if "purify" in path.lower()]
+        self.assertTrue(sanitizer, f"no DOMPurify bundle in widget media: {scripts}")
+        self.assertLess(scripts.index(sanitizer[0]), scripts.index("blog/admin/markdown_editor.js"))
+
+    def test_every_innerhtml_assignment_goes_through_the_sanitizer(self):
+        source = EDITOR_JS.read_text(encoding="utf-8")
+        assignments = re.findall(r"^.*\.innerHTML\s*=.*$", source, flags=re.MULTILINE)
+        self.assertTrue(assignments, "expected the preview pane to assign innerHTML")
+        for line in assignments:
+            self.assertIn("DOMPurify.sanitize", line.strip(), f"unsanitized innerHTML assignment: {line.strip()}")

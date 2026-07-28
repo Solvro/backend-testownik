@@ -10,12 +10,19 @@ class MarkdownEditorWidget(forms.Textarea):
     and a preview pane, and re-renders the preview (via marked.js) on every
     keystroke. marked.js is loaded from a CDN; no server-side rendering or
     Python dependency is involved.
+
+    marked does not strip HTML embedded in the Markdown source, so its output is
+    run through DOMPurify before it reaches the preview pane — otherwise a post
+    saved by one staff author could execute script in another's admin session.
+    Both libraries must load before `markdown_editor.js`, which falls back to
+    plain text when either is missing.
     """
 
     class Media:
         css = {"all": ["blog/admin/markdown_editor.css"]}
         js = [
             "https://cdn.jsdelivr.net/npm/marked@12/marked.min.js",
+            "https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js",
             "blog/admin/markdown_editor.js",
         ]
 

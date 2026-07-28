@@ -6,6 +6,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from blog.models import BlogPost
+from blog.views import MAX_RECENT_DAYS
 
 User = get_user_model()
 
@@ -106,3 +107,19 @@ class BlogPostAPITestCase(APITestCase):
     def test_recent_non_positive_returns_400(self):
         response = self.client.get(f"{self.LIST_URL}?recent=0")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_recent_above_max_is_clamped_and_does_not_overflow(self):
+        # A value past timedelta's range used to raise OverflowError -> 500.
+        BlogPost.objects.create(
+            title="Ancient post",
+            slug="ancient-post",
+            content="x",
+            is_published=True,
+            published_at=timezone.now() - timedelta(days=MAX_RECENT_DAYS + 30),
+        )
+        response = self.client.get(f"{self.LIST_URL}?recent=99999999999")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        slugs = {item["slug"] for item in self._results(response)}
+        self.assertIn("published-post", slugs)
+        self.assertNotIn("ancient-post", slugs)
