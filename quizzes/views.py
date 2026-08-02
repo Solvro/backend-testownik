@@ -1179,8 +1179,11 @@ class SharedDriveViewSet(viewsets.ModelViewSet):
 
     @transaction.atomic
     def perform_destroy(self, instance):
+        instance = Folder.objects.select_for_update().get(pk=instance.pk)
         folder_ids = list(
-            Folder.objects.filter(Q(id=instance.id) | Q(shared_drive=instance)).values_list("id", flat=True)
+            Folder.objects.select_for_update()
+            .filter(Q(id=instance.id) | Q(shared_drive=instance))
+            .values_list("id", flat=True)
         )
         Quiz.objects.filter(folder_id__in=folder_ids).delete()
         instance.delete()
@@ -1202,11 +1205,13 @@ class SharedDriveViewSet(viewsets.ModelViewSet):
         return Response(SharedDriveMemberSerializer(member).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["patch", "delete"], url_path=r"members/(?P<member_id>[^/.]+)")
+    @transaction.atomic
     def member_detail(self, request, pk=None, member_id=None):
         drive = self.get_object()
+        drive = Folder.objects.select_for_update().get(pk=drive.pk)
 
         try:
-            member = drive.shared_drive_users.get(id=member_id)
+            member = drive.shared_drive_users.select_for_update().get(id=member_id)
         except SharedDriveMember.DoesNotExist:
             raise NotFound("Member not found.")
 
@@ -1232,11 +1237,13 @@ class SharedDriveViewSet(viewsets.ModelViewSet):
         return Response(SharedDriveMemberSerializer(member).data)
 
     @action(detail=True, methods=["post"], url_path="leave")
+    @transaction.atomic
     def leave(self, request, pk=None):
         drive = self.get_object()
+        drive = Folder.objects.select_for_update().get(pk=drive.pk)
 
         try:
-            member = drive.shared_drive_users.get(user=request.user)
+            member = drive.shared_drive_users.select_for_update().get(user=request.user)
         except SharedDriveMember.DoesNotExist:
             raise NotFound("You are not a member of this drive.")
 

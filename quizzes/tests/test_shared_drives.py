@@ -94,7 +94,8 @@ class SharedDriveCrudTests(APITestCase):
         drive = make_drive()
         add_member(drive, self.admin, SharedDriveRole.ADMIN)
         subfolder = Folder.objects.create(name="Sub", parent=drive, owner=None, shared_drive=drive)
-        quiz = make_quiz_in_drive(drive, self.admin)
+        drive_quiz = make_quiz_in_drive(drive, self.admin)
+        subfolder_quiz = Quiz.objects.create(title="Nested Quiz", creator=self.admin, folder=subfolder)
 
         self.client.force_authenticate(self.admin)
         url = reverse("shareddrive-detail", kwargs={"pk": drive.id})
@@ -102,7 +103,7 @@ class SharedDriveCrudTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Folder.objects.filter(id=subfolder.id).exists())
-        self.assertFalse(Quiz.objects.filter(id=quiz.id).exists())
+        self.assertFalse(Quiz.objects.filter(id__in=[drive_quiz.id, subfolder_quiz.id]).exists())
 
     def test_non_member_cannot_see_drive(self):
         drive = make_drive()
@@ -180,6 +181,29 @@ class SharedDriveMemberTests(APITestCase):
         response = self.client.delete(self._member_detail_url(m.id))
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(SharedDriveMember.objects.filter(id=m.id).exists())
+
+    def test_cannot_remove_last_admin(self):
+        admin_membership = SharedDriveMember.objects.get(drive=self.drive, user=self.admin)
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.delete(self._member_detail_url(admin_membership.id))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(SharedDriveMember.objects.filter(id=admin_membership.id).exists())
+
+    def test_cannot_demote_last_admin(self):
+        admin_membership = SharedDriveMember.objects.get(drive=self.drive, user=self.admin)
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.patch(
+            self._member_detail_url(admin_membership.id),
+            {"role": SharedDriveRole.CONTRIBUTOR},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        admin_membership.refresh_from_db()
+        self.assertEqual(admin_membership.role, SharedDriveRole.ADMIN)
 
     def test_cannot_add_duplicate_member(self):
         self.client.force_authenticate(self.admin)
