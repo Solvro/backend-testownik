@@ -1,6 +1,7 @@
+import argparse
 from datetime import timedelta
 
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand, CommandError, DjangoHelpFormatter
 from django.db import transaction
 from django.db.models import Count, F, Max
 from django.db.models.functions import Coalesce, Greatest
@@ -10,8 +11,20 @@ from quizzes.models import Folder, Quiz, QuizSession
 from users.models import AccountType, User
 
 
+class CommandHelpFormatter(DjangoHelpFormatter, argparse.RawDescriptionHelpFormatter):
+    pass
+
+
 class Command(BaseCommand):
-    help = "Deletes guest users inactive for longer than the configured threshold"
+    help = """Deletes guest users inactive for longer than the configured threshold.
+
+Examples:
+  Preview accounts and related data eligible for cleanup:
+    python manage.py cleanup_guest_users --days 30 --dry-run --verbose
+
+  Delete accounts inactive for more than 30 days (for example, from cron):
+    python manage.py cleanup_guest_users --days 30
+"""
 
     def add_arguments(self, parser):
         parser.add_argument(
