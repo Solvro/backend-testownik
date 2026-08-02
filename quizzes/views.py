@@ -478,6 +478,8 @@ class QuizViewSet(viewsets.ModelViewSet):
                     raise PermissionDenied("Adding a quiz to a shared drive requires contributor role or higher.")
             elif folder.owner != self.request.user:
                 raise PermissionDenied("You do not have permission to add a quiz to this folder.")
+            if folder.folder_type in Folder.PROTECTED_FOLDER_TYPES:
+                raise ValidationError({"folder_id": "Cannot create a quiz directly in archive or trash."})
             serializer.save(creator=self.request.user, folder=folder)
         else:
             serializer.save(creator=self.request.user, folder=self.request.user.root_folder)
