@@ -88,6 +88,19 @@ class QuizCRUDTestCase(APITestCase):
         # Should succeed (empty quiz is allowed)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_cannot_create_quiz_in_protected_folder(self):
+        for folder_type in (FolderType.ARCHIVE, FolderType.TRASH):
+            with self.subTest(folder_type=folder_type):
+                folder = Folder.objects.get(owner=self.user, folder_type=folder_type)
+                response = self.client.post(
+                    reverse("quiz-list"),
+                    {"title": "Invalid Quiz", "questions": [], "folder_id": str(folder.id)},
+                    format="json",
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertFalse(Quiz.objects.filter(title="Invalid Quiz").exists())
+
     def test_create_quiz_with_explicit_ids(self):
         """
         Test creating a quiz where nested questions and answers contain an 'id' field.

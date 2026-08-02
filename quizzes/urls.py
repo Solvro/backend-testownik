@@ -12,12 +12,14 @@ from quizzes.views import (
     RandomQuestionView,
     ReportQuestionIssueView,
     SearchQuizzesView,
+    SharedDriveViewSet,
     SharedQuizViewSet,
 )
 
 router = DefaultRouter()
 router.register("quizzes", QuizViewSet)
 router.register("shared-quizzes", SharedQuizViewSet)
+router.register("shared-drives", SharedDriveViewSet, basename="shareddrive")
 router.register("folders", FolderViewSet)
 router.register("questions", QuestionViewSet)
 router.register("quiz-ratings", QuizRatingViewSet)
