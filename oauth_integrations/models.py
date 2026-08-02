@@ -29,3 +29,20 @@ class OAuthClientMetadata(models.Model):
 
     def __str__(self):
         return self.client_name or self.client_id_url
+
+
+class OAuthApplicationMetadata(models.Model):
+    application = models.OneToOneField(
+        "oauth2_provider.Application",
+        on_delete=models.CASCADE,
+        related_name="testownik_metadata",
+        swappable=False,
+    )
+    logo_uri = models.URLField(max_length=2048, blank=True)
+
+    class Meta:
+        verbose_name = "OAuth application metadata"
+        verbose_name_plural = "OAuth application metadata"
+
+    def __str__(self):
+        return f"Metadata for {self.application}"

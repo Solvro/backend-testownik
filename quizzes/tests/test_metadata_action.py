@@ -4,10 +4,11 @@ Tests for the metadata action with optional API key authentication and visibilit
 
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quizzes.models import Answer, Question, Quiz, SharedQuiz
+from quizzes.models import Answer, Folder, FolderType, Question, Quiz, SharedQuiz
 from users.models import User
 
 
@@ -143,6 +144,25 @@ class MetadataActionTestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["title"], "Private Quiz")
+
+    def test_metadata_deleted_quiz_is_forbidden_with_deleted_message(self):
+        """Internal metadata access does not bypass deleted quiz access rules."""
+        trash_folder = Folder.objects.get(owner=self.user, folder_type=FolderType.TRASH)
+        deleted_quiz = Quiz.objects.create(
+            title="Deleted Quiz",
+            creator=self.user,
+            folder=trash_folder,
+            visibility=3,
+            deleted_at=timezone.now(),
+        )
+        url = self._get_metadata_url(deleted_quiz.id)
+
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(url, HTTP_API_KEY="test-api-key")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("deleted", str(response.data["detail"]).lower())
+        self.assertIn("restore", str(response.data["detail"]).lower())
 
     def test_metadata_shared_quiz_internal_api_key_keeps_existing_visibility_behavior(self):
         """Internal API key keeps existing behavior for shared-visibility metadata."""

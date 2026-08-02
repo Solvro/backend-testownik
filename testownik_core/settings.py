@@ -48,7 +48,7 @@ CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000"
 ALLOW_PREVIEW_ENVIRONMENTS = os.getenv("ALLOW_PREVIEW_ENVIRONMENTS", "False") == "True"
 
 PREVIEW_ORIGIN_REGEXES = [
-    r"^https://[\w-]+-testownik\.b\.solvro\.pl$",
+    r"^https://testownik-frontend-pr\d+\.preview\.b\.solvro\.pl$",
 ]
 
 if ALLOW_PREVIEW_ENVIRONMENTS:
@@ -86,6 +86,7 @@ INSTALLED_APPS = [
     "users.apps.UsersConfig",
     "grades.apps.GradesConfig",
     "quizzes.apps.QuizzesConfig",
+    "wrapped.apps.WrappedConfig",
     "maintenance.apps.MaintenanceConfig",
     "testownik_core.apps.TestownikCoreConfig",
     "oauth_integrations.apps.OAuthIntegrationsConfig",
@@ -117,10 +118,15 @@ CONSTANCE_ADDITIONAL_FIELDS = {
 
 CONSTANCE_CONFIG = {
     "MAINTENANCE_MODE": (False, "Is the site in maintenance mode?"),
+    "WRAPPED_ENABLED": (
+        False,
+        "Is Testownik Wrapped live? When off, the endpoint returns nothing even if reports exist.",
+    ),
 }
 
 CONSTANCE_CONFIG_FIELDSETS = {
     "Maintenance Mode": ("MAINTENANCE_MODE",),
+    "Wrapped": ("WRAPPED_ENABLED",),
 }
 
 MIDDLEWARE = [
@@ -312,7 +318,7 @@ SPECTACULAR_SETTINGS = spectacular.SPECTACULAR_SETTINGS
 
 TASKS = {"default": {"BACKEND": "django.tasks.backends.immediate.ImmediateBackend"}}
 
-ARCHIVE_TTL_DAYS = 30
+TRASH_TTL_DAYS = 30
 
 UNFOLD = get_unfold_settings(FRONTEND_URL)
 

@@ -27,7 +27,9 @@ from rest_framework_simplejwt.token_blacklist.models import (
 )
 from unfold.admin import ModelAdmin, StackedInline
 
-from .models import EmailLoginToken, StudyGroup, Term, User, UserSettings
+from oauth_integrations.models import OAuthApplicationMetadata
+
+from .models import CourseClassType, EmailLoginToken, StudyGroup, Term, User, UserSettings
 
 
 class UserSettingsInline(StackedInline):
@@ -141,6 +143,13 @@ class TermAdmin(ModelAdmin):
     date_hierarchy = "start_date"
 
 
+@admin.register(CourseClassType)
+class CourseClassTypeAdmin(ModelAdmin):
+    list_display = ["id", "name_pl", "name_en", "synced_at"]
+    search_fields = ["id", "name_pl", "name_en"]
+    readonly_fields = ["synced_at"]
+
+
 @admin.register(EmailLoginToken)
 class EmailLoginTokenAdmin(ModelAdmin):
     list_display = ["user", "created_at", "expires_at", "retry_count"]
@@ -176,7 +185,14 @@ for model in (Application, AccessToken, Grant, RefreshToken, IDToken):
 
 @admin.register(Application)
 class ApplicationAdmin(BaseApplicationAdmin, ModelAdmin):
-    pass
+    class OAuthApplicationMetadataInline(StackedInline):
+        model = OAuthApplicationMetadata
+        can_delete = True
+        extra = 0
+        max_num = 1
+        verbose_name_plural = "Testownik metadata"
+
+    inlines = [OAuthApplicationMetadataInline]
 
 
 @admin.register(AccessToken)

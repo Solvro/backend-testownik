@@ -83,14 +83,14 @@ def get_unfold_settings(frontend_url):
                             "link": reverse_lazy("admin:users_studygroup_changelist"),
                         },
                         {
-                            "title": "Terms",
-                            "icon": "calendar_month",
-                            "link": reverse_lazy("admin:users_term_changelist"),
-                        },
-                        {
                             "title": "Email Login Tokens",
                             "icon": "key",
                             "link": reverse_lazy("admin:users_emaillogintoken_changelist"),
+                        },
+                        {
+                            "title": "Wrapped Reports",
+                            "icon": "featured_seasonal_and_gifts",
+                            "link": reverse_lazy("admin:wrapped_wrappedreport_changelist"),
                         },
                     ],
                 },
@@ -169,6 +169,16 @@ def get_unfold_settings(frontend_url):
                             "title": "Constance",
                             "icon": "settings",
                             "link": reverse_lazy("admin:constance_config_changelist"),
+                        },
+                        {
+                            "title": "Terms",
+                            "icon": "calendar_month",
+                            "link": reverse_lazy("admin:users_term_changelist"),
+                        },
+                        {
+                            "title": "Course Class Types",
+                            "icon": "category",
+                            "link": reverse_lazy("admin:users_courseclasstype_changelist"),
                         },
                     ],
                 },

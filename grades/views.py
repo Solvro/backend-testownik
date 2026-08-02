@@ -7,7 +7,9 @@ from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 from usos_api import USOSClient
 
-from users.models import Term
+from grades.class_types import get_class_types
+from grades.grade_reports import GRADE_REPORT_FIELDS, serialize_courses, term_stats
+from grades.terms import get_terms
 
 dotenv.load_dotenv()
 
@@ -20,7 +22,7 @@ CONSUMER_SECRET = os.getenv("USOS_CONSUMER_SECRET")
 
 @async_api_view(["GET"])
 async def get_grades(request):
-    term_id = request.GET.get("term_id")
+    selected_term_id = request.GET.get("term_id")
     request_user = request.user
 
     if not request_user.usos_id:
@@ -28,44 +30,29 @@ async def get_grades(request):
     try:
         async with USOSClient(USOS_BASE_URL, CONSUMER_KEY, CONSUMER_SECRET, trust_env=True) as client:
             client.load_access_token(request_user.access_token, request_user.access_token_secret)
-            ects = await client.course_service.get_user_courses_ects()
+            class_types_by_id = await get_class_types()
 
-            if not ects:
-                return Response({"detail": "No ECTS data found for this user."}, status=404)
+            requested_term_ids = [selected_term_id] if selected_term_id else None
+            ects_by_term, reports_by_term = await client.helper.get_user_exam_reports_with_ects(
+                term_ids=requested_term_ids,
+                fields=GRADE_REPORT_FIELDS,
+            )
+            term_ids = requested_term_ids or list(ects_by_term.keys())
+            if not term_ids:
+                return Response({"detail": "No grade data found for this user."}, status=404)
 
-            # Check if terms are already in the database
-            term_ids = ects.keys()
-            existing_terms = Term.objects.filter(id__in=ects.keys())
-            existing_term_ids = [term_id async for term_id in existing_terms.values_list("id", flat=True)]
+            if not reports_by_term:
+                return Response({"detail": "No grade data found for this user."}, status=404)
 
-            # Find missing terms
-            missing_term_ids = set(term_ids) - set(existing_term_ids)
+            terms = await get_terms(term_ids)
 
-            # Get terms from the database
-            terms = [term async for term in existing_terms.aiterator()]
-
-            # Fetch missing terms from the API
-            if missing_term_ids:
-                fetched_terms = await client.term_service.get_terms(missing_term_ids)
-                # Save fetched terms to the database
-                for term in fetched_terms:
-                    term_obj, _ = await Term.objects.aupdate_or_create(
-                        id=term.id,
-                        defaults={
-                            "name": term.name.pl,
-                            "start_date": term.start_date,
-                            "end_date": term.end_date,
-                            "finish_date": term.finish_date,
-                        },
-                    )
-                    terms.append(term_obj)
-
-            course_editions = await client.course_service.get_user_course_editions()
-            grades = await client.grade_service.get_grades_by_terms(term_id or [term.id for term in terms])
-
-        courses_ects = {
-            course: ects_points for term_courses in ects.values() for course, ects_points in term_courses.items()
-        }
+        serialized_grades = serialize_courses(
+            reports_by_term=reports_by_term,
+            ects_by_term=ects_by_term,
+            term_ids=term_ids,
+            class_types_by_id=class_types_by_id,
+        )
+        grades_by_term = serialized_grades["grades_by_term"]
 
         return Response(
             {
@@ -78,46 +65,27 @@ async def get_grades(request):
                             "end_date": term.end_date,
                             "finish_date": term.finish_date,
                             "is_current": term.is_current,
+                            **term_stats(grades_by_term.get(term.id, [])),
                         }
                         for term in terms
                     ],
                     key=lambda term: term["start_date"],
                     reverse=True,
                 ),
-                "courses": [
-                    {
-                        "course_id": course_edition.course_id,
-                        "course_name": course_edition.course_name.pl,
-                        "term_id": course_edition.term_id,
-                        "ects": courses_ects.get(course_edition.course_id, 0),
-                        "grades": [
-                            {
-                                "value": grade.value,
-                                "value_symbol": grade.value_symbol,
-                                "value_description": grade.value_description.pl,
-                                "counts_into_average": grade.counts_into_average,
-                            }
-                            for grade in grades.get(course_edition.term_id, {})
-                            .get(course_edition.course_id, {})
-                            .get("course_grades", [])
-                        ],
-                        "passing_status": course_edition.passing_status,
-                    }
-                    for course_edition in course_editions
-                ],
+                "courses": serialized_grades["courses"],
             }
         )
     except APIException as e:
         logger.error(
             f"API error occurred for user {request_user.id}: {str(e)}",
             exc_info=True,
-            extra={"user_id": request_user.id, "term_id": term_id},
+            extra={"user_id": request_user.id, "term_id": selected_term_id},
         )
         return Response({"detail": "API error"}, status=500)
     except Exception as e:
         logger.error(
             f"Unexpected error occurred for user {request_user.id}: {str(e)}",
             exc_info=True,
-            extra={"user_id": request_user.id, "term_id": term_id},
+            extra={"user_id": request_user.id, "term_id": selected_term_id},
         )
         return Response({"detail": "An unexpected error occurred"}, status=500)
