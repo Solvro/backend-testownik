@@ -1,3 +1,5 @@
+import secrets
+
 from django.conf import settings
 from django.db.models import Q
 from oauth2_provider.models import get_access_token_model
@@ -36,7 +38,10 @@ def is_internal_api_request(request) -> bool:
     api_key = request.headers.get("Api-Key")
     if not api_key or not settings.INTERNAL_API_KEY:
         return False
-    return api_key == settings.INTERNAL_API_KEY
+    return secrets.compare_digest(
+        api_key.encode("utf-8", errors="surrogatepass"),
+        settings.INTERNAL_API_KEY.encode("utf-8", errors="surrogatepass"),
+    )
 
 
 class IsSharedQuizCreatorOrReadOnly(permissions.BasePermission):
