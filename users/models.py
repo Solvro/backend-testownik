@@ -212,7 +212,14 @@ class UserSettings(models.Model):
 
     # ai settings
     ai_disabled = models.BooleanField(default=False)
-    default_ai_model = models.CharField(max_length=64, null=True, blank=True, default=None)
+    default_ai_model = models.ForeignKey(
+        "ai_usage.AIModel",
+        on_delete=models.SET_NULL,
+        related_name="preferred_by_user_settings",
+        null=True,
+        blank=True,
+        default=None,
+    )
 
     # user notification preferences
     notify_quiz_shared = models.BooleanField(default=True)
