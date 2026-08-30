@@ -3,7 +3,7 @@ import os
 
 import dotenv
 from adrf.decorators import api_view as async_api_view
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.response import Response
 from usos_api import USOSClient
 
@@ -26,7 +26,7 @@ async def get_grades(request):
     request_user = request.user
 
     if not request_user.usos_id:
-        return Response({"detail": "User does not have a linked USOS account."}, status=400)
+        raise ValidationError("User does not have a linked USOS account.")
     try:
         async with USOSClient(USOS_BASE_URL, CONSUMER_KEY, CONSUMER_SECRET, trust_env=True) as client:
             client.load_access_token(request_user.access_token, request_user.access_token_secret)
@@ -39,10 +39,10 @@ async def get_grades(request):
             )
             term_ids = requested_term_ids or list(ects_by_term.keys())
             if not term_ids:
-                return Response({"detail": "No grade data found for this user."}, status=404)
+                raise NotFound("No grade data found for this user.")
 
             if not reports_by_term:
-                return Response({"detail": "No grade data found for this user."}, status=404)
+                raise NotFound("No grade data found for this user.")
 
             terms = await get_terms(term_ids)
 
@@ -75,17 +75,23 @@ async def get_grades(request):
                 "courses": serialized_grades["courses"],
             }
         )
-    except APIException as e:
+    except (NotFound, ValidationError):
+        raise
+    except APIException as error:
         logger.error(
-            f"API error occurred for user {request_user.id}: {str(e)}",
+            "API error occurred for user %s: %s",
+            request_user.id,
+            str(error),
             exc_info=True,
             extra={"user_id": request_user.id, "term_id": selected_term_id},
         )
-        return Response({"detail": "API error"}, status=500)
-    except Exception as e:
+        raise APIException("API error") from error
+    except Exception as error:
         logger.error(
-            f"Unexpected error occurred for user {request_user.id}: {str(e)}",
+            "Unexpected error occurred for user %s: %s",
+            request_user.id,
+            str(error),
             exc_info=True,
             extra={"user_id": request_user.id, "term_id": selected_term_id},
         )
-        return Response({"detail": "An unexpected error occurred"}, status=500)
+        raise APIException("An unexpected error occurred") from error

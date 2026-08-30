@@ -163,7 +163,10 @@ class UploadFlowTests(APITestCase):
         response = self.client.post(self.upload_url, {}, format="multipart")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("error", response.data)
+        self.assertEqual(response.data["type"], "validation_error")
+        self.assertEqual(response.data["errors"][0]["code"], "invalid")
+        self.assertIn("No image file provided", response.data["errors"][0]["detail"])
+        self.assertIsNone(response.data["errors"][0]["attr"])
 
     def test_upload_file_too_large(self):
         """Test that files exceeding size limit are rejected."""
@@ -171,8 +174,9 @@ class UploadFlowTests(APITestCase):
         response = self.client.post(self.upload_url, {"image": img}, format="multipart")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("error", response.data)
-        self.assertIn("too large", response.data["error"].lower())
+        self.assertEqual(response.data["type"], "validation_error")
+        self.assertIn("errors", response.data)
+        self.assertIn("invalid image file", response.data["errors"][0]["detail"].lower())
 
     def test_upload_unsupported_format(self):
         """Test that unsupported file formats are rejected."""
@@ -180,8 +184,9 @@ class UploadFlowTests(APITestCase):
         response = self.client.post(self.upload_url, {"image": img}, format="multipart")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("error", response.data)
-        self.assertIn("unsupported", response.data["error"].lower())
+        self.assertEqual(response.data["type"], "validation_error")
+        self.assertIn("errors", response.data)
+        self.assertIn("invalid image file", response.data["errors"][0]["detail"].lower())
 
     def test_upload_corrupted_image(self):
         """Test that corrupted image files are rejected."""
@@ -189,7 +194,7 @@ class UploadFlowTests(APITestCase):
         response = self.client.post(self.upload_url, {"image": img}, format="multipart")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("error", response.data)
+        self.assertIn("errors", response.data)
 
     def test_link_image_to_question(self):
         """Test linking uploaded image to a question via API."""

@@ -12,6 +12,7 @@ from oauth2_provider.models import (
 from oauth2_provider.scopes import get_scopes_backend
 from oauth2_provider.views.mixins import OAuthLibMixin
 from rest_framework import mixins, viewsets
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -135,7 +136,7 @@ class AuthorizationRequestAPIView(OAuthLibMixin, APIView):
         client_id = params.get("client_id", "")
         preflight_error = _preflight_client_id(client_id)
         if preflight_error:
-            return None, None, Response({"error": preflight_error}, status=400)
+            raise ValidationError(preflight_error)
 
         raw_request, original_get, original_query_string, original_user = self._request_with_authorization_params(
             request, params
@@ -152,7 +153,7 @@ class AuthorizationRequestAPIView(OAuthLibMixin, APIView):
             oauth_error = error.oauthlib_error
             if getattr(oauth_error, "redirect_uri", None):
                 return None, None, Response({"redirect_url": _oauth_error_redirect_url(oauth_error)})
-            return None, None, Response({"error": _friendly_oauth_error_message(error)}, status=400)
+            raise ValidationError(_friendly_oauth_error_message(error))
         except Exception:
             logger.exception("Unexpected OAuth authorization request validation failure: client_id=%s", client_id)
             raise
@@ -168,7 +169,7 @@ class AuthorizationRequestAPIView(OAuthLibMixin, APIView):
 
         application = self._get_application(credentials["client_id"])
         if application is None:
-            return Response({"error": "Invalid OAuth client."}, status=400)
+            raise ValidationError("Invalid OAuth client.")
 
         all_scopes = get_scopes_backend().get_all_scopes()
         metadata = get_cimd_metadata_for_application(application)
@@ -187,7 +188,7 @@ class AuthorizationRequestAPIView(OAuthLibMixin, APIView):
         serializer = AuthorizationDecisionSerializer(data=request.data)
         if not serializer.is_valid():
             logger.warning("Invalid OAuth authorization decision payload: errors=%s", serializer.errors)
-            return Response({"error": serializer.errors}, status=400)
+            raise ValidationError(serializer.errors)
 
         authorization_params = serializer.validated_data["authorization_params"]
         scopes, credentials, error_response = self._validate_params(request, authorization_params)
@@ -203,7 +204,7 @@ class AuthorizationRequestAPIView(OAuthLibMixin, APIView):
                 approved_scopes,
                 scopes,
             )
-            return Response({"error": "Approved scopes must be a subset of the requested scopes."}, status=400)
+            raise ValidationError("Approved scopes must be a subset of the requested scopes.")
 
         allow = serializer.validated_data["allow"]
         scope_string = " ".join(approved_scopes)
@@ -228,7 +229,7 @@ class AuthorizationRequestAPIView(OAuthLibMixin, APIView):
             oauth_error = error.oauthlib_error
             if getattr(oauth_error, "redirect_uri", None):
                 return Response({"redirect_url": _oauth_error_redirect_url(oauth_error)})
-            return Response({"error": _friendly_oauth_error_message(error)}, status=400)
+            raise ValidationError(_friendly_oauth_error_message(error))
         except Exception:
             logger.exception(
                 "Unexpected OAuth authorization response creation failure: client_id=%s",
@@ -320,11 +321,11 @@ class AuthorizedAppsViewSet(mixins.ListModelMixin, mixins.DestroyModelMixin, vie
     def destroy(self, request, *args, **kwargs):
         client_id = kwargs.get(self.lookup_url_kwarg)
         if not client_id:
-            return Response({"error": "client_id is required"}, status=400)
+            raise ValidationError("client_id is required")
         try:
             return super().destroy(request, *args, **kwargs)
         except Http404:
-            return Response({"error": "No tokens found for this app"}, status=404)
+            raise NotFound("No tokens found for this app")
 
     def get_object(self):
         client_id = self.kwargs.get(self.lookup_url_kwarg)

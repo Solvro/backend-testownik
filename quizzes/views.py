@@ -19,6 +19,7 @@ from oauth2_provider.contrib.rest_framework import OAuth2Authentication
 from rest_framework import generics, mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import (
+    APIException,
     AuthenticationFailed,
     MethodNotAllowed,
     NotAuthenticated,
@@ -177,7 +178,9 @@ class RandomQuestionView(APIView):
         try:
             random_question = get_random_recent_question(request.user)
         except QuizOperationError as exc:
-            return Response({"error": exc.message}, status=exc.status_code)
+            drf_exception = APIException(detail=exc.message)
+            drf_exception.status_code = exc.status_code
+            raise drf_exception
 
         return Response(
             {
@@ -257,7 +260,7 @@ class SearchQuizzesView(APIView):
     def get(self, request):
         query = urllib.parse.unquote(request.query_params.get("query", ""))
         if not query:
-            return Response({"error": "Query parameter is required"}, status=400)
+            raise ValidationError("Query parameter is required")
 
         grouped_quizzes = grouped_search_quizzes(
             request.user,
@@ -297,7 +300,8 @@ class SearchQuizzesView(APIView):
                 description="Comma-separated list of extra data to include. "
                 "Available options: 'user_settings', 'current_session'.",
                 many=True,
-                style="simple",
+                style="form",
+                explode=False,
                 enum=["user_settings", "current_session"],
             )
         ]
@@ -372,7 +376,8 @@ class QuizViewSet(viewsets.ModelViewSet):
                 location=OpenApiParameter.QUERY,
                 description="Comma-separated list of extra data to include. Available options: 'preview_question'.",
                 many=True,
-                style="simple",
+                style="form",
+                explode=False,
                 enum=["preview_question"],
             ),
         ],
@@ -508,23 +513,25 @@ class QuizViewSet(viewsets.ModelViewSet):
         quiz = self.get_object()
 
         serializer = self.get_serializer(data=request.data)
-        if serializer.is_valid():
-            new_folder_id = serializer.validated_data["folder_id"]
-            destination = Folder.objects.get(pk=new_folder_id)
-            quiz.folder_id = new_folder_id
-            if destination.folder_type == FolderType.ARCHIVE:
-                quiz.archived_at = timezone.now()
-                quiz.deleted_at = None
-            elif destination.folder_type == FolderType.TRASH:
-                quiz.archived_at = None
-                quiz.deleted_at = timezone.now()
-            else:
-                quiz.archived_at = None
-                quiz.deleted_at = None
-            quiz.save(update_fields=["folder_id", "archived_at", "deleted_at", "updated_at"])
-            return Response({"status": "Quiz moved successfully"})
 
-        return Response(serializer.errors, status=400)
+        serializer.is_valid(raise_exception=True)
+
+        new_folder_id = serializer.validated_data["folder_id"]
+        destination = Folder.objects.get(pk=new_folder_id)
+        quiz.folder_id = new_folder_id
+
+        if destination.folder_type == FolderType.ARCHIVE:
+            quiz.archived_at = timezone.now()
+            quiz.deleted_at = None
+        elif destination.folder_type == FolderType.TRASH:
+            quiz.archived_at = None
+            quiz.deleted_at = timezone.now()
+        else:
+            quiz.archived_at = None
+            quiz.deleted_at = None
+
+        quiz.save(update_fields=["folder_id", "archived_at", "deleted_at", "updated_at"])
+        return Response({"status": "Quiz moved successfully"})
 
     @action(
         detail=True,
@@ -837,7 +844,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         question_id = serializer.validated_data["question_id"]
         if not question_id:
-            return Response({"error": "question_id is required"}, status=400)
+            raise ValidationError("question_id is required")
 
         selected_answers = serializer.validated_data["selected_answers"]
         next_question_id = request.data.get("next_question", UNSET)
@@ -851,7 +858,9 @@ class QuizViewSet(viewsets.ModelViewSet):
                 next_question_id=next_question_id,
             )
         except QuizOperationError as exc:
-            return Response({"error": exc.message}, status=exc.status_code)
+            drf_exception = APIException(detail=exc.message)
+            drf_exception.status_code = exc.status_code
+            raise drf_exception
 
         return Response(AnswerRecordSerializer(result.record).data, status=201)
 
@@ -1009,22 +1018,19 @@ class ReportQuestionIssueView(APIView):
     def post(self, request):
         data = request.data
         if not data.get("quiz_id") or not data.get("question_id") or not data.get("issue"):
-            return Response({"error": "Missing data"}, status=400)
+            raise ValidationError("Missing data")
 
         quiz = Quiz.objects.get(id=data.get("quiz_id"))
         if not quiz:
-            return Response({"error": "Quiz not found"}, status=404)
+            raise NotFound("Quiz not found")
 
         if request.user == quiz.creator:
-            return Response(
-                {"error": "You cannot report issues with your own questions"},
-                status=400,
-            )
+            raise ValidationError("You cannot report issues with your own questions")
 
         try:
             question = Question.objects.get(id=data.get("question_id"), quiz=quiz)
         except Question.DoesNotExist:
-            return Response({"error": "Question not found"}, status=404)
+            raise NotFound("Question not found")
 
         subject = "Zgłoszenie błędu w pytaniu"
         query_params = urllib.parse.urlencode({"scroll_to": f"question-{question.id}"})
@@ -1052,7 +1058,7 @@ class ReportQuestionIssueView(APIView):
             )
         except Exception as e:
             logger.exception("Email sending failed: %s", str(e))
-            return Response({"error": "Email sending failed"}, status=500)
+            raise APIException("Email sending failed")
 
         return Response({"status": "ok"}, status=201)
 
@@ -1142,18 +1148,16 @@ class FolderViewSet(viewsets.ModelViewSet):
         folder = self.get_object()
 
         if folder.folder_type in Folder.PROTECTED_FOLDER_TYPES:
-            return Response(
-                {"error": f"Cannot move {folder.get_folder_type_display().lower()} folder."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+            raise PermissionDenied(f"Cannot move {folder.get_folder_type_display().lower()} folder.")
 
         serializer = self.get_serializer(data=request.data)
-        if serializer.is_valid():
-            folder.parent_id = serializer.validated_data["parent_id"]
-            folder.save()
-            return Response({"status": "Folder moved successfully"}, status=status.HTTP_200_OK)
 
-        return Response(serializer.errors, status=400)
+        serializer.is_valid(raise_exception=True)
+
+        folder.parent_id = serializer.validated_data["parent_id"]
+        folder.save()
+
+        return Response({"status": "Folder moved successfully"}, status=status.HTTP_200_OK)
 
 
 class QuizRatingViewSet(viewsets.ModelViewSet):
@@ -1357,9 +1361,7 @@ class LibraryView(APIView):
             folder_id = user.root_folder_id
 
         if not self._has_access(user, folder_id):
-            return Response(
-                {"error": "You do not have permission to access this folder"}, status=status.HTTP_403_FORBIDDEN
-            )
+            raise PermissionDenied("You do not have permission to access this folder")
 
         items = list(self._get_subfolders(user, folder_id)) + list(self._get_quizzes(user, folder_id))
         return Response(

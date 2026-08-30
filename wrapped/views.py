@@ -1,6 +1,7 @@
 from constance import config as constance_config
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -27,7 +28,7 @@ def _no_activity_payload(term, *, is_global: bool = False) -> dict:
 @api_view(["GET"])
 def get_wrapped(request: Request) -> Response:
     if not constance_config.WRAPPED_ENABLED:
-        return Response({"detail": "Wrapped is not available."}, status=404)
+        raise NotFound("Wrapped is not available.")
 
     report = (
         WrappedReport.objects.filter(user=request.user, is_global=False)
@@ -50,7 +51,7 @@ def get_wrapped(request: Request) -> Response:
 @permission_classes([AllowAny])
 def get_wrapped_global(request: Request) -> Response:
     if not constance_config.WRAPPED_ENABLED:
-        return Response({"detail": "Wrapped is not available."}, status=404)
+        raise NotFound("Wrapped is not available.")
 
     report = (
         WrappedReport.objects.filter(is_global=True)

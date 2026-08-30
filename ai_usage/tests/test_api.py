@@ -24,9 +24,20 @@ class AIUsageInternalAPITests(APITestCase):
     def setUp(self):
         self.user = User.objects.create_user(email="api-usage@example.com")
 
+    def assert_standardized_error(self, response, expected_type):
+        self.assertEqual(response.data["type"], expected_type)
+        self.assertIsInstance(response.data["errors"], list)
+        self.assertTrue(response.data["errors"])
+        for error in response.data["errors"]:
+            self.assertIn("code", error)
+            self.assertIn("detail", error)
+            self.assertIn("attr", error)
+        return response.data["errors"]
+
     def test_internal_check_rejects_missing_key(self):
         response = self.client.post("/api/ai/usage/check/", {"user_id": self.user.id}, format="json")
         self.assertEqual(response.status_code, 401)
+        self.assert_standardized_error(response, "client_error")
 
     def test_usage_history_admins_do_not_allow_deletion(self):
         self.assertFalse(AIUsageEventAdmin(AIUsageEvent, AdminSite()).has_delete_permission(None))
@@ -52,6 +63,7 @@ class AIUsageInternalAPITests(APITestCase):
             HTTP_API_KEY="żółw",
         )
         self.assertEqual(response.status_code, 401)
+        self.assert_standardized_error(response, "client_error")
 
     def test_internal_check_rejects_user_who_disabled_ai(self):
         UserSettings.objects.create(user=self.user, ai_disabled=True)
@@ -64,7 +76,8 @@ class AIUsageInternalAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.data["code"], "ai_disabled")
+        errors = self.assert_standardized_error(response, "client_error")
+        self.assertEqual(errors[0]["code"], "ai_disabled")
 
     def test_user_model_preference_uses_a_nullable_model_relation(self):
         self.client.force_authenticate(self.user)
@@ -99,12 +112,14 @@ class AIUsageInternalAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("default_ai_model", response.data)
+        errors = self.assert_standardized_error(response, "validation_error")
+        self.assertIn("default_ai_model", {error["attr"] for error in errors})
 
     def test_invalid_days_returns_400(self):
         self.client.force_authenticate(self.user)
         response = self.client.get("/api/ai/usage/me/?days=abc")
         self.assertEqual(response.status_code, 400)
+        self.assert_standardized_error(response, "validation_error")
 
     def test_admin_stats_include_pruned_daily_aggregates(self):
         self.user.is_superuser = True
@@ -158,6 +173,34 @@ class AIUsageInternalAPITests(APITestCase):
         self.assertEqual(second.status_code, 200)
         self.assertFalse(second.data["created"])
 
+    def test_report_rejects_request_id_owned_by_another_user(self):
+        other_user = User.objects.create_user(email="other-api-usage@example.com")
+        payload = {
+            "user_id": self.user.id,
+            "scope": "chat",
+            "model": "gpt-5.6-terra",
+            "request_id": "duplicate-across-users",
+        }
+        first = self.client.post(
+            "/api/ai/usage/report/",
+            payload,
+            format="json",
+            HTTP_API_KEY="internal-test-key",
+        )
+
+        payload["user_id"] = other_user.id
+        second = self.client.post(
+            "/api/ai/usage/report/",
+            payload,
+            format="json",
+            HTTP_API_KEY="internal-test-key",
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 400)
+        errors = self.assert_standardized_error(second, "validation_error")
+        self.assertEqual(errors[0]["detail"], "Unable to process the usage report.")
+
     def test_report_does_not_expose_internal_error_details(self):
         internal_detail = "database host and stack trace details"
         payload = {
@@ -176,7 +219,8 @@ class AIUsageInternalAPITests(APITestCase):
             )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.data, {"detail": "Unable to process the usage report."})
+        errors = self.assert_standardized_error(response, "validation_error")
+        self.assertEqual(errors[0]["detail"], "Unable to process the usage report.")
         self.assertNotIn(internal_detail, str(response.data))
 
     def test_report_rejects_non_object_metadata(self):
@@ -194,6 +238,7 @@ class AIUsageInternalAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+        self.assert_standardized_error(response, "validation_error")
 
     def test_report_uses_backend_provider_instead_of_client_metadata(self):
         response = self.client.post(
@@ -256,6 +301,7 @@ class AIUsageInternalAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+        self.assert_standardized_error(response, "validation_error")
 
     def test_quota_check_uses_default_when_requested_model_is_omitted(self):
         response = self.client.post(
@@ -280,6 +326,7 @@ class AIUsageInternalAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+        self.assert_standardized_error(response, "validation_error")
         self.assertFalse(AIUserLimitOverride.objects.filter(user=self.user).exists())
 
     def test_limit_caps_are_serialized_as_integers_and_reject_fractions(self):
@@ -306,6 +353,7 @@ class AIUsageInternalAPITests(APITestCase):
         self.assertEqual(basic_email["credits_session"], 123)
         self.assertIsInstance(basic_email["credits_session"], int)
         self.assertEqual(invalid_override.status_code, 400)
+        self.assert_standardized_error(invalid_override, "validation_error")
 
     def test_admin_users_searches_by_full_name(self):
         self.user.is_superuser = True
@@ -440,7 +488,8 @@ class AIUsageInternalAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("fallback_model", response.data)
+        errors = self.assert_standardized_error(response, "validation_error")
+        self.assertIn("fallback_model", {error["attr"] for error in errors})
 
     def test_settings_can_disable_fallback(self):
         self.user.is_superuser = True
@@ -476,7 +525,8 @@ class AIUsageInternalAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("fallback_max_output_tokens", response.data)
+        errors = self.assert_standardized_error(response, "validation_error")
+        self.assertIn("fallback_max_output_tokens", {error["attr"] for error in errors})
 
     def test_model_update_rejects_deactivating_configured_fallback(self):
         self.user.is_superuser = True
@@ -502,6 +552,7 @@ class AIUsageInternalAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+        self.assert_standardized_error(response, "validation_error")
         fallback.refresh_from_db()
         self.assertTrue(fallback.active)
 
@@ -526,6 +577,7 @@ class AIUsageInternalAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+        self.assert_standardized_error(response, "validation_error")
 
     def test_admin_can_add_model_for_supported_provider(self):
         self.user.is_superuser = True
@@ -604,7 +656,8 @@ class AIUsageInternalAPITests(APITestCase):
         response = self.client.delete(f"/api/ai/usage/admin/models/{settings.default_model_id}/")
 
         self.assertEqual(response.status_code, 400)
-        self.assertIn("detail", response.data)
+        errors = self.assert_standardized_error(response, "validation_error")
+        self.assertIn("detail", {error["attr"] for error in errors})
         self.assertTrue(AIModel.objects.filter(pk=settings.default_model_id).exists())
 
     def test_admin_model_deletion_does_not_expose_internal_error_details(self):
@@ -627,7 +680,8 @@ class AIUsageInternalAPITests(APITestCase):
             response = self.client.delete(f"/api/ai/usage/admin/models/{model.model}/")
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.data, {"detail": "Unable to delete this model."})
+        errors = self.assert_standardized_error(response, "validation_error")
+        self.assertEqual(errors[0]["detail"], "Unable to delete this model.")
         self.assertNotIn(internal_detail, str(response.data))
 
     def test_admin_can_update_model_identifier_containing_dots(self):

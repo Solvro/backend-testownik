@@ -1,6 +1,7 @@
 from django.utils.decorators import method_decorator
 from django_ratelimit.decorators import ratelimit
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -12,14 +13,11 @@ from users.services import migrate_guest_to_user
 from users.utils import send_login_email_to_user
 
 
-def _banned_user_response(user):
-    return Response(
-        {
-            "error": "user_banned",
-            "detail": "Your account has been banned.",
-            "ban_reason": user.ban_reason or "No reason provided",
-        },
-        status=403,
+def _raise_banned_user_error(user):
+    reason = user.ban_reason or "No reason provided"
+    raise PermissionDenied(
+        detail=f"Your account has been banned. Reason: {reason}",
+        code="user_banned",
     )
 
 
@@ -35,7 +33,7 @@ def _finalize_token_login(email_login_token, guest_id=""):
     email_login_token.delete()
 
     if user.is_banned:
-        return _banned_user_response(user)
+        _raise_banned_user_error(user)
 
     if guest_id:
         migrate_guest_to_user(guest_id, user)
@@ -127,9 +125,7 @@ class LoginOtpView(APIView):
                     "`OTP code expired or retries limit reached`"
                 )
             ),
-            403: OpenApiResponse(
-                description="You do not have permission to perform this action. (Rate limit exceeded)"
-            ),
+            403: OpenApiResponse(description="Rate limit exceeded or the account is banned."),
             404: OpenApiResponse(description="Not found."),
         },
         examples=[
@@ -142,25 +138,55 @@ class LoginOtpView(APIView):
             OpenApiExample(
                 "Error response (missing fields)",
                 response_only=True,
-                value={"error": "Email and OTP code must be provided"},
+                value={
+                    "type": "validation_error",
+                    "errors": [
+                        {
+                            "code": "invalid",
+                            "detail": "Email and OTP code must be provided",
+                            "attr": None,
+                        }
+                    ],
+                },
                 status_codes=["400"],
             ),
             OpenApiExample(
                 "Error response (invalid OTP)",
                 response_only=True,
-                value={"error": "Invalid OTP code"},
+                value={
+                    "type": "validation_error",
+                    "errors": [{"code": "invalid", "detail": "Invalid OTP code", "attr": None}],
+                },
                 status_codes=["400"],
             ),
             OpenApiExample(
                 "Error response (expired OTP)",
                 response_only=True,
-                value={"error": "OTP code expired or retries limit reached"},
+                value={
+                    "type": "validation_error",
+                    "errors": [
+                        {
+                            "code": "invalid",
+                            "detail": "OTP code expired or retries limit reached",
+                            "attr": None,
+                        }
+                    ],
+                },
                 status_codes=["400"],
             ),
             OpenApiExample(
                 "Error response (rate limit exceeded)",
                 response_only=True,
-                value={"detail": "You do not have permission to perform this action."},
+                value={
+                    "type": "client_error",
+                    "errors": [
+                        {
+                            "code": "permission_denied",
+                            "detail": "You do not have permission to perform this action.",
+                            "attr": None,
+                        }
+                    ],
+                },
                 status_codes=["403"],
             ),
         ],
@@ -172,18 +198,18 @@ class LoginOtpView(APIView):
         guest_id = request.data.get("guest_id", "")
 
         if not email or not otp_code:
-            return Response({"error": "Email and OTP code must be provided"}, status=400)
+            raise ValidationError("Email and OTP code must be provided")
 
         email_login_token = EmailLoginToken.objects.filter(user__email=email, otp_code=otp_code).first()
 
         if not email_login_token:
             for token in EmailLoginToken.objects.filter(user__email=email):
                 token.add_retry()
-            return Response({"error": "Invalid OTP code"}, status=400)
+            raise ValidationError("Invalid OTP code")
 
         if email_login_token.is_expired() or email_login_token.is_locked:
             email_login_token.delete()
-            return Response({"error": "OTP code expired or retries limit reached"}, status=400)
+            raise ValidationError("OTP code expired or retries limit reached")
 
         return _finalize_token_login(email_login_token, guest_id)
 
@@ -213,6 +239,7 @@ class LoginLinkView(APIView):
                 },
             },
             400: OpenApiResponse(description=("`Token not provided` | `Invalid or expired login link`")),
+            403: OpenApiResponse(description="The account is banned."),
             404: OpenApiResponse(description="Not found."),
         },
         examples=[
@@ -225,13 +252,25 @@ class LoginLinkView(APIView):
             OpenApiExample(
                 "Error response (missing token)",
                 response_only=True,
-                value={"error": "Token not provided"},
+                value={
+                    "type": "validation_error",
+                    "errors": [{"code": "invalid", "detail": "Token not provided", "attr": None}],
+                },
                 status_codes=["400"],
             ),
             OpenApiExample(
                 "Error response (invalid token)",
                 response_only=True,
-                value={"error": "Invalid or expired login link"},
+                value={
+                    "type": "validation_error",
+                    "errors": [
+                        {
+                            "code": "invalid",
+                            "detail": "Invalid or expired login link",
+                            "attr": None,
+                        }
+                    ],
+                },
                 status_codes=["400"],
             ),
         ],
@@ -241,13 +280,13 @@ class LoginLinkView(APIView):
         token = request.data.get("token")
         guest_id = request.data.get("guest_id", "")
         if not token:
-            return Response({"error": "Token not provided"}, status=400)
+            raise ValidationError("Token not provided")
 
         email_login_token = EmailLoginToken.objects.filter(token=token).first()
 
         if not email_login_token or email_login_token.is_expired() or email_login_token.is_locked:
             if email_login_token:
                 email_login_token.delete()
-            return Response({"error": "Invalid or expired login link"}, status=400)
+            raise ValidationError("Invalid or expired login link")
 
         return _finalize_token_login(email_login_token, guest_id)

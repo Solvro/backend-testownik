@@ -160,7 +160,8 @@ class CommentViewSetTestCase(TestCase):
             {"content": "Reply to a ghost", "parent": self.comment.id, "quiz": self.quiz.id},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("parent", response.data)
+        self.assertEqual(response.data["type"], "validation_error")
+        self.assertIn("parent", [e.get("attr") for e in response.data.get("errors", [])])
 
     def test_reply_to_reply_is_flattened_to_top_level(self):
         reply = Comment.objects.create(author=self.user, content="First reply", quiz=self.quiz, parent=self.comment)
@@ -181,4 +182,5 @@ class CommentViewSetTestCase(TestCase):
             {"content": "Cross-quiz question ref", "question": foreign_question.id, "quiz": self.quiz.id},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("question", response.data)
+        self.assertEqual(response.data["type"], "validation_error")
+        self.assertIn("question", [e.get("attr") for e in response.data.get("errors", [])])

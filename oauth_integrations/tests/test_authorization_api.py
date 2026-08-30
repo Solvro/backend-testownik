@@ -85,11 +85,12 @@ class OAuthAuthorizationAPITests(APITestCase):
             response = self.client.get(reverse("oauth_authorize_request"), params)
 
         self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["type"], "validation_error")
         self.assertEqual(
-            response.data["error"],
+            response.data["errors"][0]["detail"],
             "Unable to validate client metadata for the provided client_id.",
         )
-        self.assertNotIn("10.0.0.5", response.data["error"])
+        self.assertNotIn("10.0.0.5", response.data["errors"][0]["detail"])
 
     def test_authorization_request_approval_returns_redirect_url(self):
         self.client.force_authenticate(user=self.user)

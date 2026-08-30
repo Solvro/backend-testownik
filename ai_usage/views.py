@@ -2,7 +2,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -61,6 +61,11 @@ INTERNAL_API_KEY_HEADER = OpenApiParameter(
     description="Internal service API key.",
 )
 
+AI_ACCESS_DENIED_MESSAGES = {
+    "account_disabled": "This account is disabled.",
+    "ai_disabled": "AI features are disabled for this account.",
+}
+
 
 class AIUsagePagination(LimitOffsetPagination):
     default_limit = 50
@@ -94,7 +99,10 @@ class InternalQuotaCheckView(generics.GenericAPIView):
                 available_providers=serializer.validated_data.get("available_providers"),
             )
         except AIUsageAccessDenied as error:
-            return Response({"code": error.code}, status=status.HTTP_403_FORBIDDEN)
+            raise PermissionDenied(
+                detail=AI_ACCESS_DENIED_MESSAGES.get(error.code, "AI access denied."),
+                code=error.code,
+            ) from error
         response_status = (
             status.HTTP_409_CONFLICT
             if result["exceeded_window"] == "model_unavailable"
@@ -125,11 +133,8 @@ class InternalUsageReportView(generics.GenericAPIView):
         user = generics.get_object_or_404(User, pk=data.pop("user_id"))
         try:
             event, created = record_usage(user=user, **data)
-        except ValueError:
-            return Response(
-                {"detail": "Unable to process the usage report."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        except ValueError as error:
+            raise ValidationError("Unable to process the usage report.") from error
         result = UsageReportResultSerializer({"id": event.id, "credits": event.credits, "created": created})
         return Response(
             result.data,
@@ -273,8 +278,8 @@ class AdminModelViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         try:
             soft_delete_model(instance)
-        except ValueError:
-            raise ValidationError({"detail": "Unable to delete this model."}) from None
+        except ValueError as error:
+            raise ValidationError({"detail": "Unable to delete this model."}) from error
 
 
 class AdminSettingsView(generics.RetrieveUpdateAPIView):

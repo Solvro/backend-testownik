@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.utils.text import Truncator
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import permissions, status
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -58,10 +59,7 @@ class ImageUploadView(APIView):
     )
     def post(self, request, *args, **kwargs):
         if "image" not in request.FILES:
-            return Response(
-                {"error": "No image file provided. Use 'image' field in multipart form data."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise DRFValidationError("No image file provided. Use 'image' field in multipart form data.")
 
         image_file = request.FILES["image"]
 
@@ -74,17 +72,15 @@ class ImageUploadView(APIView):
                 image_file.name,
                 str(e),
             )
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise DRFValidationError("Invalid image file. Please check format, size, and dimensions.")
+
         except Exception:
             logger.exception(
                 "Image processing failed for user %s: %s",
                 request.user.id,
                 image_file.name,
             )
-            return Response(
-                {"error": "Image processing failed. Please try a different file."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise DRFValidationError("Image processing failed. Please try a different file.")
 
         uploaded_image = UploadedImage.objects.create(
             image=processed_file,

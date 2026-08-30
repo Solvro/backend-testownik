@@ -1,5 +1,6 @@
 from django.urls import reverse
 from rest_framework import status
+from rest_framework.exceptions import APIException
 from rest_framework.test import APITestCase
 
 from quizzes.models import Answer, Question, QuestionType, Quiz
@@ -238,16 +239,16 @@ class QuestionTypesTestCase(APITestCase):
             quiz=self.quiz, order=5, text="Pytanie bez odpowiedzi", question_type=QuestionType.OPEN
         )
 
-        response = self.client.post(
-            self.url,
-            {
-                "question_id": str(question.id),
-                "selected_answers": ["cokolwiek"],
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        with self.assertRaises(APIException) as context:
+            self.client.post(
+                self.url,
+                {
+                    "question_id": str(question.id),
+                    "selected_answers": ["cokolwiek"],
+                },
+                format="json",
+            )
+        self.assertEqual(context.exception.detail, "Question has no correct answer")
 
     # -------------------------
     # TRUE/FALSE
@@ -296,16 +297,16 @@ class QuestionTypesTestCase(APITestCase):
             quiz=self.quiz, order=6, text="Pytanie bez tf_answer", question_type=QuestionType.TRUE_FALSE, tf_answer=None
         )
 
-        response = self.client.post(
-            self.url,
-            {
-                "question_id": str(question.id),
-                "selected_answers": [True],
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        with self.assertRaises(APIException) as context:
+            self.client.post(
+                self.url,
+                {
+                    "question_id": str(question.id),
+                    "selected_answers": [True],
+                },
+                format="json",
+            )
+        self.assertEqual(context.exception.detail, "Question does not have tf answer")
 
     def test_tf_no_answers_in_database(self):
         """TRUE_FALSE nie powinno tworzyć rekordów Answer."""
