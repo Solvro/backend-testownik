@@ -427,3 +427,49 @@ class Comment(models.Model):
         self.is_deleted = True
         self.deleted_at = timezone.now()
         self.save(update_fields=["is_deleted", "deleted_at"])
+
+
+class QuestionChangeSuggestionStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    ACCEPTED = "accepted", "Accepted"
+    REJECTED = "rejected", "Rejected"
+    SUPERSEDED = "superseded", "Superseded"
+
+
+class QuestionChangeSuggestion(models.Model):
+    """
+    Proposed patch for a question, attached to a visible comment.
+
+    The payload stores the desired target state. If ``answers`` is present,
+    it is treated as the full target answer list for the question.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    comment = models.OneToOneField(Comment, on_delete=models.CASCADE, related_name="suggestion")
+    question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="change_suggestions")
+    payload = models.JSONField(default=dict)
+    base_quiz_version = models.PositiveIntegerField()
+    status = models.CharField(
+        max_length=16,
+        choices=QuestionChangeSuggestionStatus.choices,
+        default=QuestionChangeSuggestionStatus.PENDING,
+    )
+    resolved_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="resolved_question_suggestions",
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["status", "created_at"], name="qchangesug_status_created_idx"),
+        ]
+
+    def __str__(self):
+        return f"QuestionChangeSuggestion(id={self.id}, status={self.status})"

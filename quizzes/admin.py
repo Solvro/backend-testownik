@@ -13,8 +13,10 @@ from unfold.enums import ActionVariant
 from .models import (
     Answer,
     AnswerRecord,
+    Comment,
     Folder,
     Question,
+    QuestionChangeSuggestion,
     Quiz,
     QuizSession,
     SharedQuiz,
@@ -171,6 +173,24 @@ class SharedQuizAdmin(ModelAdmin):
         "study_group__name",
     ]
     autocomplete_fields = ["quiz", "user", "study_group"]
+
+
+@admin.register(Comment)
+class CommentAdmin(ModelAdmin):
+    list_display = ["quiz", "question", "author", "is_deleted", "created_at"]
+    list_filter = ["is_deleted", "created_at"]
+    search_fields = ["content", "quiz__title", "question__text", "author__email"]
+    autocomplete_fields = ["author", "parent", "quiz", "question"]
+    readonly_fields = ["created_at", "updated_at", "deleted_at"]
+
+
+@admin.register(QuestionChangeSuggestion)
+class QuestionChangeSuggestionAdmin(ModelAdmin):
+    list_display = ["question", "status", "resolved_by", "created_at", "resolved_at"]
+    list_filter = ["status", "created_at", "resolved_at"]
+    search_fields = ["question__text", "comment__content", "comment__quiz__title"]
+    autocomplete_fields = ["comment", "question", "resolved_by"]
+    readonly_fields = ["created_at", "updated_at", "resolved_at"]
 
 
 @admin.register(Folder)
