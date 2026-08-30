@@ -75,6 +75,7 @@ class LibraryTests(APITestCase):
 
         response = self.client.get(reverse("library-folder", kwargs={"folder_id": trash_folder.id}))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["type"], "client_error")
 
     def test_study_group_sharing(self):
         """Folder shared via study group is accessible."""
@@ -108,6 +109,8 @@ class LibraryTests(APITestCase):
         url = reverse("library-folder", kwargs={"folder_id": self.folder_main.id})
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["type"], "client_error")
+        self.assertEqual(response.data["errors"][0]["code"], "permission_denied")
 
     def test_cascading_access_to_subfolder(self):
         """Sharing a parent folder gives access to its subfolders without separate shares."""

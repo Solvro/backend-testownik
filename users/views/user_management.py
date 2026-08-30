@@ -78,7 +78,7 @@ class SettingsViewSet(
                     "initial_reoccurrences": 2,
                     "wrong_answer_reoccurrences": 1,
                     "ai_disabled": False,
-                    "default_ai_model": "gpt-5.4-mini",
+                    "default_ai_model": "gpt-5.6-luna",
                     "notify_quiz_shared": False,
                     "notify_bug_reported": True,
                     "notify_marketing": True,
@@ -267,7 +267,6 @@ class DeleteAccountView(APIView):
                 "properties": {
                     "transfer_to_user_id": {"type": "string", "format": "uuid"},
                 },
-                "required": [],
             }
         },
         responses={

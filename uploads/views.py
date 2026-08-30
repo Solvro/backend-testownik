@@ -59,10 +59,7 @@ class ImageUploadView(APIView):
     )
     def post(self, request, *args, **kwargs):
         if "image" not in request.FILES:
-            return Response(
-                {"error": "No image file provided. Use 'image' field in multipart form data."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise DRFValidationError("No image file provided. Use 'image' field in multipart form data.")
 
         image_file = request.FILES["image"]
 

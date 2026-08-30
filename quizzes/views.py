@@ -300,7 +300,8 @@ class SearchQuizzesView(APIView):
                 description="Comma-separated list of extra data to include. "
                 "Available options: 'user_settings', 'current_session'.",
                 many=True,
-                style="simple",
+                style="form",
+                explode=False,
                 enum=["user_settings", "current_session"],
             )
         ]
@@ -375,7 +376,8 @@ class QuizViewSet(viewsets.ModelViewSet):
                 location=OpenApiParameter.QUERY,
                 description="Comma-separated list of extra data to include. Available options: 'preview_question'.",
                 many=True,
-                style="simple",
+                style="form",
+                explode=False,
                 enum=["preview_question"],
             ),
         ],
@@ -1359,9 +1361,7 @@ class LibraryView(APIView):
             folder_id = user.root_folder_id
 
         if not self._has_access(user, folder_id):
-            return Response(
-                {"error": "You do not have permission to access this folder"}, status=status.HTTP_403_FORBIDDEN
-            )
+            raise PermissionDenied("You do not have permission to access this folder")
 
         items = list(self._get_subfolders(user, folder_id)) + list(self._get_quizzes(user, folder_id))
         return Response(

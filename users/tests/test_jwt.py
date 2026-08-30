@@ -424,8 +424,10 @@ class BannedUserTestCase(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("user_banned", str(response.data))
-        self.assertIn(self.banned_user.ban_reason, str(response.data))
+        self.assertEqual(response.data["type"], "client_error")
+        self.assertEqual(response.data["errors"][0]["code"], "user_banned")
+        self.assertIn(self.banned_user.ban_reason, response.data["errors"][0]["detail"])
+        self.assertIsNone(response.data["errors"][0]["attr"])
 
     def test_login_link_banned_user_returns_error(self):
         """Test that magic link login for banned user returns 403 and custom error."""
@@ -440,5 +442,7 @@ class BannedUserTestCase(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("user_banned", str(response.data))
-        self.assertIn(self.banned_user.ban_reason, str(response.data))
+        self.assertEqual(response.data["type"], "client_error")
+        self.assertEqual(response.data["errors"][0]["code"], "user_banned")
+        self.assertIn(self.banned_user.ban_reason, response.data["errors"][0]["detail"])
+        self.assertIsNone(response.data["errors"][0]["attr"])

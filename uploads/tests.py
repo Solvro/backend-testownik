@@ -163,7 +163,10 @@ class UploadFlowTests(APITestCase):
         response = self.client.post(self.upload_url, {}, format="multipart")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("error", response.data)
+        self.assertEqual(response.data["type"], "validation_error")
+        self.assertEqual(response.data["errors"][0]["code"], "invalid")
+        self.assertIn("No image file provided", response.data["errors"][0]["detail"])
+        self.assertIsNone(response.data["errors"][0]["attr"])
 
     def test_upload_file_too_large(self):
         """Test that files exceeding size limit are rejected."""

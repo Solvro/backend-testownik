@@ -3,11 +3,11 @@ import os
 
 import dotenv
 import requests
-from adrf.generics import GenericAPIView
 from django.utils.decorators import method_decorator
 from django_ratelimit.decorators import ratelimit
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework.exceptions import APIException
+from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
@@ -48,22 +48,21 @@ class FeedbackAddView(GenericAPIView):
         if N8N_WEBHOOK is None:
             raise APIException("Webhook not configured")
 
+        payload = serializer.validated_data
+        payload["secret"] = FEEDBACK_SECRET
+
         try:
-            payload = serializer.validated_data
-            payload["secret"] = FEEDBACK_SECRET
-
             response = requests.post(N8N_WEBHOOK, data=payload)
+        except requests.RequestException as error:
+            logger.exception("Unexpected error in feedback endpoint: %s", str(error))
+            raise APIException("Internal Server Error") from error
 
-            if response.ok:
-                return Response({"success": "Feedback sent successfully"})
-            else:
-                logger.error(
-                    "Error while sending feedback form: %s, %s",
-                    response.status_code,
-                    response.text,
-                )
-                raise APIException("Error while sending feedback form")
+        if response.ok:
+            return Response({"success": "Feedback sent successfully"})
 
-        except Exception as e:
-            logger.exception("Unexpected error in feedback endpoint: %s", str(e))
-            raise APIException("Internal Server Error")
+        logger.error(
+            "Error while sending feedback form: %s, %s",
+            response.status_code,
+            response.text,
+        )
+        raise APIException("Error while sending feedback form")
