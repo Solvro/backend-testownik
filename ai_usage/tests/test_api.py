@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.contrib.admin.sites import AdminSite
 from django.test import override_settings
 from django.utils import timezone
@@ -198,6 +200,28 @@ class AIUsageInternalAPITests(APITestCase):
         self.assertEqual(second.status_code, 400)
         errors = self.assert_standardized_error(second, "validation_error")
         self.assertEqual(errors[0]["detail"], "Unable to process the usage report.")
+
+    def test_report_does_not_expose_internal_error_details(self):
+        internal_detail = "database host and stack trace details"
+        payload = {
+            "user_id": self.user.id,
+            "scope": "chat",
+            "model": "gpt-5.6-terra",
+            "request_id": "internal-error-report",
+        }
+
+        with patch("ai_usage.views.record_usage", side_effect=ValueError(internal_detail)):
+            response = self.client.post(
+                "/api/ai/usage/report/",
+                payload,
+                format="json",
+                HTTP_API_KEY="internal-test-key",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        errors = self.assert_standardized_error(response, "validation_error")
+        self.assertEqual(errors[0]["detail"], "Unable to process the usage report.")
+        self.assertNotIn(internal_detail, str(response.data))
 
     def test_report_rejects_non_object_metadata(self):
         response = self.client.post(
@@ -635,6 +659,30 @@ class AIUsageInternalAPITests(APITestCase):
         errors = self.assert_standardized_error(response, "validation_error")
         self.assertIn("detail", {error["attr"] for error in errors})
         self.assertTrue(AIModel.objects.filter(pk=settings.default_model_id).exists())
+
+    def test_admin_model_deletion_does_not_expose_internal_error_details(self):
+        self.user.is_superuser = True
+        self.user.save(update_fields=("is_superuser",))
+        self.client.force_authenticate(self.user)
+        model = AIModel.objects.create(
+            model="gpt-delete-error",
+            label="GPT Delete Error",
+            provider="openai",
+            minimum_account_level="basic",
+            input_weight="1",
+            output_weight="1",
+            cached_weight="0",
+            active=True,
+        )
+        internal_detail = "database host and stack trace details"
+
+        with patch("ai_usage.views.soft_delete_model", side_effect=ValueError(internal_detail)):
+            response = self.client.delete(f"/api/ai/usage/admin/models/{model.model}/")
+
+        self.assertEqual(response.status_code, 400)
+        errors = self.assert_standardized_error(response, "validation_error")
+        self.assertEqual(errors[0]["detail"], "Unable to delete this model.")
+        self.assertNotIn(internal_detail, str(response.data))
 
     def test_admin_can_update_model_identifier_containing_dots(self):
         self.user.is_superuser = True
