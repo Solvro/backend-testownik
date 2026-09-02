@@ -13,11 +13,7 @@ def get_openai_client() -> OpenAI:
     return OpenAI(api_key=api_key)
 
 
-def generate_quiz(
-        chunk: str,
-        question_count: int = 3,
-        difficulty: str = "medium"
-        ) -> tuple[Quiz, dict]:
+def generate_quiz(chunk: str, question_count: int = 3, difficulty: str = "medium") -> tuple[Quiz, dict]:
     client = get_openai_client()
     base_prompt = PROMPT_QUIZ_GENERATOR
 
@@ -34,21 +30,16 @@ content:
 
     response = client.beta.chat.completions.parse(
         model=model_name,
-        messages=[
-            {"role": "system", "content": base_prompt},
-            {"role": "user", "content": prompt}
-            ],
-        response_format=Quiz
+        messages=[{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}],
+        response_format=Quiz,
     )
 
     usage_info = {
         "input_tokens": response.usage.prompt_tokens,
         "output_tokens": response.usage.completion_tokens,
-        "cached_tokens": getattr(
-            response.usage.prompt_tokens_details, "cached_tokens", 0
-            ) if hasattr(
-            response.usage, "prompt_tokens_details"
-            ) else 0,
+        "cached_tokens": getattr(response.usage.prompt_tokens_details, "cached_tokens", 0)
+        if hasattr(response.usage, "prompt_tokens_details")
+        else 0,
         "model": model_name,
     }
 
@@ -62,12 +53,12 @@ def fix_quiz(quiz: dict) -> dict:
             {
                 **q,
                 "id": str(uuid4()),
-                "order": i+1,
+                "order": i + 1,
                 "answers": [
                     {
                         **a,
                         "id": str(uuid4()),
-                        "order": j+1,
+                        "order": j + 1,
                     }
                     for j, a in enumerate(q.get("answers", []))
                 ],

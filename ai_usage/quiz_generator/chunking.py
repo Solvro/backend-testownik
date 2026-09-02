@@ -27,7 +27,7 @@ def chunk_by_tokens(blocks: list[str]) -> list[dict]:
             encoded = enc.encode(block)
 
             for i in range(0, len(encoded), SLICE_TOKENS):
-                slice_tokens = encoded[i:i + SLICE_TOKENS]
+                slice_tokens = encoded[i : i + SLICE_TOKENS]
                 slice_text = enc.decode(slice_tokens)
 
                 chunks.append({"text": slice_text})

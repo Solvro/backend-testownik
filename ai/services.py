@@ -803,14 +803,7 @@ def _message_text(content):
     )
 
 
-def generate_json_quiz_from_pdf(
-        *,
-        user,
-        pdf_file,
-        question_count=10,
-        difficulty="medium",
-        request_id
-        ):
+def generate_json_quiz_from_pdf(*, user, pdf_file, question_count=10, difficulty="medium", request_id):
 
     # read PDF file and chunk it
     check_file_size(pdf_file)
@@ -836,7 +829,7 @@ def generate_json_quiz_from_pdf(
         metadata={
             "question_count": question_count,
             "difficulty": difficulty,
-        }
+        },
     )
 
     return final_quiz
