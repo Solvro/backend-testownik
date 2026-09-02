@@ -44,7 +44,11 @@ content:
     usage_info = {
         "input_tokens": response.usage.prompt_tokens,
         "output_tokens": response.usage.completion_tokens,
-        "cached_tokens": getattr(response.usage.prompt_tokens_details, "cached_tokens", 0) if hasattr(response.usage, "prompt_tokens_details") else 0,
+        "cached_tokens": getattr(
+            response.usage.prompt_tokens_details, "cached_tokens", 0
+            ) if hasattr(
+            response.usage, "prompt_tokens_details"
+            ) else 0,
         "model": model_name,
     }
 
