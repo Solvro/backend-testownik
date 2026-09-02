@@ -1,5 +1,7 @@
+from django.http.multipartparser import MultiPartParser
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from python_multipart import FormParser
 from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -37,6 +39,7 @@ from .serializers import (
     AIUserLimitOverrideResponseSerializer,
     AIUserLimitOverrideSerializer,
     AvailableAIModelsSerializer,
+    GenerateQuizFromPDFSerializer,
     InternalQuotaCheckSerializer,
     InternalUsageReportSerializer,
     MyUsageQuerySerializer,
@@ -51,6 +54,7 @@ from .services import (
     record_usage,
     reset_all_limits,
     soft_delete_model,
+    generate_quiz_from_pdf,
 )
 
 INTERNAL_API_KEY_HEADER = OpenApiParameter(
@@ -351,3 +355,29 @@ class AdminStatsView(generics.GenericAPIView):
         query = AdminStatsQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         return Response(self.get_serializer(get_admin_stats(**query.validated_data)).data)
+
+
+class GenerateQuizView(generics.GenericAPIView):
+    permission_classes = (IsAuthenticated,)
+    serializer_class = GenerateQuizFromPDFSerializer
+    parser_classes = (MultiPartParser, FormParser)
+
+    @extend_schema(
+        request=GenerateQuizFromPDFSerializer,
+    )
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        data = serializer.validated_data
+
+        try:
+            quiz_json = generate_quiz_from_pdf(
+                pdf_file=data["pdf_file"],
+                question_count=data["question_count"],
+                difficulty=data["difficulty"],
+                request_id=data["request_id"],
+            )
+            return Response(quiz_json, status=status.HTTP_200_OK)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)

@@ -15,7 +15,7 @@ def read_pdf(file_obj: UploadedFile) -> str:
     return "\n\n".join(text)
 
 
-def check_file_size(file_obj: UploadedFile, max_mb: int = 15):
+def check_file_size(file_obj: UploadedFile, max_mb: int = 10):
     size_mb = file_obj.size / (1024 * 1024)
 
     if size_mb > max_mb:

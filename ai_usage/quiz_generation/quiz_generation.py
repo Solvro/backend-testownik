@@ -17,7 +17,7 @@ def generate_quiz(
         chunk: str,
         question_count: int = 3,
         difficulty: str = "medium"
-        ) -> Quiz:
+        ) -> tuple[Quiz, dict]:
     client = get_openai_client()
     base_prompt = PROMPT_QUIZ_GENERATOR
 
@@ -30,8 +30,10 @@ content:
 {chunk}
 """
 
+    model_name = getattr(settings, "OPENAI_QUIZ_MODEL", "gpt-4o-mini")
+
     response = client.beta.chat.completions.parse(
-        model="gpt-4o-mini",
+        model=model_name,
         messages=[
             {"role": "system", "content": base_prompt},
             {"role": "user", "content": prompt}
@@ -39,7 +41,14 @@ content:
         response_format=Quiz
     )
 
-    return response.choices[0].message.parsed
+    usage_info = {
+        "input_tokens": response.usage.prompt_tokens,
+        "output_tokens": response.usage.completion_tokens,
+        "cached_tokens": getattr(response.usage.prompt_tokens_details, "cached_tokens", 0) if hasattr(response.usage, "prompt_tokens_details") else 0,
+        "model": model_name,
+    }
+
+    return response.choices[0].message.parsed, usage_info
 
 
 def fix_quiz(quiz: dict) -> dict:
