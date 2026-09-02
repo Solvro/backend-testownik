@@ -810,24 +810,72 @@ def generate_json_quiz_from_pdf(*, user, pdf_file, question_count=10, difficulty
     text = read_pdf(pdf_file)
     blocks = [b.strip() for b in text.replace("\r", "").split("\n\n") if b.strip()]
     chunks = chunk_by_tokens(blocks)
-    full_content = "\n\n".join(c["text"] for c in chunks)
+
+    total_chunks = len(chunks)
+    if total_chunks == 0:
+        raise ValueError("No readable content found.")
+
+    all_questions = []
 
     # generate quiz
-    generated_quiz, usage_info = generate_quiz(full_content, question_count, difficulty)
+    aggregated_usage = {
+        "model": None,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cached_tokens": 0,
+    }
 
-    quiz_dict = generated_quiz.model_dump()
-    final_quiz = fix_quiz(quiz_dict)
+    base_questions_per_chunk = question_count // total_chunks
+    leftovers = question_count % total_chunks
+
+    for chunk in chunks:
+        questions_to_generate = base_questions_per_chunk
+
+        if leftovers > 0:
+            questions_to_generate += 1
+            leftovers -= 1
+
+        if questions_to_generate == 0:
+            continue
+
+        generated_quiz, usage_info = generate_quiz(
+            chunk["text"], questions_to_generate, difficulty
+        )
+
+        quiz_dict = (
+            generated_quiz.model_dump()
+            if hasattr(generated_quiz, "model_dump")
+            else generated_quiz
+            )
+
+        questions = quiz_dict.get("questions", [])
+        all_questions.extend(questions)
+
+        if usage_info:
+            aggregated_usage["model"] = usage_info.get("model", aggregated_usage["model"])
+            aggregated_usage["input_tokens"] += usage_info.get("input_tokens", 0)
+            aggregated_usage["output_tokens"] += usage_info.get("output_tokens", 0)
+            aggregated_usage["cached_tokens"] += usage_info.get("cached_tokens", 0)
+
+    raw_quiz = {
+        "title": "Generated Quiz",
+        "description": "This quiz was generated from the provided PDF content.",
+        "version": "1.0",
+        "questions": all_questions,
+    }
+
+    final_quiz = fix_quiz(raw_quiz)
 
     record_usage(
         user=user,
         scope=AIUsageScope.QUIZ_GENERATION,
-        model=usage_info["model"],
-        input_tokens=usage_info.get("input_tokens", 0),
-        output_tokens=usage_info.get("output_tokens", 0),
-        cached_tokens=usage_info.get("cached_tokens", 0),
+        model=aggregated_usage["model"],
+        input_tokens=aggregated_usage["input_tokens"],
+        output_tokens=aggregated_usage["output_tokens"],
+        cached_tokens=aggregated_usage["cached_tokens"],
         request_id=request_id,
         metadata={
-            "question_count": question_count,
+            "question_count": len(all_questions),
             "difficulty": difficulty,
         },
     )
