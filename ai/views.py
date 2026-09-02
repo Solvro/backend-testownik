@@ -50,7 +50,7 @@ from .services import (
     AIUsageAccessDenied,
     available_models_for_user,
     check_quota,
-    generate_quiz_from_pdf,
+    generate_json_quiz_from_pdf,
     get_usage_summary,
     record_usage,
     reset_all_limits,
@@ -372,7 +372,8 @@ class GenerateQuizView(generics.GenericAPIView):
         data = serializer.validated_data
 
         try:
-            quiz_json = generate_quiz_from_pdf(
+            quiz_json = generate_json_quiz_from_pdf(
+                user=self.request.user,
                 pdf_file=data["pdf_file"],
                 question_count=data["question_count"],
                 difficulty=data["difficulty"],
