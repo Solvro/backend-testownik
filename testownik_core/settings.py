@@ -72,6 +72,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 # OpenAI API key
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_QUIZ_MODEL = os.getenv("OPENAI_QUIZ_MODEL", "gpt-4o-mini")
 
 # Application definition
 

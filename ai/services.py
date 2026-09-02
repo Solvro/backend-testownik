@@ -26,6 +26,9 @@ from .models import (
     AIUsageSettings,
     AIUserLimitOverride,
 )
+from .quiz_generator.chunking import chunk_by_tokens
+from .quiz_generator.pdf_reading import check_file_size, read_pdf
+from .quiz_generator.quiz_generation import fix_quiz, generate_quiz
 
 logger = logging.getLogger(__name__)
 SESSION_WINDOW = timedelta(hours=5)
@@ -798,3 +801,42 @@ def _message_text(content):
         for text in (part.get("text"),)
         if isinstance(text, str)
     )
+
+
+def generate_json_quiz_from_pdf(
+        *,
+        user,
+        pdf_file,
+        question_count=10,
+        difficulty="medium",
+        request_id
+        ):
+
+    # read PDF file and chunk it
+    check_file_size(pdf_file)
+    text = read_pdf(pdf_file)
+    blocks = [b.strip() for b in text.replace("\r", "").split("\n\n") if b.strip()]
+    chunks = chunk_by_tokens(blocks)
+    full_content = "\n\n".join(c["text"] for c in chunks)
+
+    # generate quiz
+    generated_quiz, usage_info = generate_quiz(full_content, question_count, difficulty)
+
+    quiz_dict = generated_quiz.model_dump()
+    final_quiz = fix_quiz(quiz_dict)
+
+    record_usage(
+        user=user,
+        scope=AIUsageScope.QUIZ_GENERATION,
+        model=usage_info["model"],
+        input_tokens=usage_info.get("input_tokens", 0),
+        output_tokens=usage_info.get("output_tokens", 0),
+        cached_tokens=usage_info.get("cached_tokens", 0),
+        request_id=request_id,
+        metadata={
+            "question_count": question_count,
+            "difficulty": difficulty,
+        }
+    )
+
+    return final_quiz
