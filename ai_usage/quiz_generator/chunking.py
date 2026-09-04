@@ -1,6 +1,5 @@
-from tiktoken import encoding_for_model
 from django.conf import settings
-
+from tiktoken import encoding_for_model
 
 # tokenizer
 
