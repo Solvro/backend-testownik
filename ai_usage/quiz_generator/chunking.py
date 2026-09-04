@@ -37,7 +37,7 @@ def chunk_by_tokens(blocks: list[str]) -> list[dict]:
             step = SLICE_TOKENS - TOKEN_OVERLAP
 
             for i in range(0, len(encoded), step):
-                slice_tokens = encoded[i: i + SLICE_TOKENS]
+                slice_tokens = encoded[i : i + SLICE_TOKENS]
                 slice_text = enc.decode(slice_tokens)
 
                 chunks.append({"text": slice_text})

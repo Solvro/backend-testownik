@@ -838,15 +838,9 @@ def generate_json_quiz_from_pdf(*, user, pdf_file, question_count=10, difficulty
         if questions_to_generate == 0:
             continue
 
-        generated_quiz, usage_info = generate_quiz(
-            chunk["text"], questions_to_generate, difficulty
-        )
+        generated_quiz, usage_info = generate_quiz(chunk["text"], questions_to_generate, difficulty)
 
-        quiz_dict = (
-            generated_quiz.model_dump()
-            if hasattr(generated_quiz, "model_dump")
-            else generated_quiz
-            )
+        quiz_dict = generated_quiz.model_dump() if hasattr(generated_quiz, "model_dump") else generated_quiz
 
         questions = quiz_dict.get("questions", [])
         all_questions.extend(questions)
