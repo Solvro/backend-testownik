@@ -29,7 +29,7 @@ from unfold.admin import ModelAdmin, StackedInline
 
 from oauth_integrations.models import OAuthApplicationMetadata
 
-from .models import EmailLoginToken, StudyGroup, Term, User, UserSettings
+from .models import CourseClassType, EmailLoginToken, StudyGroup, Term, User, UserSettings
 
 
 class UserSettingsInline(StackedInline):
@@ -141,6 +141,13 @@ class TermAdmin(ModelAdmin):
     list_filter = ["start_date", "end_date", "finish_date"]
     search_fields = ["id", "name"]
     date_hierarchy = "start_date"
+
+
+@admin.register(CourseClassType)
+class CourseClassTypeAdmin(ModelAdmin):
+    list_display = ["id", "name_pl", "name_en", "synced_at"]
+    search_fields = ["id", "name_pl", "name_en"]
+    readonly_fields = ["synced_at"]
 
 
 @admin.register(EmailLoginToken)

@@ -179,8 +179,8 @@ def _validate_fetch_url(client_id_url: str) -> ValidatedFetchURL:
         raise CIMDError("CIMD client_id must not include user info.")
     if parsed.fragment:
         raise CIMDError("CIMD client_id must not include a fragment.")
-    if parsed.params or parsed.query:
-        raise CIMDError("CIMD client_id metadata URL must not include params or a query string.")
+    if parsed.params:
+        raise CIMDError("CIMD client_id metadata URL must not include params.")
     if parsed.path in ("", "/"):
         raise CIMDError("CIMD client_id must point to a metadata document path.")
     if _path_contains_dot_segment(parsed.path):

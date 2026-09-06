@@ -281,7 +281,7 @@ class QuizSession(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="sessions")
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="quiz_sessions")
-    started_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     ended_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
@@ -326,7 +326,7 @@ class AnswerRecord(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     session = models.ForeignKey(QuizSession, on_delete=models.CASCADE, related_name="answers")
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="answer_records")
-    answered_at = models.DateTimeField(auto_now_add=True)
+    answered_at = models.DateTimeField(auto_now_add=True, db_index=True)
     selected_answers = models.JSONField(
         default=list
     )  # List of Answer UUIDs for Closed questions, free-form text for OPEN, booelan values for TRUE_FALSE
