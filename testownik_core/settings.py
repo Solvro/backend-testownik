@@ -92,6 +92,7 @@ INSTALLED_APPS = [
     "oauth_integrations.apps.OAuthIntegrationsConfig",
     "uploads.apps.UploadsConfig",
     "blog.apps.BlogConfig",
+    "ai_usage.apps.AIUsageConfig",
     "constance",
     "constance.backends.database",
     "rest_framework",
@@ -157,7 +158,7 @@ REST_FRAMEWORK = {
     ],
 }
 
-if os.getenv("JWT_SECRET") is None:
+if os.getenv("JWT_SECRET") is None and not DEBUG:
     logger.warning("JWT_SECRET is not set in the environment, fallback to SECRET_KEY")
     logger.warning("This is not recommended for production")
 
