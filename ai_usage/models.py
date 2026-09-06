@@ -79,7 +79,11 @@ class AIModel(models.Model):
     )
     input_weight = models.DecimalField(max_digits=12, decimal_places=6, validators=[MinValueValidator(0)])
     output_weight = models.DecimalField(max_digits=12, decimal_places=6, validators=[MinValueValidator(0)])
-    cached_weight = models.DecimalField(max_digits=12, decimal_places=6, validators=[MinValueValidator(0)])
+    cache_read_weight = models.DecimalField(max_digits=12, decimal_places=6, validators=[MinValueValidator(0)])
+    cache_write_weight = models.DecimalField(
+        max_digits=12, decimal_places=6, default=1, validators=[MinValueValidator(0)]
+    )
+    order = models.PositiveIntegerField(default=0)
     active = models.BooleanField(default=True)
     deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -88,7 +92,7 @@ class AIModel(models.Model):
 
     class Meta:
         verbose_name_plural = "AI models"
-        ordering = ("provider", "model")
+        ordering = ("order", "provider", "model")
 
     def __str__(self):
         return self.label
@@ -207,7 +211,8 @@ class AIUsageEvent(models.Model):
     model = models.ForeignKey(AIModel, on_delete=models.PROTECT, related_name="usage_events")
     input_tokens = models.PositiveBigIntegerField(default=0)
     output_tokens = models.PositiveBigIntegerField(default=0)
-    cached_tokens = models.PositiveBigIntegerField(default=0)
+    cache_read_tokens = models.PositiveBigIntegerField(default=0)
+    cache_write_tokens = models.PositiveBigIntegerField(default=0)
     credits = models.DecimalField(max_digits=18, decimal_places=6)
     conversation = models.ForeignKey(
         AIChatConversation, on_delete=models.SET_NULL, null=True, blank=True, related_name="usage_events"
@@ -278,7 +283,8 @@ class AIUsageDailyAggregate(models.Model):
     model = models.ForeignKey(AIModel, on_delete=models.PROTECT, related_name="daily_aggregates")
     input_tokens = models.PositiveBigIntegerField(default=0)
     output_tokens = models.PositiveBigIntegerField(default=0)
-    cached_tokens = models.PositiveBigIntegerField(default=0)
+    cache_read_tokens = models.PositiveBigIntegerField(default=0)
+    cache_write_tokens = models.PositiveBigIntegerField(default=0)
     credits = models.DecimalField(max_digits=20, decimal_places=6, default=0)
     event_count = models.PositiveBigIntegerField(default=0)
     aborted_count = models.PositiveBigIntegerField(default=0)

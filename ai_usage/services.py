@@ -52,7 +52,7 @@ def _decimal(value) -> Decimal:
 
 
 def available_models_for_account_level(account_level):
-    return AIModel.objects.available_for_account_level(account_level).order_by("provider", "model")
+    return AIModel.objects.available_for_account_level(account_level).order_by("order", "provider", "model")
 
 
 def available_models_for_user(user):
@@ -268,7 +268,7 @@ def _reserve_fallback_grant(user, model, throttle_seconds, *, since=None):
 def _resolve_active_model(user, requested_model, settings, available_providers=None):
     active_models = {
         model.model: model
-        for model in AIModel.objects.filter(active=True, deleted_at__isnull=True).order_by("provider", "model")
+        for model in AIModel.objects.filter(active=True, deleted_at__isnull=True).order_by("order", "provider", "model")
         if available_providers is None or model.provider in available_providers
     }
     eligible_models = {
@@ -696,7 +696,8 @@ def record_usage(
     model,
     input_tokens=0,
     output_tokens=0,
-    cached_tokens=0,
+    cache_read_tokens=0,
+    cache_write_tokens=0,
     request_id,
     conversation_id=None,
     quiz_id=None,
@@ -712,7 +713,8 @@ def record_usage(
     credits = (
         _decimal(input_tokens) * pricing.input_weight
         + _decimal(output_tokens) * pricing.output_weight
-        + _decimal(cached_tokens) * pricing.cached_weight
+        + _decimal(cache_read_tokens) * pricing.cache_read_weight
+        + _decimal(cache_write_tokens) * pricing.cache_write_weight
     )
     if quiz_id:
         try:
@@ -735,7 +737,8 @@ def record_usage(
                     "model": pricing,
                     "input_tokens": max(0, input_tokens),
                     "output_tokens": max(0, output_tokens),
-                    "cached_tokens": max(0, cached_tokens),
+                    "cache_read_tokens": max(0, cache_read_tokens),
+                    "cache_write_tokens": max(0, cache_write_tokens),
                     "credits": credits,
                     "quiz_id": quiz_id,
                     "aborted": aborted,

@@ -114,7 +114,7 @@ class AIUsageServicesTests(TestCase):
                 "provider": "openai",
                 "input_weight": 1,
                 "output_weight": 3,
-                "cached_weight": Decimal("0.25"),
+                "cache_read_weight": Decimal("0.25"),
             },
         )
         event, created = record_usage(
@@ -123,7 +123,7 @@ class AIUsageServicesTests(TestCase):
             model="test-model",
             input_tokens=10,
             output_tokens=5,
-            cached_tokens=4,
+            cache_read_tokens=4,
             request_id="same-request",
         )
         duplicate, duplicate_created = record_usage(
@@ -235,7 +235,7 @@ class AIUsageServicesTests(TestCase):
                 "provider": "openai",
                 "input_weight": 1,
                 "output_weight": 50,
-                "cached_weight": 1,
+                "cache_read_weight": 1,
                 "active": True,
             },
         )
@@ -260,7 +260,7 @@ class AIUsageServicesTests(TestCase):
                 "provider": "openai",
                 "input_weight": 10,
                 "output_weight": 10,
-                "cached_weight": 1,
+                "cache_read_weight": 1,
                 "active": True,
             },
         )
@@ -289,7 +289,7 @@ class AIUsageServicesTests(TestCase):
                 "provider": "openai",
                 "input_weight": 1,
                 "output_weight": 1,
-                "cached_weight": 0,
+                "cache_read_weight": 0,
                 "active": True,
             },
         )
@@ -401,7 +401,7 @@ class AIUsageServicesTests(TestCase):
                 "provider": "openai",
                 "input_weight": 1,
                 "output_weight": 0,
-                "cached_weight": 0,
+                "cache_read_weight": 0,
                 "active": True,
             },
         )
@@ -885,6 +885,7 @@ class AIUsageServicesTests(TestCase):
             credits=Decimal("5"),
             input_tokens=3,
             request_id="old-rollup",
+            cache_write_tokens=4,
         )
         old_time = timezone.now() - timedelta(days=2)
         AIUsageEvent.objects.filter(pk=event.pk).update(created_at=old_time)
@@ -895,6 +896,7 @@ class AIUsageServicesTests(TestCase):
             model_id="gpt-5.6-terra",
             credits=Decimal("7"),
             input_tokens=2,
+            cache_write_tokens=6,
             event_count=1,
         )
 
@@ -908,6 +910,7 @@ class AIUsageServicesTests(TestCase):
         )
         self.assertEqual(aggregate.credits, Decimal("12"))
         self.assertEqual(aggregate.input_tokens, 5)
+        self.assertEqual(aggregate.cache_write_tokens, 10)
         self.assertEqual(aggregate.event_count, 2)
 
     def test_inactive_model_is_removed_and_cannot_be_used_as_fallback(self):
@@ -919,7 +922,7 @@ class AIUsageServicesTests(TestCase):
                 "provider": "openai",
                 "input_weight": 1,
                 "output_weight": 1,
-                "cached_weight": 1,
+                "cache_read_weight": 1,
                 "active": True,
             },
         )

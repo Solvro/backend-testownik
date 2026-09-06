@@ -19,7 +19,8 @@ PRUNE_ADVISORY_LOCK_ID = 0x41495553414745
 AGGREGATE_TOTAL_FIELDS = (
     "input_tokens",
     "output_tokens",
-    "cached_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
     "credits",
     "event_count",
     "aborted_count",
@@ -105,7 +106,8 @@ class Command(BaseCommand):
         rows = old_events.values("user_id", "created_at__date", "scope", "model").annotate(
             input_tokens=Sum("input_tokens"),
             output_tokens=Sum("output_tokens"),
-            cached_tokens=Sum("cached_tokens"),
+            cache_read_tokens=Sum("cache_read_tokens"),
+            cache_write_tokens=Sum("cache_write_tokens"),
             credits=Sum("credits"),
             event_count=Count("id"),
             aborted_count=Count("id", filter=Q(aborted=True)),

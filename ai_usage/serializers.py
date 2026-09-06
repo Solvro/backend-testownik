@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import Max
 from rest_framework import serializers
 
 from .models import (
@@ -84,21 +85,44 @@ class AIUserLimitOverrideResponseSerializer(serializers.Serializer):
     updated_at = serializers.DateTimeField(required=False)
 
 
+def update_model_row(model, data):
+    """Rename the catalog key and all foreign keys in the caller's transaction."""
+    old_id = model.pk
+    new_id = data.get("model", old_id)
+    if data.get("provider", model.provider) != model.provider:
+        raise serializers.ValidationError({"provider": "A model provider cannot be changed after creation."})
+    if new_id != old_id and AIModel.objects.filter(pk=new_id).exists():
+        raise serializers.ValidationError({"model": "A model with this identifier already exists."})
+    for field, value in data.items():
+        if field != "original_model":
+            setattr(model, field, value)
+    model.full_clean()
+    if new_id == old_id:
+        model.save()
+        return model
+    # Create the target first so every FK stays valid even on immediate-constraint databases.
+    model.save(force_insert=True)
+    for relation in AIModel._meta.related_objects:
+        field = relation.field.attname
+        relation.related_model.objects.filter(**{field: old_id}).update(**{field: new_id})
+    AIModel.objects.filter(pk=old_id).delete()
+    return model
+
+
 class AIModelListSerializer(BulkUpsertListSerializer):
     identity_fields = ("model",)
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
-        settings = AIUsageSettings.load()
-        protected_models = {settings.default_model_id, settings.fallback_model_id}
-        if any(item["model"] in protected_models and item.get("active", True) is False for item in attrs):
-            raise serializers.ValidationError("Change the default or fallback model before deactivating it.")
+        originals = [item.get("original_model", item["model"]) for item in attrs]
+        if len(set(originals)) != len(originals):
+            raise serializers.ValidationError("Duplicate original models.")
         return attrs
 
     @transaction.atomic
     def create(self, validated_data):
         settings = AIUsageSettings.objects.select_for_update().get(pk=1)
-        model_ids = [item["model"] for item in validated_data]
+        model_ids = [item.get("original_model", item["model"]) for item in validated_data]
         existing_models = {
             model.model: model for model in AIModel.objects.select_for_update().filter(model__in=model_ids)
         }
@@ -112,35 +136,34 @@ class AIModelListSerializer(BulkUpsertListSerializer):
                 f"Unknown or deleted models: {', '.join(unavailable_ids)}. Add new models separately."
             )
         protected_models = {settings.default_model_id, settings.fallback_model_id}
-        if any(item["model"] in protected_models and item.get("active", True) is False for item in validated_data):
-            raise serializers.ValidationError("Change the default or fallback model before deactivating it.")
-        rows = []
-        for item in validated_data:
-            model = existing_models[item["model"]]
-            if item["provider"] != model.provider:
-                raise serializers.ValidationError(
-                    {item["model"]: {"provider": "A model provider cannot be changed after creation."}}
-                )
-            for field, value in item.items():
-                if field not in {"model", "provider"}:
-                    setattr(model, field, value)
-            model.full_clean()
-            model.save()
-            rows.append(model)
-        return rows
+        # Validate all identities before writing, including collisions with deleted/reserved codes.
+        for item, original in zip(validated_data, model_ids, strict=True):
+            if original in protected_models and item.get("active", existing_models[original].active) is False:
+                raise serializers.ValidationError("Change the default or fallback model before deactivating it.")
+            if item["model"] != original and AIModel.objects.filter(pk=item["model"]).exists():
+                raise serializers.ValidationError({"model": "A model with this identifier already exists."})
+        return [
+            update_model_row(existing_models[original], item)
+            for item, original in zip(validated_data, model_ids, strict=True)
+        ]
 
 
 class AIModelSerializer(serializers.ModelSerializer):
+    original_model = serializers.CharField(max_length=100, required=False, write_only=True)
+
     class Meta:
         model = AIModel
         fields = (
             "model",
+            "original_model",
             "label",
             "provider",
             "minimum_account_level",
             "input_weight",
             "output_weight",
-            "cached_weight",
+            "cache_read_weight",
+            "cache_write_weight",
+            "order",
             "active",
             "updated_at",
         )
@@ -158,19 +181,22 @@ class AIModelSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
-        active = attrs.get("active", getattr(self.instance, "active", True))
-        model = attrs.get("model", getattr(self.instance, "model", None))
-        if active is False and model is not None:
-            settings = AIUsageSettings.load()
-            if model in {settings.default_model_id, settings.fallback_model_id}:
-                raise serializers.ValidationError(
-                    {"active": "Change the default or fallback model before deactivating it."}
-                )
-        if self.instance is not None and "model" in attrs and attrs["model"] != self.instance.model:
-            raise serializers.ValidationError({"model": "A model identifier cannot be changed after creation."})
-        if self.instance is not None and "provider" in attrs and attrs["provider"] != self.instance.provider:
-            raise serializers.ValidationError({"provider": "A model provider cannot be changed after creation."})
+        original = attrs.get("original_model")
+        if (
+            original is not None
+            and not isinstance(self.parent, AIModelListSerializer)
+            and (self.instance is None or original != self.instance.pk)
+        ):
+            raise serializers.ValidationError({"original_model": "Original model does not match this record."})
         return attrs
+
+    @transaction.atomic
+    def create(self, validated_data):
+        AIUsageSettings.objects.select_for_update().get(pk=1)
+        last_order = AIModel.objects.aggregate(value=Max("order"))["value"]
+        validated_data.setdefault("order", 0 if last_order is None else last_order + 1)
+        validated_data.setdefault("cache_write_weight", validated_data["input_weight"])
+        return super().create(validated_data)
 
     @transaction.atomic
     def update(self, instance, validated_data):
@@ -183,7 +209,7 @@ class AIModelSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"active": "Change the default or fallback model before deactivating it."}
             )
-        return super().update(model, validated_data)
+        return update_model_row(model, validated_data)
 
 
 class AIUsageSettingsSerializer(serializers.ModelSerializer):
@@ -258,7 +284,8 @@ class AIUsageEventSerializer(serializers.ModelSerializer):
             "provider",
             "input_tokens",
             "output_tokens",
-            "cached_tokens",
+            "cache_read_tokens",
+            "cache_write_tokens",
             "credits",
             "conversation",
             "quiz",
@@ -311,7 +338,8 @@ class InternalUsageReportSerializer(serializers.Serializer):
     model = serializers.CharField(max_length=100)
     input_tokens = serializers.IntegerField(min_value=0, default=0)
     output_tokens = serializers.IntegerField(min_value=0, default=0)
-    cached_tokens = serializers.IntegerField(min_value=0, default=0)
+    cache_read_tokens = serializers.IntegerField(min_value=0, default=0)
+    cache_write_tokens = serializers.IntegerField(min_value=0, default=0)
     request_id = serializers.CharField(max_length=100)
     conversation_id = serializers.UUIDField(required=False, allow_null=True)
     quiz_id = serializers.UUIDField(required=False, allow_null=True)
@@ -429,7 +457,8 @@ class AdminStatsTotalsSerializer(serializers.Serializer):
     credits = CompactDecimalField(max_digits=20, decimal_places=6)
     input_tokens = serializers.IntegerField(min_value=0)
     output_tokens = serializers.IntegerField(min_value=0)
-    cached_tokens = serializers.IntegerField(min_value=0)
+    cache_read_tokens = serializers.IntegerField(min_value=0)
+    cache_write_tokens = serializers.IntegerField(min_value=0)
     events = serializers.IntegerField(min_value=0)
     aborted = serializers.IntegerField(min_value=0)
     errors = serializers.IntegerField(min_value=0)

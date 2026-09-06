@@ -9,13 +9,15 @@ from ai_usage.admin import AIChatConversationAdmin, AIChatMessageInline, AIReadO
 from ai_usage.models import (
     AIAccountLimit,
     AIChatConversation,
+    AIChatMessage,
+    AIFallbackGrant,
     AIModel,
     AIUsageDailyAggregate,
     AIUsageEvent,
     AIUsageSettings,
     AIUserLimitOverride,
 )
-from ai_usage.serializers import AIUsageSettingsSerializer
+from ai_usage.serializers import AIModelSerializer, AIUsageSettingsSerializer
 from users.models import User, UserSettings
 
 
@@ -415,7 +417,7 @@ class AIUsageInternalAPITests(APITestCase):
                     "minimum_account_level": "gold",
                     "input_weight": "2.5",
                     "output_weight": "15",
-                    "cached_weight": "0.25",
+                    "cache_read_weight": "0.25",
                 }
             ],
             format="json",
@@ -494,7 +496,7 @@ class AIUsageInternalAPITests(APITestCase):
                     "minimum_account_level": fallback.minimum_account_level,
                     "input_weight": str(fallback.input_weight),
                     "output_weight": str(fallback.output_weight),
-                    "cached_weight": str(fallback.cached_weight),
+                    "cache_read_weight": str(fallback.cache_read_weight),
                     "active": False,
                 }
             ],
@@ -516,7 +518,7 @@ class AIUsageInternalAPITests(APITestCase):
             "minimum_account_level": "gold",
             "input_weight": "2.5",
             "output_weight": "15",
-            "cached_weight": "0.25",
+            "cache_read_weight": "0.25",
         }
 
         response = self.client.put(
@@ -541,7 +543,7 @@ class AIUsageInternalAPITests(APITestCase):
                 "minimum_account_level": "basic",
                 "input_weight": "0.3",
                 "output_weight": "1.5",
-                "cached_weight": "0.03",
+                "cache_read_weight": "0.03",
                 "active": True,
             },
             format="json",
@@ -569,7 +571,7 @@ class AIUsageInternalAPITests(APITestCase):
             minimum_account_level="basic",
             input_weight="1",
             output_weight="1",
-            cached_weight="0",
+            cache_read_weight="0",
             active=True,
         )
         user_settings = UserSettings.objects.create(user=self.user, default_ai_model=model)
@@ -618,7 +620,7 @@ class AIUsageInternalAPITests(APITestCase):
             minimum_account_level="basic",
             input_weight="1",
             output_weight="1",
-            cached_weight="0",
+            cache_read_weight="0",
             active=True,
         )
         internal_detail = "database host and stack trace details"
@@ -641,7 +643,7 @@ class AIUsageInternalAPITests(APITestCase):
             minimum_account_level="basic",
             input_weight="1",
             output_weight="1",
-            cached_weight="0",
+            cache_read_weight="0",
             active=False,
         )
 
@@ -653,3 +655,102 @@ class AIUsageInternalAPITests(APITestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["label"], "GPT Preview")
+
+
+@override_settings(INTERNAL_API_KEY="internal-test-key")
+class AIModelEditingTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(email="model-editor@example.com", is_superuser=True)
+        self.client.force_authenticate(self.user)
+
+    def test_rename_preserves_all_relations_and_credits(self):
+        settings = AIUsageSettings.load()
+        old = settings.default_model
+        settings.fallback_model = old
+        settings.save()
+        preference = UserSettings.objects.create(user=self.user, default_ai_model=old)
+        event = AIUsageEvent.objects.create(user=self.user, scope="chat", model=old, credits="12.5")
+        aggregate = AIUsageDailyAggregate.objects.create(
+            user=self.user, date=timezone.localdate(), scope="chat", model=old, credits="7"
+        )
+        grant = AIFallbackGrant.objects.create(user=self.user, model=old)
+        conversation = AIChatConversation.objects.create(user=self.user)
+        message = AIChatMessage.objects.create(conversation=conversation, role="assistant", model=old, order=0)
+        row = dict(AIModelSerializer(old).data)
+        row.update(original_model=old.pk, model="renamed-model", cache_write_weight="1.25")
+        response = self.client.put("/api/ai/usage/admin/models/bulk/", [row], format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertFalse(AIModel.objects.filter(pk=old.pk).exists())
+        for record in (event, aggregate, grant, message):
+            record.refresh_from_db()
+            self.assertEqual(record.model_id, "renamed-model")
+        self.assertEqual(str(event.credits), "12.500000")
+        self.assertEqual(str(aggregate.credits), "7.000000")
+        settings.refresh_from_db()
+        preference.refresh_from_db()
+        self.assertEqual(settings.default_model_id, "renamed-model")
+        self.assertEqual(settings.fallback_model_id, "renamed-model")
+        self.assertEqual(preference.default_ai_model_id, "renamed-model")
+
+    def test_single_model_patch_can_rename(self):
+        old = AIUsageSettings.load().default_model_id
+        response = self.client.patch(f"/api/ai/usage/admin/models/{old}/", {"model": "patched-code"}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(AIUsageSettings.load().default_model_id, "patched-code")
+
+    def test_rename_collision_rolls_back_other_changes(self):
+        rows = list(AIModel.objects.not_deleted()[:2])
+        first = dict(AIModelSerializer(rows[0]).data)
+        first["label"] = "Must not be saved"
+        second = dict(AIModelSerializer(rows[1]).data)
+        second.update(original_model=rows[1].pk, model=rows[0].pk)
+        response = self.client.put("/api/ai/usage/admin/models/bulk/", [first, second], format="json")
+        self.assertEqual(response.status_code, 400)
+        rows[0].refresh_from_db()
+        self.assertNotEqual(rows[0].label, "Must not be saved")
+
+    def test_renaming_cannot_bypass_protected_model_check(self):
+        old = AIUsageSettings.load().default_model
+        row = dict(AIModelSerializer(old).data)
+        row.update(original_model=old.pk, model="disabled-renamed", active=False)
+        response = self.client.put("/api/ai/usage/admin/models/bulk/", [row], format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(AIModel.objects.filter(pk="disabled-renamed").exists())
+
+    def test_saved_order_is_used_by_admin_and_model_picker(self):
+        models = list(AIModel.objects.not_deleted())[::-1]
+        rows = [{**AIModelSerializer(model).data, "order": index} for index, model in enumerate(models)]
+        response = self.client.put("/api/ai/usage/admin/models/bulk/", rows, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        admin = self.client.get("/api/ai/usage/admin/models/")
+        self.assertEqual([row["model"] for row in admin.data], [model.pk for model in models])
+        catalog = self.client.get("/api/ai/models/")
+        allowed = {row["model"] for row in catalog.data["models"]}
+        self.assertEqual([row["model"] for row in catalog.data["models"]], [m.pk for m in models if m.pk in allowed])
+
+    def test_cache_write_rate_is_validated_and_used_in_reports(self):
+        model = AIUsageSettings.load().default_model
+        response = self.client.patch(
+            f"/api/ai/usage/admin/models/{model.pk}/",
+            {"input_weight": "10", "output_weight": "50", "cache_read_weight": "1", "cache_write_weight": "12.5"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        report = {
+            "user_id": str(self.user.pk),
+            "scope": "chat",
+            "model": model.pk,
+            "request_id": "cache-write-report",
+            "input_tokens": 100,
+            "output_tokens": 10,
+            "cache_read_tokens": 200,
+            "cache_write_tokens": 40,
+        }
+        response = self.client.post("/api/ai/usage/report/", report, format="json", HTTP_API_KEY="internal-test-key")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["credits"], "2200")
+        self.assertEqual(AIUsageEvent.objects.get(request_id=report["request_id"]).cache_write_tokens, 40)
+        negative = self.client.patch(
+            f"/api/ai/usage/admin/models/{model.pk}/", {"cache_write_weight": "-1"}, format="json"
+        )
+        self.assertEqual(negative.status_code, 400)
