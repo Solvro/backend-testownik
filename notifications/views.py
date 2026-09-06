@@ -20,11 +20,11 @@ class NotificationViewSet(
 
     This ViewSet allows authenticated frontend users to read and manage their notifications.
     Notifications are created by other apps via :func:`notifications.utils.send_notification`
-    and this endpoint provides read-only access (with the ability to mark them as read).
+    and this endpoint lets users read them and toggle their own read/unread status.
 
     Available actions:
     - GET: Retrieve user's notifications
-    - PATCH: Update notification status (mark as read)
+    - PATCH: Set is_read to true (read) or false (unread)
     - mark-all-read: Custom action to mark all unread notifications as read
     """
 

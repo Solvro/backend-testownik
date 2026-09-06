@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from notifications.models import Notification, NotificationType
+from notifications.models import DeliveryStatus, Notification, NotificationType
 
 User = get_user_model()
 
@@ -75,6 +75,22 @@ class NotificationViewSetAPITestCase(APITestCase):
         response = self.client.get(self._detail_url(self.other_users_notification))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_delivery_errors_are_hidden_from_list_and_detail(self):
+        internal_error = "SMTP authentication failed on internal-mail.example:587"
+        self.own_unread.delivery_status = DeliveryStatus.FAILED
+        self.own_unread.delivery_error = internal_error
+        self.own_unread.save(update_fields=["delivery_status", "delivery_error"])
+
+        for url in (self.LIST_URL, self._detail_url(self.own_unread)):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200)
+                self.assertNotIn("delivery_error", str(response.data))
+                self.assertNotIn(internal_error, str(response.data))
+
+        self.own_unread.refresh_from_db()
+        self.assertEqual(self.own_unread.delivery_error, internal_error)
+
     # --- Filtering ---------------------------------------------------------
 
     def test_filter_by_is_read(self):
@@ -92,6 +108,23 @@ class NotificationViewSetAPITestCase(APITestCase):
 
         self.own_unread.refresh_from_db()
         self.assertTrue(self.own_unread.is_read)
+
+    def test_patch_can_mark_own_notification_unread(self):
+        response = self.client.patch(self._detail_url(self.own_read), {"is_read": False}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.own_read.refresh_from_db()
+        self.assertFalse(self.own_read.is_read)
+
+    def test_patch_cannot_mark_another_users_notification_unread(self):
+        self.other_users_notification.is_read = True
+        self.other_users_notification.save(update_fields=["is_read"])
+
+        response = self.client.patch(self._detail_url(self.other_users_notification), {"is_read": False}, format="json")
+
+        self.assertEqual(response.status_code, 404)
+        self.other_users_notification.refresh_from_db()
+        self.assertTrue(self.other_users_notification.is_read)
 
     def test_patch_cannot_change_read_only_fields(self):
         response = self.client.patch(

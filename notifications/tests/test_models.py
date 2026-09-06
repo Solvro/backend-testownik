@@ -97,6 +97,23 @@ class SendNotificationUtilTestCase(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(email="user@example.com", password="pass123")
 
+    def test_invalid_notification_type_does_not_persist_or_send(self):
+        with patch("notifications.utils.send_email") as mocked_send_email:
+            for invalid_type in ("emali", "", None):
+                with self.subTest(notification_type=invalid_type), self.assertRaises(ValueError):
+                    send_notification(user=self.user, title="Title", content="Body", notification_type=invalid_type)
+
+            mocked_send_email.assert_not_called()
+        self.assertFalse(Notification.objects.exists())
+
+    def test_email_type_string_is_accepted(self):
+        with patch("notifications.utils.send_email", return_value=True) as mocked_send_email:
+            notification = send_notification(user=self.user, title="Title", content="Body", notification_type="email")
+
+        mocked_send_email.assert_called_once()
+        self.assertEqual(notification.notification_type, NotificationType.EMAIL)
+        self.assertEqual(notification.delivery_status, DeliveryStatus.DELIVERED)
+
     def test_in_app_notification_is_persisted_only(self):
         with patch("notifications.utils.send_email") as mocked_send_email:
             notification = send_notification(

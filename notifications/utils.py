@@ -39,12 +39,16 @@ def send_notification(
 
     Any e-mail transport failure is recorded on the notification itself
     (``delivery_status`` + ``delivery_error``) so it can be inspected from the
-    admin / API instead of being silently lost. If ``fail_silently`` is ``False``
+    admin instead of being silently lost. Raw delivery errors are not exposed
+    through the user-facing API. Invalid notification types raise ``ValueError``
+    before a record is created or a transport is called. If ``fail_silently`` is ``False``
     the underlying exception is re-raised AFTER the failure is persisted.
 
     Returns:
         The created :class:`Notification` instance.
     """
+
+    notification_type = NotificationType(notification_type)
 
     initial_status = (
         DeliveryStatus.DELIVERED if notification_type == NotificationType.IN_APP else DeliveryStatus.PENDING
