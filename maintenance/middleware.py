@@ -15,6 +15,8 @@ class MaintenanceModeMiddleware:
             request.path.startswith("/api/admin/")
             or request.path.startswith("/api/login/")
             or request.path.startswith("/api/authorize/")
+            # Public blog content stays reachable during maintenance (SEO / news).
+            or request.path.startswith("/api/blog/")
         ):
             return self.get_response(request)
 
