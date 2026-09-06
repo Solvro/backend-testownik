@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("ai_usage", "0002_seed_ai_configuration"),
+        ("ai", "0002_seed_ai_configuration"),
     ]
 
     operations = [

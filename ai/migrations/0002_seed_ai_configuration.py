@@ -21,9 +21,9 @@ AI_MODELS = {
 
 
 def seed_ai_configuration(apps, schema_editor):
-    ai_model = apps.get_model("ai_usage", "AIModel")
-    account_limit = apps.get_model("ai_usage", "AIAccountLimit")
-    usage_settings = apps.get_model("ai_usage", "AIUsageSettings")
+    ai_model = apps.get_model("ai", "AIModel")
+    account_limit = apps.get_model("ai", "AIAccountLimit")
+    usage_settings = apps.get_model("ai", "AIUsageSettings")
 
     for model, (
         label,
@@ -74,7 +74,7 @@ def seed_ai_configuration(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ai_usage", "0001_initial"),
+        ("ai", "0001_initial"),
     ]
 
     # Seeded models can be referenced by usage history through protected foreign

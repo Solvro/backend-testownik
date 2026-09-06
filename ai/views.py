@@ -191,8 +191,8 @@ class AdminPermissionsView(generics.GenericAPIView):
     def get(self, request):
         user = request.user
         permissions = {
-            "view_stats": user.is_superuser or user.has_perm("ai_usage.view_ai_usage_stats"),
-            "manage_limits": user.is_superuser or user.has_perm("ai_usage.manage_ai_limits"),
+            "view_stats": user.is_superuser or user.has_perm("ai.view_ai_usage_stats"),
+            "manage_limits": user.is_superuser or user.has_perm("ai.manage_ai_limits"),
         }
         return Response(self.get_serializer(permissions).data)
 

@@ -7,7 +7,7 @@ from rest_framework_simplejwt.serializers import (
 )
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from ai_usage.models import AIModel
+from ai.models import AIModel
 from users.models import StudyGroup, Term, User, UserSettings
 
 

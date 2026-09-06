@@ -8,7 +8,7 @@ from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from ai_usage.models import (
+from ai.models import (
     AIAccountLimit,
     AIChatConversation,
     AIChatMessage,
@@ -19,7 +19,7 @@ from ai_usage.models import (
     AIUsageSettings,
     AIUserLimitOverride,
 )
-from ai_usage.services import (
+from ai.services import (
     SESSION_WINDOW,
     AIUsageAccessDenied,
     _reset_at,
@@ -145,7 +145,7 @@ class AIUsageServicesTests(TestCase):
             "conversation_id": conversation_id,
             "messages": [{"role": "user", "content": "Repair me"}],
         }
-        with patch("ai_usage.services._attach_conversation", return_value=None):
+        with patch("ai.services._attach_conversation", return_value=None):
             first, created = record_usage(**payload)
 
         duplicate, duplicate_created = record_usage(**payload)
@@ -579,10 +579,7 @@ class AIUsageServicesTests(TestCase):
 
         self.assertTrue(quota["allowed"])
         self.assertFalse(
-            any(
-                'ORDER BY "ai_usage_aiusageevent"."created_at" ASC' in query["sql"]
-                for query in queries.captured_queries
-            )
+            any('ORDER BY "ai_aiusageevent"."created_at" ASC' in query["sql"] for query in queries.captured_queries)
         )
 
     def test_exhausted_user_receives_unlimited_throttled_fallback_hints(self):

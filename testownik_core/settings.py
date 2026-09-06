@@ -93,7 +93,7 @@ INSTALLED_APPS = [
     "oauth_integrations.apps.OAuthIntegrationsConfig",
     "uploads.apps.UploadsConfig",
     "blog.apps.BlogConfig",
-    "ai_usage.apps.AIUsageConfig",
+    "ai.apps.AIConfig",
     "constance",
     "constance.backends.database",
     "rest_framework",

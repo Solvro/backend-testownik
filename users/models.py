@@ -213,7 +213,7 @@ class UserSettings(models.Model):
     # ai settings
     ai_disabled = models.BooleanField(default=False)
     default_ai_model = models.ForeignKey(
-        "ai_usage.AIModel",
+        "ai.AIModel",
         on_delete=models.SET_NULL,
         related_name="preferred_by_user_settings",
         null=True,

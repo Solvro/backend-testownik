@@ -5,7 +5,7 @@ from django.db import connection, transaction
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
-from ai_usage.models import (
+from ai.models import (
     AIChatConversation,
     AIFallbackGrant,
     AIUsageDailyAggregate,

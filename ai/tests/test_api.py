@@ -5,8 +5,8 @@ from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
-from ai_usage.admin import AIChatConversationAdmin, AIChatMessageInline, AIReadOnlyAdmin, AIUsageEventAdmin
-from ai_usage.models import (
+from ai.admin import AIChatConversationAdmin, AIChatMessageInline, AIReadOnlyAdmin, AIUsageEventAdmin
+from ai.models import (
     AIAccountLimit,
     AIChatConversation,
     AIChatMessage,
@@ -17,7 +17,7 @@ from ai_usage.models import (
     AIUsageSettings,
     AIUserLimitOverride,
 )
-from ai_usage.serializers import AIModelSerializer, AIUsageSettingsSerializer
+from ai.serializers import AIModelSerializer, AIUsageSettingsSerializer
 from users.models import User, UserSettings
 
 
@@ -169,7 +169,7 @@ class AIUsageInternalAPITests(APITestCase):
             "request_id": "internal-error-report",
         }
 
-        with patch("ai_usage.views.record_usage", side_effect=ValueError(internal_detail)):
+        with patch("ai.views.record_usage", side_effect=ValueError(internal_detail)):
             response = self.client.post(
                 "/api/ai/usage/report/",
                 payload,
@@ -625,7 +625,7 @@ class AIUsageInternalAPITests(APITestCase):
         )
         internal_detail = "database host and stack trace details"
 
-        with patch("ai_usage.views.soft_delete_model", side_effect=ValueError(internal_detail)):
+        with patch("ai.views.soft_delete_model", side_effect=ValueError(internal_detail)):
             response = self.client.delete(f"/api/ai/usage/admin/models/{model.model}/")
 
         self.assertEqual(response.status_code, 400)

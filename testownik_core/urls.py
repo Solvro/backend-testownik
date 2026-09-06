@@ -91,7 +91,7 @@ base_urlpatterns = [
     path("", include("feedback.urls")),
     path("", include("uploads.urls")),
     path("", include("blog.urls")),
-    path("", include("ai_usage.urls")),
+    path("", include("ai.urls")),
     # OAuth 2.0
     path("oauth/authorize/request/", AuthorizationRequestAPIView.as_view(), name="oauth_authorize_request"),
     path("oauth/", include("oauth2_provider.urls", namespace="oauth2_provider")),
