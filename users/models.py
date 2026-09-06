@@ -78,11 +78,11 @@ class User(AbstractBaseUser, PermissionsMixin):
         default=AccountLevel.BASIC,
         help_text="Represents the user's account level tier",
     )
-    student_number = models.CharField(max_length=6)
+    student_number = models.CharField(max_length=6, blank=True)
     usos_id = models.IntegerField(null=True, blank=True)
-    first_name = models.CharField(max_length=30)
+    first_name = models.CharField(max_length=30, blank=True)
     last_name = models.CharField(
-        max_length=51
+        max_length=51, blank=True
     )  # 51 is the maximum length of a last name in polish: "Czartoryski Rostworowski-Mycielski Anderson Scimone"
     sex = models.CharField(max_length=1, choices=[(x.value, x.name) for x in Sex], null=True, blank=True)
     student_status = models.IntegerField(choices=[(x.value, x.name) for x in StudentStatus], null=True, blank=True)
