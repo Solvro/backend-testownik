@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import InvalidToken
 from rest_framework_simplejwt.serializers import (
@@ -6,6 +7,7 @@ from rest_framework_simplejwt.serializers import (
 )
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from ai_usage.models import AIModel
 from users.models import StudyGroup, Term, User, UserSettings
 
 
@@ -126,6 +128,13 @@ class PublicUserSerializer(serializers.ModelSerializer):
 
 
 class UserSettingsSerializer(serializers.ModelSerializer):
+    default_ai_model = serializers.SlugRelatedField(
+        slug_field="model",
+        queryset=AIModel.objects.filter(active=True, deleted_at__isnull=True),
+        allow_null=True,
+        required=False,
+    )
+
     class Meta:
         model = UserSettings
         fields = [
@@ -133,6 +142,7 @@ class UserSettingsSerializer(serializers.ModelSerializer):
             "initial_reoccurrences",
             "wrong_answer_reoccurrences",
             "ai_disabled",
+            "default_ai_model",
             "notify_quiz_shared",
             "notify_bug_reported",
             "notify_marketing",
@@ -148,6 +158,34 @@ class UserSettingsSerializer(serializers.ModelSerializer):
         if value < 0:
             raise serializers.ValidationError("Wrong answer repetitions must be ≥ 0")
         return value
+
+    def validate_default_ai_model(self, value):
+        if value is None:
+            return None
+        request = self.context.get("request")
+        if (
+            request is None
+            or not AIModel.objects.available_for_account_level(request.user.account_level).filter(pk=value.pk).exists()
+        ):
+            raise serializers.ValidationError("Select an active model available for your account.")
+        return value
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        selected_model = validated_data.get("default_ai_model")
+        if selected_model is not None:
+            selected_model = (
+                AIModel.objects.select_for_update()
+                .available_for_account_level(self.context["request"].user.account_level)
+                .filter(pk=selected_model.pk)
+                .first()
+            )
+            if selected_model is None:
+                raise serializers.ValidationError(
+                    {"default_ai_model": "Select an active model available for your account."}
+                )
+            validated_data["default_ai_model"] = selected_model
+        return super().update(instance, validated_data)
 
 
 class TermSerializer(serializers.ModelSerializer):

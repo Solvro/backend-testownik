@@ -1,15 +1,13 @@
 import logging
-import random
 import urllib.parse
 import uuid
-from datetime import timedelta
 
 from django.conf import settings
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Avg, Count, Prefetch, Q
 from django.utils import timezone
 from django.utils.html import escape
+from django.utils.module_loading import import_string
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
@@ -17,11 +15,13 @@ from drf_spectacular.utils import (
     extend_schema,
     extend_schema_view,
 )
+from oauth2_provider.contrib.rest_framework import OAuth2Authentication
 from rest_framework import generics, mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import (
     AuthenticationFailed,
     MethodNotAllowed,
+    NotAuthenticated,
     NotFound,
     PermissionDenied,
     ValidationError,
@@ -33,18 +33,19 @@ from rest_framework.views import APIView
 
 from quizzes.models import (
     Answer,
-    AnswerRecord,
     Comment,
     Folder,
     FolderType,
     Question,
-    QuestionType,
     Quiz,
     QuizRating,
     QuizSession,
     SharedQuiz,
 )
 from quizzes.permissions import (
+    DELETED_OWNER_QUIZ_MESSAGE,
+    DELETED_QUIZ_MESSAGE,
+    HasOAuthQuizScopeForMethods,
     IsCommentAuthorOrReadOnly,
     IsFolderOwner,
     IsQuestionReadable,
@@ -55,6 +56,7 @@ from quizzes.permissions import (
     IsSharedQuizCreatorOrReadOnly,
     accessible_quizzes_q,
     is_internal_api_request,
+    quiz_is_deleted,
     user_has_quiz_read_access,
 )
 from quizzes.serializers import (
@@ -78,10 +80,17 @@ from quizzes.serializers import (
     SharedQuizSerializer,
 )
 from quizzes.services.metadata import get_preview_question
-from quizzes.services.normalizer import normalize
 from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
+)
+from quizzes.services.operations import (
+    UNSET,
+    QuizOperationError,
+    get_random_recent_question,
+    grouped_search_quizzes,
+    record_quiz_answer,
+    reset_readable_session,
 )
 from quizzes.services.stats import (
     get_quiz_hardest_questions,
@@ -98,6 +107,13 @@ from users.models import AccountType
 logger = logging.getLogger(__name__)
 
 ALLOWED_STATS_SCOPES = {"me", "all"}
+
+
+def resolve_default_authentication_classes():
+    configured_classes = settings.REST_FRAMEWORK.get("DEFAULT_AUTHENTICATION_CLASSES", [])
+    return [
+        import_string(auth_class) if isinstance(auth_class, str) else auth_class for auth_class in configured_classes
+    ]
 
 
 def resolve_stats_scope_user(request, quiz):
@@ -158,26 +174,10 @@ class RandomQuestionView(APIView):
         ],
     )
     def get(self, request):
-        recent_quiz_ids = list(
-            QuizSession.objects.filter(
-                user=request.user,
-                is_active=True,
-                started_at__gte=timezone.now() - timedelta(days=90),
-            ).values_list("quiz_id", flat=True)
-        )
-
-        if not recent_quiz_ids:
-            return Response({"error": "No quizzes found"}, status=404)
-        total_questions = Question.objects.filter(quiz_id__in=recent_quiz_ids).count()
-        if total_questions == 0:
-            return Response({"error": "No quizzes found"}, status=404)
-
-        random_offset = random.randint(0, total_questions - 1)
-        random_question = (
-            Question.objects.filter(quiz_id__in=recent_quiz_ids)
-            .select_related("quiz")
-            .prefetch_related("answers")[random_offset]
-        )
+        try:
+            random_question = get_random_recent_question(request.user)
+        except QuizOperationError as exc:
+            return Response({"error": exc.message}, status=exc.status_code)
 
         return Response(
             {
@@ -209,7 +209,11 @@ class LastUsedQuizzesView(generics.ListAPIView):
         user = self.request.user
         user_ratings = Prefetch("ratings", queryset=QuizRating.objects.filter(user=user), to_attr="_user_rating")
         return (
-            Quiz.objects.filter(sessions__user=user, sessions__is_active=True)
+            Quiz.objects.filter(
+                sessions__user=user,
+                sessions__is_active=True,
+            )
+            .exclude(folder__folder_type=FolderType.TRASH)
             .select_related("creator", "folder", "folder__owner")
             .annotate(
                 questions_count=Count("questions", distinct=True),
@@ -255,33 +259,25 @@ class SearchQuizzesView(APIView):
         if not query:
             return Response({"error": "Query parameter is required"}, status=400)
 
-        user_quizzes = Quiz.objects.filter(creator=request.user, title__icontains=query).select_related("creator")
-        shared_quizzes = SharedQuiz.objects.filter(
-            user=request.user, quiz__title__icontains=query, quiz__visibility__gte=1
-        ).select_related("quiz__creator")
-        group_quizzes = SharedQuiz.objects.filter(
-            study_group__in=request.user.study_groups.all(),
-            quiz__title__icontains=query,
-            quiz__visibility__gte=1,
-        ).select_related("quiz__creator")
-
+        grouped_quizzes = grouped_search_quizzes(
+            request.user,
+            query,
+            include_public=request.user.account_type == AccountType.STUDENT,
+        )
         result = {
-            "user_quizzes": QuizSearchResultSerializer(user_quizzes, many=True, context={"request": request}).data,
+            "user_quizzes": QuizSearchResultSerializer(
+                grouped_quizzes["user_quizzes"], many=True, context={"request": request}
+            ).data,
             "shared_quizzes": QuizSearchResultSerializer(
-                [q.quiz for q in shared_quizzes], many=True, context={"request": request}
+                grouped_quizzes["shared_quizzes"], many=True, context={"request": request}
             ).data,
             "group_quizzes": QuizSearchResultSerializer(
-                [q.quiz for q in group_quizzes], many=True, context={"request": request}
+                grouped_quizzes["group_quizzes"], many=True, context={"request": request}
+            ).data,
+            "public_quizzes": QuizSearchResultSerializer(
+                grouped_quizzes["public_quizzes"], many=True, context={"request": request}
             ).data,
         }
-
-        if request.user.account_type == AccountType.STUDENT:
-            public_quizzes = Quiz.objects.filter(title__icontains=query, visibility__gte=3).select_related("creator")
-            result["public_quizzes"] = QuizSearchResultSerializer(
-                public_quizzes, many=True, context={"request": request}
-            ).data
-        else:
-            result["public_quizzes"] = []
 
         return Response(result)
 
@@ -310,8 +306,13 @@ class SearchQuizzesView(APIView):
 class QuizViewSet(viewsets.ModelViewSet):
     queryset = Quiz.objects.all()
     serializer_class = QuizSerializer
+    authentication_classes = [
+        OAuth2Authentication,
+        *resolve_default_authentication_classes(),
+    ]
     permission_classes = [
         permissions.IsAuthenticatedOrReadOnly,
+        HasOAuthQuizScopeForMethods,
         IsQuizCreatorOrCollaboratorOrReadOnly,
         IsQuizReadable,
     ]
@@ -321,10 +322,10 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         if self.action == "list":
             if not user.is_authenticated:
-                return Quiz.objects.none()
+                raise NotAuthenticated()
 
             return (
-                Quiz.objects.filter(creator=user)
+                Quiz.objects.filter(creator=user, folder__folder_type=FolderType.REGULAR)
                 .select_related("creator", "folder", "folder__owner")
                 .annotate(
                     questions_count=Count("questions", distinct=True),
@@ -402,7 +403,8 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         try:
             quiz = (
-                Quiz.objects.prefetch_related("questions__answers")
+                Quiz.objects.select_related("folder", "folder__owner")
+                .prefetch_related("questions__answers")
                 .annotate(questions_count=Count("questions", distinct=True))
                 .get(pk=pk)
             )
@@ -415,6 +417,14 @@ class QuizViewSet(viewsets.ModelViewSet):
             raise AuthenticationFailed("Invalid Api-Key.")
 
         user = request.user
+
+        if quiz_is_deleted(quiz):
+            message = (
+                DELETED_OWNER_QUIZ_MESSAGE
+                if user.is_authenticated and quiz.folder.owner == user
+                else DELETED_QUIZ_MESSAGE
+            )
+            raise PermissionDenied(message)
 
         if has_internal_access:
             if not (quiz.visibility >= 1 or (user.is_authenticated and user.owns_quiz_via_folder(quiz))):
@@ -456,15 +466,16 @@ class QuizViewSet(viewsets.ModelViewSet):
         if instance.folder.owner != self.request.user:
             raise PermissionDenied("Only the folder owner can delete this quiz")
 
-        if instance.folder.folder_type != FolderType.ARCHIVE:
-            archive_folder, _ = Folder.objects.get_or_create(
+        if instance.folder.folder_type != FolderType.TRASH:
+            trash_folder, _ = Folder.objects.get_or_create(
                 owner=self.request.user,
-                folder_type=FolderType.ARCHIVE,
-                defaults={"name": Folder.DEFAULT_ARCHIVE_NAME, "parent": self.request.user.root_folder},
+                folder_type=FolderType.TRASH,
+                defaults={"name": Folder.DEFAULT_TRASH_NAME, "parent": self.request.user.root_folder},
             )
-            instance.folder = archive_folder
-            instance.archived_at = timezone.now()
-            instance.save(update_fields=["folder", "archived_at", "updated_at"])
+            instance.folder = trash_folder
+            instance.archived_at = None
+            instance.deleted_at = timezone.now()
+            instance.save(update_fields=["folder", "archived_at", "deleted_at", "updated_at"])
         else:
             instance.delete()
 
@@ -501,8 +512,16 @@ class QuizViewSet(viewsets.ModelViewSet):
             new_folder_id = serializer.validated_data["folder_id"]
             destination = Folder.objects.get(pk=new_folder_id)
             quiz.folder_id = new_folder_id
-            quiz.archived_at = timezone.now() if destination.folder_type == FolderType.ARCHIVE else None
-            quiz.save(update_fields=["folder_id", "archived_at", "updated_at"])
+            if destination.folder_type == FolderType.ARCHIVE:
+                quiz.archived_at = timezone.now()
+                quiz.deleted_at = None
+            elif destination.folder_type == FolderType.TRASH:
+                quiz.archived_at = None
+                quiz.deleted_at = timezone.now()
+            else:
+                quiz.archived_at = None
+                quiz.deleted_at = None
+            quiz.save(update_fields=["folder_id", "archived_at", "deleted_at", "updated_at"])
             return Response({"status": "Quiz moved successfully"})
 
         return Response(serializer.errors, status=400)
@@ -527,8 +546,27 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         quiz.folder = archive_folder
         quiz.archived_at = timezone.now()
-        quiz.save(update_fields=["folder", "archived_at", "updated_at"])
+        quiz.deleted_at = None
+        quiz.save(update_fields=["folder", "archived_at", "deleted_at", "updated_at"])
         return Response({"status": "Quiz moved successfully"}, status=status.HTTP_200_OK)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="restore",
+        permission_classes=[permissions.IsAuthenticated, IsQuizCreator],
+    )
+    def restore(self, request, pk=None):
+        quiz = self.get_object()
+
+        if quiz.folder.folder_type != FolderType.TRASH:
+            return Response({"status": "Quiz is not deleted"}, status=status.HTTP_200_OK)
+
+        quiz.folder = request.user.root_folder
+        quiz.archived_at = None
+        quiz.deleted_at = None
+        quiz.save(update_fields=["folder", "archived_at", "deleted_at", "updated_at"])
+        return Response({"status": "Quiz restored successfully"}, status=status.HTTP_200_OK)
 
     @action(
         detail=True,
@@ -544,13 +582,8 @@ class QuizViewSet(viewsets.ModelViewSet):
             return Response(QuizSessionSerializer(session).data)
 
         elif request.method == "DELETE":
-            # Archive current session and create new one
-            with transaction.atomic():
-                QuizSession.objects.filter(quiz=quiz, user=request.user, is_active=True).update(
-                    is_active=False, ended_at=timezone.now()
-                )
-                session, _ = QuizSession.get_or_create_active(quiz, request.user)
-            return Response(QuizSessionSerializer(session).data)
+            state = reset_readable_session(request.user, quiz.id)
+            return Response(QuizSessionSerializer(state.session).data)
 
         raise MethodNotAllowed(request.method)
 
@@ -798,7 +831,6 @@ class QuizViewSet(viewsets.ModelViewSet):
     def record_answer(self, request, pk=None):
         """Record an answer for the current session."""
         quiz = self.get_object()
-        session, _ = QuizSession.get_or_create_active(quiz, request.user)
 
         serializer = RecordAnswerSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -808,92 +840,20 @@ class QuizViewSet(viewsets.ModelViewSet):
             return Response({"error": "question_id is required"}, status=400)
 
         selected_answers = serializer.validated_data["selected_answers"]
-
+        next_question_id = request.data.get("next_question", UNSET)
         try:
-            question = Question.objects.prefetch_related("answers").get(id=question_id, quiz=quiz)
-        except (Question.DoesNotExist, ValueError, TypeError, DjangoValidationError):
-            return Response({"error": "Question not found in this quiz"}, status=404)
+            result = record_quiz_answer(
+                request.user,
+                quiz.id,
+                question_id,
+                selected_answers,
+                study_time=request.data.get("study_time") if "study_time" in request.data else None,
+                next_question_id=next_question_id,
+            )
+        except QuizOperationError as exc:
+            return Response({"error": exc.message}, status=exc.status_code)
 
-        if question.question_type == QuestionType.CLOSED:
-            answers = list(question.answers.all())
-
-            selected_ids = set(str(a) for a in selected_answers)
-            valid_answer_ids = set(str(a.id) for a in answers)
-
-            if not selected_ids.issubset(valid_answer_ids):
-                return Response({"error": "One or more selected answers do not belong to this question"}, status=400)
-
-            correct_answer_ids = set(str(a.id) for a in answers if a.is_correct)
-            was_correct = correct_answer_ids == selected_ids
-
-        elif question.question_type == QuestionType.TRUE_FALSE:
-            if len(selected_answers) > 1:
-                return Response({"error": "Invalid list size for this question type"}, status=400)
-
-            if question.tf_answer is None:
-                return Response({"error": "Question does not have tf answer"}, status=500)
-
-            user_answer = selected_answers[0]  # should be True or False
-
-            if not isinstance(user_answer, bool):
-                return Response({"error": "Invalid data type"}, status=400)
-
-            was_correct = user_answer == question.tf_answer
-            selected_ids = selected_answers
-
-        elif question.question_type == QuestionType.OPEN:
-            if len(selected_answers) > 1:
-                return Response({"error": "Invalid list size for this question type"}, status=400)
-
-            input_text = selected_answers[0]
-
-            if not isinstance(input_text, str):
-                return Response({"error": "Invalid data type"}, status=400)
-
-            correct_answer = question.answers.filter(is_correct=True).first()
-
-            if correct_answer is None:
-                return Response({"error": "Question has no correct answer"}, status=500)
-
-            selected_ids = selected_answers
-
-            # NOTE function normalize should be used when adding new answer to database
-            was_correct = normalize(input_text) == normalize(correct_answer.text)
-
-        else:
-            return Response({"error": "Unsupported question type"}, status=400)
-
-        record = AnswerRecord.objects.create(
-            session=session,
-            question=question,
-            selected_answers=list(selected_ids),
-            was_correct=was_correct,
-        )
-
-        update_fields = ["updated_at"]
-        if "study_time" in request.data:
-            try:
-                study_time_seconds = float(request.data["study_time"])
-            except (TypeError, ValueError):
-                return Response({"error": "study_time must be a numeric value"}, status=400)
-            session.study_time = timedelta(seconds=study_time_seconds)
-            update_fields.append("study_time")
-
-        if "next_question" in request.data:
-            next_question_id = request.data["next_question"]
-            if next_question_id is not None:
-                try:
-                    exists = Question.objects.filter(id=next_question_id, quiz=quiz).exists()
-                except (ValueError, TypeError, DjangoValidationError):
-                    return Response({"error": "next_question must be a valid question in this quiz"}, status=400)
-                if not exists:
-                    return Response({"error": "next_question must be a valid question in this quiz"}, status=400)
-            session.current_question_id = next_question_id
-            update_fields.append("current_question_id")
-
-        session.save(update_fields=update_fields)
-
-        return Response(AnswerRecordSerializer(record).data, status=201)
+        return Response(AnswerRecordSerializer(result.record).data, status=201)
 
     @extend_schema(
         summary="Copy quiz to user's library",
@@ -990,6 +950,7 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
             | Q(quiz__creator=self.request.user)
             | Q(quiz__folder__owner=self.request.user)
         )
+        _filter &= ~Q(quiz__folder__folder_type=FolderType.TRASH)
         if self.request.query_params.get("quiz"):
             _filter &= Q(quiz_id=self.request.query_params.get("quiz"))
         return SharedQuiz.objects.filter(_filter).prefetch_related(
@@ -1172,16 +1133,19 @@ class FolderViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         if hasattr(instance, "root_owner"):
             raise PermissionDenied("Cannot delete root folder.")
-        if instance.folder_type == FolderType.ARCHIVE:
-            raise PermissionDenied("Cannot delete archive folder.")
+        if instance.folder_type in Folder.PROTECTED_FOLDER_TYPES:
+            raise PermissionDenied(f"Cannot delete {instance.get_folder_type_display().lower()} folder.")
         instance.delete()
 
     @action(detail=True, methods=["post"], serializer_class=MoveFolderSerializer)
     def move(self, request, pk=None):
         folder = self.get_object()
 
-        if folder.folder_type == FolderType.ARCHIVE:
-            return Response({"error": "Cannot move archive folder."}, status=status.HTTP_403_FORBIDDEN)
+        if folder.folder_type in Folder.PROTECTED_FOLDER_TYPES:
+            return Response(
+                {"error": f"Cannot move {folder.get_folder_type_display().lower()} folder."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
@@ -1287,15 +1251,18 @@ class LibraryView(APIView):
         # Precompute IDs of all folders the user can directly access.
         accessible_folder_ids = set(Folder.objects.filter(self._access_predicate(user)).values_list("id", flat=True))
 
+        folder = Folder.objects.filter(id=folder_id).only("id", "parent_id", "folder_type", "owner_id").first()
+        if not folder:
+            return False
+
+        if folder.folder_type == FolderType.TRASH and folder.owner_id != user.id:
+            return False
+
         # Direct access to this folder.
         if folder_id in accessible_folder_ids:
             return True
 
         # Walk up the ancestor chain using lightweight queries and check access in-memory.
-        folder = Folder.objects.filter(id=folder_id).only("id", "parent_id").first()
-        if not folder:
-            return False
-
         current_parent_id = folder.parent_id
         while current_parent_id:
             if current_parent_id in accessible_folder_ids:
@@ -1307,7 +1274,12 @@ class LibraryView(APIView):
         return False
 
     def _get_subfolders(self, user, folder_id):
-        return Folder.objects.filter(parent_id=folder_id).distinct().order_by("-created_at")
+        return (
+            Folder.objects.filter(parent_id=folder_id)
+            .filter(Q(owner=user) | ~Q(folder_type=FolderType.TRASH))
+            .distinct()
+            .order_by("-created_at")
+        )
 
     def _get_quizzes(self, user, folder_id):
         return Quiz.objects.filter(folder_id=folder_id).distinct().order_by("-created_at")
