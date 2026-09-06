@@ -822,7 +822,7 @@ def generate_json_quiz_from_pdf(*, user, pdf_file, question_count=10, difficulty
         "model": None,
         "input_tokens": 0,
         "output_tokens": 0,
-        "cached_tokens": 0,
+        "cache_read_tokens": 0,
     }
 
     base_questions_per_chunk = question_count // total_chunks
@@ -849,7 +849,7 @@ def generate_json_quiz_from_pdf(*, user, pdf_file, question_count=10, difficulty
             aggregated_usage["model"] = usage_info.get("model", aggregated_usage["model"])
             aggregated_usage["input_tokens"] += usage_info.get("input_tokens", 0)
             aggregated_usage["output_tokens"] += usage_info.get("output_tokens", 0)
-            aggregated_usage["cached_tokens"] += usage_info.get("cached_tokens", 0)
+            aggregated_usage["cache_read_tokens"] += usage_info.get("cache_read_tokens", 0)
 
     raw_quiz = {
         "title": "Generated Quiz",
@@ -866,7 +866,7 @@ def generate_json_quiz_from_pdf(*, user, pdf_file, question_count=10, difficulty
         model=aggregated_usage["model"],
         input_tokens=aggregated_usage["input_tokens"],
         output_tokens=aggregated_usage["output_tokens"],
-        cached_tokens=aggregated_usage["cached_tokens"],
+        cache_read_tokens=aggregated_usage["cache_read_tokens"],
         request_id=request_id,
         metadata={
             "question_count": len(all_questions),
