@@ -3,6 +3,7 @@ from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework import mixins, permissions, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -124,9 +125,15 @@ class CurrentUserView(GenericAPIView):
 
     @extend_schema(
         summary="Update current user profile",
-        description="Update limited fields in the user's profile.",
+        description=(
+            "Update profile visibility and the custom photo URL. Email accounts may also update "
+            "first_name, last_name, and sex. Guest accounts cannot update their profile."
+        ),
     )
     def patch(self, request):
+        if request.user.account_type == AccountType.GUEST:
+            raise PermissionDenied("Guest users cannot update their profile.")
+
         allowed_fields_patch = {"overriden_photo_url", "hide_profile"}
         data = request.data
 

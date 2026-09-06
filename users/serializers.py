@@ -106,6 +106,8 @@ class UserSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "email",
+            "first_name",
+            "last_name",
             "full_name",
             "is_superuser",
             "is_staff",
