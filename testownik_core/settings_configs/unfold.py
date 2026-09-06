@@ -167,22 +167,22 @@ def get_unfold_settings(frontend_url):
                         {
                             "title": "Conversations",
                             "icon": "forum",
-                            "link": reverse_lazy("admin:ai_usage_aichatconversation_changelist"),
+                            "link": reverse_lazy("admin:ai_aichatconversation_changelist"),
                         },
                         {
                             "title": "Usage events",
                             "icon": "query_stats",
-                            "link": reverse_lazy("admin:ai_usage_aiusageevent_changelist"),
+                            "link": reverse_lazy("admin:ai_aiusageevent_changelist"),
                         },
                         {
                             "title": "Limits",
                             "icon": "speed",
-                            "link": reverse_lazy("admin:ai_usage_aiaccountlimit_changelist"),
+                            "link": reverse_lazy("admin:ai_aiaccountlimit_changelist"),
                         },
                         {
                             "title": "Model pricing",
                             "icon": "paid",
-                            "link": reverse_lazy("admin:ai_usage_aimodel_changelist"),
+                            "link": reverse_lazy("admin:ai_aimodel_changelist"),
                         },
                     ],
                 },
