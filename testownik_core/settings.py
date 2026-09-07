@@ -57,6 +57,15 @@ if ALLOW_PREVIEW_ENVIRONMENTS:
 CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:3000").split(",")
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000").rstrip("/")
+ALLOWED_IMAGE_SOURCE_HOSTS = [
+    h.strip()
+    for h in os.environ.get(
+        "ALLOWED_IMAGE_SOURCE_HOSTS",
+        "api.dicebear.com,apps.usos.pwr.edu.pl",
+    ).split(",")
+    if h.strip()
+]
 
 # Internal API key for server-to-server authentication (e.g., Next.js server-side)
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
@@ -83,6 +92,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django_tasks_db",
     "users.apps.UsersConfig",
     "grades.apps.GradesConfig",
     "quizzes.apps.QuizzesConfig",
@@ -318,7 +328,17 @@ EMAIL_TIMEOUT = 10
 
 SPECTACULAR_SETTINGS = spectacular.SPECTACULAR_SETTINGS
 
-TASKS = {"default": {"BACKEND": "django.tasks.backends.immediate.ImmediateBackend"}}
+# Photo downloads use a durable queue consumed by `manage.py db_worker --backend images`.
+# Keep the existing email task behavior on the default backend.
+TASKS = {
+    "default": {
+        "BACKEND": "django.tasks.backends.immediate.ImmediateBackend",
+    },
+    "images": {
+        "BACKEND": "django_tasks_db.DatabaseBackend",
+        "QUEUES": ["images"],
+    },
+}
 
 TRASH_TTL_DAYS = 30
 

@@ -1,12 +1,18 @@
 import logging
 import os
 from asyncio import CancelledError, sleep
+from datetime import timedelta
+from urllib.parse import quote, urlparse
 
 import dotenv
 from adrf.views import APIView as AsyncAPIView
+from asgiref.sync import sync_to_async
 from django.contrib import messages
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import transaction
 from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, resolve_url
+from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework.permissions import AllowAny
@@ -15,7 +21,10 @@ from usos_api import USOSAPIException, USOSClient
 from usos_api.models import StaffStatus, StudentStatus
 
 from testownik_core.settings import oauth
+from uploads.image_sources import download_image_source
+from uploads.utils import validate_image_source_url
 from users.models import AccountType, StudyGroup, Term, User
+from users.tasks import sync_user_photo_task
 
 from .auth_helpers import (
     ahandle_oauth_login_result,
@@ -275,14 +284,17 @@ class SolvroAuthorizeView(APIView):
 
         user, _ = User.objects.update_or_create(
             email=profile["email"],
-            defaults={
-                "photo_url": f"https://api.dicebear.com/9.x/adventurer/svg?seed={profile['email']}",
-            },
+            defaults={},
             create_defaults={
                 "account_type": AccountType.EMAIL,
-                "photo_url": f"https://api.dicebear.com/9.x/adventurer/svg?seed={profile['email']}",
             },
         )
+
+        # Defer the avatar fetch (outbound DiceBear request + image processing + DB writes)
+        # off the request thread so login latency isn't coupled to a third-party call.
+        # on_commit guarantees the worker reads a committed user row.
+        dicebear_url = f"https://api.dicebear.com/9.x/adventurer/png?seed={quote(profile['email'])}"
+        enqueue_user_photo(user.id, dicebear_url)
 
         return handle_oauth_login_result(request, user, jwt=jwt, redirect_url=redirect_url, guest_id=guest_id)
 
@@ -446,6 +458,11 @@ async def _sync_usos_user(client, access_token, access_token_secret):
         logger.error("Failed to get user data from USOS: %s", str(e), exc_info=True)
         raise
 
+    photo_url = user_data.photo_urls.get(
+        "original",
+        user_data.photo_urls.get("200x200", next(iter(user_data.photo_urls.values()), None)),
+    )
+
     defaults = {
         "first_name": user_data.first_name,
         "last_name": user_data.last_name,
@@ -454,10 +471,6 @@ async def _sync_usos_user(client, access_token, access_token_secret):
         "sex": user_data.sex.value,
         "student_status": user_data.student_status.value,
         "staff_status": user_data.staff_status.value,
-        "photo_url": user_data.photo_urls.get(
-            "original",
-            user_data.photo_urls.get("200x200", next(iter(user_data.photo_urls.values()), None)),
-        ),
     }
 
     if user_data.staff_status.value >= StaffStatus.NON_ACADEMIC_STAFF.value:
@@ -474,6 +487,9 @@ async def _sync_usos_user(client, access_token, access_token_secret):
     if created:
         user_obj.set_unusable_password()
         await user_obj.asave()
+
+    if photo_url:
+        await sync_to_async(enqueue_user_photo)(user_obj.id, photo_url)
 
     user_groups = await client.group_service.get_groups_for_participant(
         fields=[
@@ -509,3 +525,85 @@ async def _sync_usos_user(client, access_token, access_token_secret):
         await user_obj.study_groups.aadd(group_obj)
 
     return user_obj, created
+
+
+MAX_PHOTO_FILE_SIZE = 10 * 1024 * 1024
+
+
+def enqueue_user_photo(user_id, url):
+    """Persist photo work after commit without making authentication depend on the queue."""
+
+    def enqueue():
+        try:
+            sync_user_photo_task.enqueue(str(user_id), url)
+        except Exception:
+            logger.warning("Failed to enqueue profile photo for user %s", user_id)
+
+    transaction.on_commit(enqueue)
+
+
+def _process_and_save_photo_file(user, url, raw_content: bytes, content_type: str) -> None:
+    """Process raw image bytes through AVIF pipeline and save as UploadedImage. Sync (PIL + ORM)."""
+    from uploads.models import UploadedImage
+    from uploads.utils import process_uploaded_image
+
+    file_name = urlparse(url).path.rsplit("/", 1)[-1] or "photo.jpg"
+    if not file_name.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif")):
+        hostname = urlparse(url).hostname
+        if hostname == "api.dicebear.com":
+            file_name = "dicebear.png"
+        else:
+            file_name += ".jpg"
+
+    uploaded_file = SimpleUploadedFile(
+        name=file_name,
+        content=raw_content,
+        content_type=content_type,
+    )
+    processed_file, width, height, out_content_type = process_uploaded_image(uploaded_file)
+
+    img = UploadedImage.objects.create(
+        image=processed_file,
+        original_filename=file_name,
+        content_type=out_content_type,
+        file_size=processed_file.size,
+        width=width,
+        height=height,
+        uploaded_by_id=user.id,
+    )
+    user.photo_image = img
+    user.save(update_fields=["photo_image"])
+
+
+def _sync_download_photo(url: str, max_size: int) -> tuple[bytes, str]:
+    """Download through the shared DNS-pinned, size-limited transport."""
+    return download_image_source(url, max_size=max_size, timeout=5)
+
+
+def _sync_process_and_save_photo(user, url):
+    """Download and save in the image worker; failures remain visible in task results."""
+    try:
+        validate_image_source_url(url)
+
+        if user.photo_image_id:
+            from uploads.models import UploadedImage
+
+            try:
+                photo_image = UploadedImage.objects.get(pk=user.photo_image_id)
+            except UploadedImage.DoesNotExist:
+                photo_image = None
+                user.photo_image = None
+                user.save(update_fields=["photo_image"])
+            if photo_image and (timezone.now() - photo_image.uploaded_at < timedelta(hours=24)):
+                return
+
+        raw_content, content_type = _sync_download_photo(url, MAX_PHOTO_FILE_SIZE)
+        _process_and_save_photo_file(user, url, raw_content, content_type)
+    except Exception as e:
+        logger.warning(
+            "Failed to download and process photo for user %s: %s",
+            user.id,
+            type(e).__name__,
+        )
+        # Do not persist request exception text (which may contain the email seed).
+        raise RuntimeError("Profile photo synchronization failed") from None

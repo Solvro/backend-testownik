@@ -1,3 +1,6 @@
+import logging
+
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
@@ -9,8 +12,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from quizzes.models import QuizSession, SharedQuiz
+from quizzes.models import Quiz, QuizSession, SharedQuiz
 from quizzes.permissions import IsInternalApiRequest
+from uploads.models import UploadedImage
+from uploads.utils import process_uploaded_image
 from users.auth_cookies import set_jwt_cookies
 from users.models import AccountType, StudyGroup, User, UserSettings
 from users.serializers import (
@@ -20,6 +25,8 @@ from users.serializers import (
     UserSettingsSerializer,
     UserTokenObtainPairSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SettingsViewSet(
@@ -126,7 +133,7 @@ class CurrentUserView(GenericAPIView):
     @extend_schema(
         summary="Update current user profile",
         description=(
-            "Update profile visibility and the custom photo URL. Email accounts may also update "
+            "Update profile visibility. Email accounts may also update "
             "first_name, last_name, and sex. Guest accounts cannot update their profile."
         ),
     )
@@ -134,7 +141,7 @@ class CurrentUserView(GenericAPIView):
         if request.user.account_type == AccountType.GUEST:
             raise PermissionDenied("Guest users cannot update their profile.")
 
-        allowed_fields_patch = {"overriden_photo_url", "hide_profile"}
+        allowed_fields_patch = {"hide_profile"}
         data = request.data
 
         if request.user.account_type == AccountType.EMAIL:
@@ -154,8 +161,76 @@ class CurrentUserView(GenericAPIView):
         return Response(serializer.errors, status=400)
 
 
+class UserPhotoView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Upload custom profile photo",
+        description="Uploads a custom profile photo, compresses it to AVIF, and sets it for the user.",
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "photo": {
+                        "type": "string",
+                        "format": "binary",
+                    }
+                },
+                "required": ["photo"],
+            }
+        },
+        responses={200: UserSerializer},
+    )
+    def post(self, request):
+        if request.user.account_type == AccountType.GUEST:
+            raise PermissionDenied("Guest users cannot update their profile.")
+        if "photo" not in request.FILES:
+            return Response({"error": "No photo provided"}, status=400)
+
+        try:
+            processed_file, width, height, content_type = process_uploaded_image(request.FILES["photo"])
+        except ValidationError:
+            logger.warning("Photo upload failed for user %s", request.user.id)
+            return Response(
+                {"error": "Invalid image file. Accepted formats: JPEG, PNG, GIF, WEBP, AVIF (max 10MB)."}, status=400
+            )
+
+        img = UploadedImage.objects.create(
+            image=processed_file,
+            original_filename=request.FILES["photo"].name,
+            content_type=content_type,
+            file_size=processed_file.size,
+            width=width,
+            height=height,
+            uploaded_by=request.user,
+        )
+
+        # The old custom_photo_image (if any) is now orphaned — intentionally not deleted here.
+        # Orphan cleanup is deferred to the `cleanup_orphans` management command.
+        request.user.custom_photo_image = img
+        request.user.overriden_photo_url = None
+        request.user.save(update_fields=["custom_photo_image", "overriden_photo_url"])
+
+        return Response(UserSerializer(request.user, context={"request": request}).data)
+
+    @extend_schema(
+        summary="Delete custom profile photo",
+        description="Removes the custom profile photo, reverting to the USOS/DiceBear photo.",
+        responses={200: UserSerializer},
+    )
+    def delete(self, request):
+        if request.user.account_type == AccountType.GUEST:
+            raise PermissionDenied("Guest users cannot update their profile.")
+        # The old UploadedImage row + file is now orphaned — intentionally not deleted here.
+        # Orphan cleanup is deferred to the `cleanup_orphans` management command.
+        request.user.custom_photo_image = None
+        request.user.overriden_photo_url = None
+        request.user.save(update_fields=["custom_photo_image", "overriden_photo_url"])
+        return Response(UserSerializer(request.user, context={"request": request}).data)
+
+
 class UserViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
-    queryset = User.objects.all()
+    queryset = User.objects.select_related("photo_image", "custom_photo_image").all()
     serializer_class = PublicUserSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -221,10 +296,10 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.Gen
                     student_number__icontains=search_terms[0],
                 )
             else:
-                return User.objects.none()
-            return User.objects.filter(filters)
+                return self.queryset.none()
+            return self.queryset.filter(filters)
         else:
-            return User.objects.none()
+            return self.queryset.none()
 
 
 class StudyGroupViewSet(viewsets.ModelViewSet):
@@ -299,8 +374,6 @@ class DeleteAccountView(APIView):
         ],
     )
     def post(self, request):
-        from quizzes.models import Quiz
-
         transfer_to_user_id = request.data.get("transfer_to_user_id")
         transfer_to_user = None
 

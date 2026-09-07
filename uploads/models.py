@@ -53,7 +53,12 @@ class UploadedImage(models.Model):
     @property
     def is_orphan(self):
         """Check if this image has no references."""
-        return not self.questions.exists() and not self.answers.exists()
+        return (
+            not self.questions.exists()
+            and not self.answers.exists()
+            and not self.user_photos.exists()
+            and not self.user_custom_photos.exists()
+        )
 
     def delete(self, *args, **kwargs):
         """Delete the file from storage when model is deleted."""

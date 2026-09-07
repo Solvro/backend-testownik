@@ -1,6 +1,8 @@
 import io
+import ipaddress
 import os
 import uuid
+from urllib.parse import urlparse
 
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import InMemoryUploadedFile
@@ -117,3 +119,47 @@ def process_uploaded_image(image_file):
         height,
         content_type,
     )
+
+
+def validate_image_source_url(url: str, allowed_hosts: list[str] | None = None) -> None:
+    """
+    Validate image-source URL syntax and the host allowlist (without network I/O).
+
+    Uses an allowlist approach: the URL's host must be in the allowed set.
+    Falls back to ALLOWED_IMAGE_SOURCE_HOSTS from Django settings.
+
+    Raises ValidationError if the host is not allowed or the URL is malformed.
+    Fetch only through download_image_source, which also validates DNS results
+    and pins the connection to a public address to prevent DNS rebinding.
+    """
+    if allowed_hosts is None:
+        from django.conf import settings
+
+        allowed_hosts = getattr(settings, "ALLOWED_IMAGE_SOURCE_HOSTS", [])
+
+    if not allowed_hosts:
+        raise ValidationError("No allowed image source hosts are configured.")
+
+    try:
+        parsed = urlparse(url)
+        parsed.port  # Validate malformed/out-of-range ports before opening a connection.
+    except ValueError as exc:
+        raise ValidationError("Image source URL is malformed.") from exc
+    if parsed.username is not None or parsed.password is not None or any(ord(char) < 33 for char in url):
+        raise ValidationError("Image source URL must not contain credentials or whitespace/control characters.")
+    if parsed.scheme not in ("http", "https"):
+        raise ValidationError(f"URL scheme '{parsed.scheme}' is not allowed. Only http and https are supported.")
+    if not parsed.netloc:
+        raise ValidationError("URL is missing a hostname.")
+    hostname = (parsed.hostname or "").lower()
+    try:
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        if not ip.is_global or ip.is_multicast or ip.is_reserved:
+            raise ValidationError(
+                f"URL host '{hostname}' is a non-global IP address and is not allowed as an image source."
+            )
+    if hostname not in {h.lower() for h in allowed_hosts}:
+        raise ValidationError(f"URL host '{parsed.hostname}' is not in the allowed image source hosts.")
