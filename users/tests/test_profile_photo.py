@@ -210,7 +210,7 @@ class UserPhotoUploadEndpointTests(APITestCase):
         self.assertTrue(UserSerializer(self.user).data["has_custom_photo"])
         response = self.client.delete(self.url)
         self.assertFalse(response.data["has_custom_photo"])
-        with patch("requests.get") as download:
+        with patch("users.management.commands.backfill_user_photos.download_image_source") as download:
             call_command("backfill_user_photos", stdout=io.StringIO())
         download.assert_not_called()
 
@@ -435,3 +435,16 @@ class PhotoBackfillTests(TestCase):
         self.user.refresh_from_db()
         self.assertIsNone(self.user.custom_photo_image_id)
         self.assertFalse(UploadedImage.objects.exists())
+
+    def test_backfill_and_worker_preserve_avif_filename(self):
+        from users.management.commands.backfill_user_photos import Command
+        from users.views.oauth import _process_and_save_photo_file
+
+        image = _create_test_image_file(format="AVIF")
+        raw_content = image.read()
+        url = "https://api.dicebear.com/photo.AVIF?seed=private@example.com#fragment"
+        saved = Command()._save_image(self.user, url, raw_content, "image/avif")
+        self.assertEqual(saved.original_filename, "photo.AVIF")
+        _process_and_save_photo_file(self.user, url, raw_content, "image/avif")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.photo_image.original_filename, "photo.AVIF")

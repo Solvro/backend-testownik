@@ -48,8 +48,11 @@ python manage.py backfill_user_photos --dry-run
 python manage.py backfill_user_photos --batch-size 100 --limit 1000
 ```
 
-Only allowlisted hosts are fetched, redirects are rejected, and downloads are
-capped at 10 MiB. Legacy DiceBear SVG choices use the provider's PNG endpoint.
+Both worker and backfill downloads use the same bounded urllib3 transport. Only
+allowlisted hosts are fetched; every resolved address must be public, and the
+connection is pinned to one validated address while preserving the original TLS
+hostname and Host header. Redirects and compressed HTTP responses are rejected,
+and downloads are capped at 10 MiB. Legacy DiceBear SVG choices use the provider's PNG endpoint.
 Successful conversions clear the legacy URL; failures retain it for later review.
 Do not remove the legacy column until all remaining URLs have been accounted for.
 Uploading or resetting a photo clears the URL and wins over concurrent backfill.

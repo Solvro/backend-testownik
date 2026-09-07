@@ -2,10 +2,10 @@ import logging
 import time
 from urllib.parse import urlparse, urlunparse
 
-import requests
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management.base import BaseCommand, CommandError
 
+from uploads.image_sources import download_image_source
 from uploads.models import UploadedImage
 from uploads.utils import process_uploaded_image, validate_image_source_url
 from users.models import User
@@ -118,7 +118,7 @@ class Command(BaseCommand):
         try:
             validate_image_source_url(url)
         except Exception:
-            logger.warning("Skipping invalid photo URL for user %s: %s", user.id, urlparse(url).hostname)
+            logger.warning("Skipping invalid photo URL for user %s", user.id)
             return "skip"
 
         if dry_run:
@@ -145,29 +145,11 @@ class Command(BaseCommand):
             return "fail"
 
     def _download(self, url: str, timeout: float) -> tuple[bytes, str]:
-        with requests.get(url, timeout=timeout, stream=True, allow_redirects=False) as response:
-            response.raise_for_status()
-            if response.status_code != 200:
-                raise ValueError("Image source did not return HTTP 200")
-            content_type = response.headers.get("Content-Type", "image/jpeg")
-
-            content_length = response.headers.get("Content-Length")
-            if content_length and content_length.isdigit() and int(content_length) > MAX_FILE_SIZE:
-                raise ValueError("Custom photo exceeds max file size")
-
-            content = bytearray()
-            for chunk in response.iter_content(chunk_size=8192):
-                if not chunk:
-                    continue
-                content.extend(chunk)
-                if len(content) > MAX_FILE_SIZE:
-                    raise ValueError("Custom photo exceeds max file size")
-
-            return bytes(content), content_type
+        return download_image_source(url, max_size=MAX_FILE_SIZE, timeout=timeout)
 
     def _save_image(self, user, url: str, raw_content: bytes, content_type: str) -> UploadedImage:
         file_name = urlparse(url).path.rsplit("/", 1)[-1] or "custom_photo.jpg"
-        if not file_name.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
+        if not file_name.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif")):
             file_name += ".jpg"
 
         uploaded_file = SimpleUploadedFile(name=file_name, content=raw_content, content_type=content_type)

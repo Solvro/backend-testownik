@@ -105,7 +105,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     )
     # DEPRECATED transitional field. Source for the `backfill_user_photos` command,
     # which migrates it into `custom_photo_image`. Drop in a contract migration once
-    # the backfill is verified complete. Do not read from this in application code.
+    # the backfill is verified complete. Until then, photo and has_custom_photo
+    # intentionally read it as a fallback; uploads and resets clear it.
     overriden_photo_url = models.URLField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

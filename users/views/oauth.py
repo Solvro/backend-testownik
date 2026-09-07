@@ -5,7 +5,6 @@ from datetime import timedelta
 from urllib.parse import quote, urlparse
 
 import dotenv
-import requests
 from adrf.views import APIView as AsyncAPIView
 from asgiref.sync import sync_to_async
 from django.contrib import messages
@@ -22,6 +21,7 @@ from usos_api import USOSAPIException, USOSClient
 from usos_api.models import StaffStatus, StudentStatus
 
 from testownik_core.settings import oauth
+from uploads.image_sources import download_image_source
 from uploads.utils import validate_image_source_url
 from users.models import AccountType, StudyGroup, Term, User
 from users.tasks import sync_user_photo_task
@@ -547,10 +547,8 @@ def _process_and_save_photo_file(user, url, raw_content: bytes, content_type: st
     from uploads.models import UploadedImage
     from uploads.utils import process_uploaded_image
 
-    file_name = url.split("/")[-1] or "photo.jpg"
-    if "?" in file_name:
-        file_name = file_name.split("?")[0]
-    if not file_name.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
+    file_name = urlparse(url).path.rsplit("/", 1)[-1] or "photo.jpg"
+    if not file_name.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif")):
         hostname = urlparse(url).hostname
         if hostname == "api.dicebear.com":
             file_name = "dicebear.png"
@@ -578,31 +576,8 @@ def _process_and_save_photo_file(user, url, raw_content: bytes, content_type: st
 
 
 def _sync_download_photo(url: str, max_size: int) -> tuple[bytes, str]:
-    """Download photo synchronously with streaming + size cap. Returns (content, content_type)."""
-    with requests.get(url, timeout=5, stream=True, allow_redirects=False) as response:
-        response.raise_for_status()
-        if response.status_code != 200:
-            raise ValueError("Image source did not return HTTP 200")
-        content_type = response.headers.get("Content-Type", "image/jpeg")
-
-        content_length = response.headers.get("Content-Length")
-        if content_length:
-            try:
-                content_length_value = int(content_length)
-            except ValueError:
-                content_length_value = None
-            if content_length_value and content_length_value > max_size:
-                raise ValueError("Photo exceeds max file size")
-
-        content = bytearray()
-        for chunk in response.iter_content(chunk_size=8192):
-            if not chunk:
-                continue
-            content.extend(chunk)
-            if len(content) > max_size:
-                raise ValueError("Photo exceeds max file size")
-
-        return bytes(content), content_type
+    """Download through the shared DNS-pinned, size-limited transport."""
+    return download_image_source(url, max_size=max_size, timeout=5)
 
 
 def _sync_process_and_save_photo(user, url):
@@ -626,8 +601,7 @@ def _sync_process_and_save_photo(user, url):
         _process_and_save_photo_file(user, url, raw_content, content_type)
     except Exception as e:
         logger.warning(
-            "Failed to download and process photo from %s for user %s: %s",
-            urlparse(url).hostname,
+            "Failed to download and process photo for user %s: %s",
             user.id,
             type(e).__name__,
         )
