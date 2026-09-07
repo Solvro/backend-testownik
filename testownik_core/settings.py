@@ -48,7 +48,7 @@ CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000"
 ALLOW_PREVIEW_ENVIRONMENTS = os.getenv("ALLOW_PREVIEW_ENVIRONMENTS", "False") == "True"
 
 PREVIEW_ORIGIN_REGEXES = [
-    r"^https://[\w-]+-testownik\.b\.solvro\.pl$",
+    r"^https://testownik-frontend-pr\d+\.preview\.b\.solvro\.pl$",
 ]
 
 if ALLOW_PREVIEW_ENVIRONMENTS:
@@ -92,13 +92,18 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django_tasks_db",
     "users.apps.UsersConfig",
     "grades.apps.GradesConfig",
     "quizzes.apps.QuizzesConfig",
+    "wrapped.apps.WrappedConfig",
     "maintenance.apps.MaintenanceConfig",
+    "notifications.apps.NotificationsConfig",
     "testownik_core.apps.TestownikCoreConfig",
     "oauth_integrations.apps.OAuthIntegrationsConfig",
     "uploads.apps.UploadsConfig",
+    "blog.apps.BlogConfig",
+    "ai.apps.AIConfig",
     "constance",
     "constance.backends.database",
     "rest_framework",
@@ -125,10 +130,15 @@ CONSTANCE_ADDITIONAL_FIELDS = {
 
 CONSTANCE_CONFIG = {
     "MAINTENANCE_MODE": (False, "Is the site in maintenance mode?"),
+    "WRAPPED_ENABLED": (
+        False,
+        "Is Testownik Wrapped live? When off, the endpoint returns nothing even if reports exist.",
+    ),
 }
 
 CONSTANCE_CONFIG_FIELDSETS = {
     "Maintenance Mode": ("MAINTENANCE_MODE",),
+    "Wrapped": ("WRAPPED_ENABLED",),
 }
 
 MIDDLEWARE = [
@@ -159,7 +169,7 @@ REST_FRAMEWORK = {
     ],
 }
 
-if os.getenv("JWT_SECRET") is None:
+if os.getenv("JWT_SECRET") is None and not DEBUG:
     logger.warning("JWT_SECRET is not set in the environment, fallback to SECRET_KEY")
     logger.warning("This is not recommended for production")
 
@@ -318,18 +328,19 @@ EMAIL_TIMEOUT = 10
 
 SPECTACULAR_SETTINGS = spectacular.SPECTACULAR_SETTINGS
 
-# NOTE: ImmediateBackend runs enqueued tasks inline on the request thread, so
-# work is not actually deferred yet. Swap in a durable third-party backend with a
-# worker process (e.g. django-tasks DatabaseBackend + `manage.py db_worker`
-# consuming the "images" queue) to truly move slow third-party work off-request.
+# Photo downloads use a durable queue consumed by `manage.py db_worker --backend images`.
+# Keep the existing email task behavior on the default backend.
 TASKS = {
     "default": {
         "BACKEND": "django.tasks.backends.immediate.ImmediateBackend",
-        "QUEUES": ["default", "images"],
-    }
+    },
+    "images": {
+        "BACKEND": "django_tasks_db.DatabaseBackend",
+        "QUEUES": ["images"],
+    },
 }
 
-ARCHIVE_TTL_DAYS = 30
+TRASH_TTL_DAYS = 30
 
 UNFOLD = get_unfold_settings(FRONTEND_URL)
 

@@ -6,6 +6,7 @@ from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework import mixins, permissions, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -16,7 +17,7 @@ from quizzes.permissions import IsInternalApiRequest
 from uploads.models import UploadedImage
 from uploads.utils import process_uploaded_image
 from users.auth_cookies import set_jwt_cookies
-from users.models import StudyGroup, User, UserSettings
+from users.models import AccountType, StudyGroup, User, UserSettings
 from users.serializers import (
     PublicUserSerializer,
     StudyGroupSerializer,
@@ -84,7 +85,7 @@ class SettingsViewSet(
                     "initial_reoccurrences": 2,
                     "wrong_answer_reoccurrences": 1,
                     "ai_disabled": False,
-                    "default_ai_model": "gpt-5.4-mini",
+                    "default_ai_model": "gpt-5.6-luna",
                     "notify_quiz_shared": False,
                     "notify_bug_reported": True,
                     "notify_marketing": True,
@@ -131,11 +132,20 @@ class CurrentUserView(GenericAPIView):
 
     @extend_schema(
         summary="Update current user profile",
-        description="Update limited fields in the user's profile.",
+        description=(
+            "Update profile visibility. Email accounts may also update "
+            "first_name, last_name, and sex. Guest accounts cannot update their profile."
+        ),
     )
     def patch(self, request):
+        if request.user.account_type == AccountType.GUEST:
+            raise PermissionDenied("Guest users cannot update their profile.")
+
         allowed_fields_patch = {"hide_profile"}
         data = request.data
+
+        if request.user.account_type == AccountType.EMAIL:
+            allowed_fields_patch |= {"first_name", "last_name", "sex"}
 
         disallowed = set(data) - allowed_fields_patch
         if disallowed:
@@ -169,9 +179,11 @@ class UserPhotoView(APIView):
                 "required": ["photo"],
             }
         },
-        responses={200: OpenApiResponse(description="Photo uploaded successfully")},
+        responses={200: UserSerializer},
     )
     def post(self, request):
+        if request.user.account_type == AccountType.GUEST:
+            raise PermissionDenied("Guest users cannot update their profile.")
         if "photo" not in request.FILES:
             return Response({"error": "No photo provided"}, status=400)
 
@@ -196,21 +208,25 @@ class UserPhotoView(APIView):
         # The old custom_photo_image (if any) is now orphaned — intentionally not deleted here.
         # Orphan cleanup is deferred to the `cleanup_orphans` management command.
         request.user.custom_photo_image = img
-        request.user.save(update_fields=["custom_photo_image"])
+        request.user.overriden_photo_url = None
+        request.user.save(update_fields=["custom_photo_image", "overriden_photo_url"])
 
-        return Response({"message": "Photo uploaded successfully"})
+        return Response(UserSerializer(request.user, context={"request": request}).data)
 
     @extend_schema(
         summary="Delete custom profile photo",
         description="Removes the custom profile photo, reverting to the USOS/DiceBear photo.",
-        responses={200: OpenApiResponse(description="Photo removed successfully")},
+        responses={200: UserSerializer},
     )
     def delete(self, request):
+        if request.user.account_type == AccountType.GUEST:
+            raise PermissionDenied("Guest users cannot update their profile.")
         # The old UploadedImage row + file is now orphaned — intentionally not deleted here.
         # Orphan cleanup is deferred to the `cleanup_orphans` management command.
         request.user.custom_photo_image = None
-        request.user.save(update_fields=["custom_photo_image"])
-        return Response({"message": "Photo removed successfully"})
+        request.user.overriden_photo_url = None
+        request.user.save(update_fields=["custom_photo_image", "overriden_photo_url"])
+        return Response(UserSerializer(request.user, context={"request": request}).data)
 
 
 class UserViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):

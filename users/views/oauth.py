@@ -2,10 +2,8 @@ import logging
 import os
 from asyncio import CancelledError, sleep
 from datetime import timedelta
-from functools import partial
 from urllib.parse import quote, urlparse
 
-import aiohttp
 import dotenv
 import requests
 from adrf.views import APIView as AsyncAPIView
@@ -296,7 +294,7 @@ class SolvroAuthorizeView(APIView):
         # off the request thread so login latency isn't coupled to a third-party call.
         # on_commit guarantees the worker reads a committed user row.
         dicebear_url = f"https://api.dicebear.com/9.x/adventurer/png?seed={quote(profile['email'])}"
-        transaction.on_commit(partial(sync_user_photo_task.enqueue, user.id, dicebear_url))
+        enqueue_user_photo(user.id, dicebear_url)
 
         return handle_oauth_login_result(request, user, jwt=jwt, redirect_url=redirect_url, guest_id=guest_id)
 
@@ -491,7 +489,7 @@ async def _sync_usos_user(client, access_token, access_token_secret):
         await user_obj.asave()
 
     if photo_url:
-        await _async_process_and_save_photo(user_obj, photo_url)
+        await sync_to_async(enqueue_user_photo)(user_obj.id, photo_url)
 
     user_groups = await client.group_service.get_groups_for_participant(
         fields=[
@@ -530,6 +528,18 @@ async def _sync_usos_user(client, access_token, access_token_secret):
 
 
 MAX_PHOTO_FILE_SIZE = 10 * 1024 * 1024
+
+
+def enqueue_user_photo(user_id, url):
+    """Persist photo work after commit without making authentication depend on the queue."""
+
+    def enqueue():
+        try:
+            sync_user_photo_task.enqueue(str(user_id), url)
+        except Exception:
+            logger.warning("Failed to enqueue profile photo for user %s", user_id)
+
+    transaction.on_commit(enqueue)
 
 
 def _process_and_save_photo_file(user, url, raw_content: bytes, content_type: str) -> None:
@@ -571,6 +581,8 @@ def _sync_download_photo(url: str, max_size: int) -> tuple[bytes, str]:
     """Download photo synchronously with streaming + size cap. Returns (content, content_type)."""
     with requests.get(url, timeout=5, stream=True, allow_redirects=False) as response:
         response.raise_for_status()
+        if response.status_code != 200:
+            raise ValueError("Image source did not return HTTP 200")
         content_type = response.headers.get("Content-Type", "image/jpeg")
 
         content_length = response.headers.get("Content-Length")
@@ -593,33 +605,8 @@ def _sync_download_photo(url: str, max_size: int) -> tuple[bytes, str]:
         return bytes(content), content_type
 
 
-async def _async_download_photo(url: str, max_size: int) -> tuple[bytes, str]:
-    """Download photo asynchronously via aiohttp with streaming + size cap. Returns (content, content_type)."""
-    timeout = aiohttp.ClientTimeout(total=5)
-    async with aiohttp.ClientSession(timeout=timeout) as session, session.get(url, allow_redirects=False) as response:
-        response.raise_for_status()
-        content_type = response.headers.get("Content-Type", "image/jpeg")
-
-        content_length = response.headers.get("Content-Length")
-        if content_length:
-            try:
-                content_length_value = int(content_length)
-            except ValueError:
-                content_length_value = None
-            if content_length_value and content_length_value > max_size:
-                raise ValueError("Photo exceeds max file size")
-
-        content = bytearray()
-        async for chunk in response.content.iter_chunked(8192):
-            content.extend(chunk)
-            if len(content) > max_size:
-                raise ValueError("Photo exceeds max file size")
-
-        return bytes(content), content_type
-
-
 def _sync_process_and_save_photo(user, url):
-    """Synchronous photo download + save. Used by SolvroAuthorizeView (sync APIView)."""
+    """Download and save in the image worker; failures remain visible in task results."""
     try:
         validate_image_source_url(url)
 
@@ -644,34 +631,5 @@ def _sync_process_and_save_photo(user, url):
             user.id,
             type(e).__name__,
         )
-
-
-async def _async_process_and_save_photo(user, url):
-    """Asynchronous photo download + save. Used by UsosAuthorizeView (async AsyncAPIView).
-
-    The HTTP download runs on the async event loop via aiohttp; the PIL processing
-    and ORM writes are offloaded to the thread pool via sync_to_async, avoiding
-    thread pool exhaustion from long network waits.
-    """
-    try:
-        validate_image_source_url(url)
-
-        if user.photo_image_id:
-            from uploads.models import UploadedImage
-
-            try:
-                photo_image = await UploadedImage.objects.aget(pk=user.photo_image_id)
-            except UploadedImage.DoesNotExist:
-                photo_image = None
-            if photo_image and (timezone.now() - photo_image.uploaded_at < timedelta(hours=24)):
-                return
-
-        raw_content, content_type = await _async_download_photo(url, MAX_PHOTO_FILE_SIZE)
-        await sync_to_async(_process_and_save_photo_file)(user, url, raw_content, content_type)
-    except Exception as e:
-        logger.warning(
-            "Failed to download and process photo from %s for user %s: %s",
-            urlparse(url).hostname,
-            user.id,
-            type(e).__name__,
-        )
+        # Do not persist request exception text (which may contain the email seed).
+        raise RuntimeError("Profile photo synchronization failed") from None

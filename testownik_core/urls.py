@@ -87,8 +87,11 @@ base_urlpatterns = [
     path("", include("users.urls")),
     path("", include("quizzes.urls")),
     path("", include("grades.urls")),
+    path("", include("wrapped.urls")),
     path("", include("feedback.urls")),
     path("", include("uploads.urls")),
+    path("", include("blog.urls")),
+    path("", include("ai.urls")),
     # OAuth 2.0
     path("oauth/authorize/request/", AuthorizationRequestAPIView.as_view(), name="oauth_authorize_request"),
     path("oauth/", include("oauth2_provider.urls", namespace="oauth2_provider")),
@@ -98,6 +101,7 @@ base_urlpatterns = [
         AuthorizedAppsViewSet.as_view({"delete": "destroy"}),
         name="authorized_app_detail",
     ),
+    path("", include("notifications.urls")),
 ]
 
 urlpatterns = [

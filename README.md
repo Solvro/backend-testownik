@@ -77,6 +77,9 @@
 Po uruchomieniu API będzie dostępne pod:  
 [http://localhost:8000/](http://localhost:8000/)
 
+Zdjęcia profilowe wymagają osobnego workera: `python manage.py db_worker --backend images --queue-name images --no-reload`.
+Konfiguracja wdrożenia i migracja starych zdjęć: [Profile photos](docs/profile-photos.md).
+
 ---
 
 ## 📜 Najważniejsze komendy

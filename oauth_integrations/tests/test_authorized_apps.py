@@ -5,7 +5,7 @@ from django.utils import timezone
 from oauth2_provider.models import AbstractApplication, AccessToken, RefreshToken, get_application_model
 from rest_framework.test import APITestCase
 
-from oauth_integrations.models import OAuthClientMetadata
+from oauth_integrations.models import OAuthApplicationMetadata, OAuthClientMetadata
 from users.models import User
 
 
@@ -81,6 +81,25 @@ class AuthorizedAppsViewSetTests(APITestCase):
         self.assertEqual(response.data[0]["oauth_application_id"], "mcp-client")
         self.assertEqual(response.data[0]["client_name"], "MCP Client")
         self.assertEqual(response.data[0]["scopes"], "quizzes:write")
+
+    def test_list_returns_application_logo_uri(self):
+        OAuthApplicationMetadata.objects.create(
+            application=self.application,
+            logo_uri="https://example.com/logo.png",
+        )
+        self._create_access_token(
+            user=self.user,
+            application=self.application,
+            token="token",
+            scope="quizzes:read",
+            created=timezone.now(),
+        )
+
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(reverse("authorized_apps"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data[0]["logo_uri"], "https://example.com/logo.png")
 
     def test_destroy_revokes_access_and_refresh_tokens_for_current_user(self):
         access_token = self._create_access_token(

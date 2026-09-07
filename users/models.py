@@ -80,11 +80,11 @@ class User(AbstractBaseUser, PermissionsMixin):
         default=AccountLevel.BASIC,
         help_text="Represents the user's account level tier",
     )
-    student_number = models.CharField(max_length=6)
+    student_number = models.CharField(max_length=6, blank=True)
     usos_id = models.IntegerField(null=True, blank=True)
-    first_name = models.CharField(max_length=30)
+    first_name = models.CharField(max_length=30, blank=True)
     last_name = models.CharField(
-        max_length=51
+        max_length=51, blank=True
     )  # 51 is the maximum length of a last name in polish: "Czartoryski Rostworowski-Mycielski Anderson Scimone"
     sex = models.CharField(max_length=1, choices=[(x.value, x.name) for x in Sex], null=True, blank=True)
     student_status = models.IntegerField(choices=[(x.value, x.name) for x in StudentStatus], null=True, blank=True)
@@ -186,6 +186,9 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def photo(self) -> str | None:
+        # Preserve existing custom photos until the out-of-band backfill succeeds.
+        if not self.custom_photo_image_id and self.overriden_photo_url:
+            return self.overriden_photo_url
         img = self.custom_photo_image or self.photo_image
         if not img:
             return None
@@ -238,7 +241,14 @@ class UserSettings(models.Model):
 
     # ai settings
     ai_disabled = models.BooleanField(default=False)
-    default_ai_model = models.CharField(max_length=64, null=True, blank=True, default=None)
+    default_ai_model = models.ForeignKey(
+        "ai.AIModel",
+        on_delete=models.SET_NULL,
+        related_name="preferred_by_user_settings",
+        null=True,
+        blank=True,
+        default=None,
+    )
 
     # user notification preferences
     notify_quiz_shared = models.BooleanField(default=True)
@@ -263,6 +273,19 @@ class Term(models.Model):
     @extend_schema_field(serializers.BooleanField(allow_null=True))
     def is_current(self) -> bool | None:
         return self.start_date <= date.today() <= self.finish_date if self.start_date and self.finish_date else None
+
+
+class CourseClassType(models.Model):
+    id = models.CharField(max_length=32, primary_key=True)
+    name_pl = models.CharField(max_length=255, blank=True)
+    name_en = models.CharField(max_length=255, blank=True)
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return self.name_pl or self.name_en or self.id
 
 
 class StudyGroup(models.Model):

@@ -1,7 +1,7 @@
 from django.tasks import task
 
 
-@task(queue_name="images")
+@task(queue_name="images", backend="images")
 def sync_user_photo_task(user_id, url: str):
     """Download + process a user's profile photo off the request thread.
 

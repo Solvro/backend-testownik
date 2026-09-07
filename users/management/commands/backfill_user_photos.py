@@ -1,6 +1,6 @@
 import logging
 import time
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import requests
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -64,6 +64,10 @@ class Command(BaseCommand):
 
         if batch_size <= 0:
             raise CommandError("--batch-size must be a positive integer.")
+        if limit is not None and limit < 0:
+            raise CommandError("--limit must not be negative.")
+        if timeout <= 0 or sleep_between < 0:
+            raise CommandError("--timeout must be positive and --sleep must not be negative.")
 
         # Idempotent: only users that still have a source URL and no custom photo yet.
         base_qs = (
@@ -122,10 +126,19 @@ class Command(BaseCommand):
             return "ok"
 
         try:
+            # The old frontend offered DiceBear SVG avatars; request their raster equivalent.
+            parsed = urlparse(url)
+            if parsed.hostname == "api.dicebear.com" and parsed.path.endswith("/svg"):
+                url = urlunparse(parsed._replace(path=parsed.path[:-4] + "/png"))
             raw_content, content_type = self._download(url, timeout)
             img = self._save_image(user, url, raw_content, content_type)
-            user.custom_photo_image_id = img.id
-            user.save(update_fields=["custom_photo_image"])
+            # A user may upload/reset while the download runs. Never overwrite that choice.
+            updated = User.objects.filter(
+                pk=user.pk, custom_photo_image__isnull=True, overriden_photo_url=user.overriden_photo_url
+            ).update(custom_photo_image=img, overriden_photo_url=None)
+            if not updated:
+                img.delete()
+                return "skip"
             return "ok"
         except Exception:
             logger.warning("Failed to backfill custom photo for user %s (%s)", user.id, urlparse(url).hostname)
@@ -134,6 +147,8 @@ class Command(BaseCommand):
     def _download(self, url: str, timeout: float) -> tuple[bytes, str]:
         with requests.get(url, timeout=timeout, stream=True, allow_redirects=False) as response:
             response.raise_for_status()
+            if response.status_code != 200:
+                raise ValueError("Image source did not return HTTP 200")
             content_type = response.headers.get("Content-Type", "image/jpeg")
 
             content_length = response.headers.get("Content-Length")
@@ -151,7 +166,7 @@ class Command(BaseCommand):
             return bytes(content), content_type
 
     def _save_image(self, user, url: str, raw_content: bytes, content_type: str) -> UploadedImage:
-        file_name = url.split("/")[-1] or "custom_photo.jpg"
+        file_name = urlparse(url).path.rsplit("/", 1)[-1] or "custom_photo.jpg"
         if not file_name.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
             file_name += ".jpg"
 

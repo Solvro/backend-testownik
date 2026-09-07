@@ -1,10 +1,13 @@
 """Tests for profile photo feature: model property, upload/delete endpoint, SSRF validation."""
 
 import io
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings
+from django.core.management import call_command
+from django.db import transaction
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from PIL import Image as PILImage
 from rest_framework import status
@@ -14,6 +17,8 @@ from uploads.models import UploadedImage
 from uploads.utils import validate_image_source_url
 from users.models import User
 from users.serializers import UserSerializer
+
+PHOTO_TEST_STORAGE = {"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}}
 
 
 def _create_test_image_file(format: str = "JPEG", size: tuple = (100, 100)) -> SimpleUploadedFile:
@@ -30,6 +35,7 @@ def _create_test_image_file(format: str = "JPEG", size: tuple = (100, 100)) -> S
     )
 
 
+@override_settings(STORAGES=PHOTO_TEST_STORAGE)
 class UserPhotoModelPropertyTests(TestCase):
     """Tests for User.photo property."""
 
@@ -124,6 +130,7 @@ class UserPhotoModelPropertyTests(TestCase):
         self.assertTrue(serializer.data["has_custom_photo"])
 
 
+@override_settings(STORAGES=PHOTO_TEST_STORAGE)
 class UserPhotoUploadEndpointTests(APITestCase):
     """Tests for POST/DELETE /api/user/photo/."""
 
@@ -141,7 +148,8 @@ class UserPhotoUploadEndpointTests(APITestCase):
         image = _create_test_image_file()
         response = self.client.post(self.url, {"photo": image}, format="multipart")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("message", response.data)
+        self.assertTrue(response.data["has_custom_photo"])
+        self.assertTrue(response.data["photo"])
 
         self.user.refresh_from_db()
         self.assertIsNotNone(self.user.custom_photo_image)
@@ -188,6 +196,35 @@ class UserPhotoUploadEndpointTests(APITestCase):
         self.client.force_authenticate(user=None)
         response = self.client.delete(self.url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_guest_cannot_upload_or_reset(self):
+        self.user.account_type = "guest"
+        self.user.save(update_fields=["account_type"])
+        self.assertEqual(self.client.post(self.url, {"photo": _create_test_image_file()}).status_code, 403)
+        self.assertEqual(self.client.delete(self.url).status_code, 403)
+
+    def test_reset_clears_legacy_photo_and_does_not_resurrect_in_backfill(self):
+        self.user.overriden_photo_url = "https://api.dicebear.com/9.x/micah/svg?seed=legacy"
+        self.user.save(update_fields=["overriden_photo_url"])
+        self.assertEqual(self.user.photo, self.user.overriden_photo_url)
+        self.assertTrue(UserSerializer(self.user).data["has_custom_photo"])
+        response = self.client.delete(self.url)
+        self.assertFalse(response.data["has_custom_photo"])
+        with patch("requests.get") as download:
+            call_command("backfill_user_photos", stdout=io.StringIO())
+        download.assert_not_called()
+
+    def test_replacement_and_reset_leave_only_unreferenced_images_for_cleanup(self):
+        self.client.post(self.url, {"photo": _create_test_image_file()})
+        self.user.refresh_from_db()
+        old = self.user.custom_photo_image
+        self.client.post(self.url, {"photo": _create_test_image_file()})
+        self.user.refresh_from_db()
+        current = self.user.custom_photo_image
+        self.assertTrue(old.is_orphan)
+        self.assertFalse(current.is_orphan)
+        self.client.delete(self.url)
+        self.assertTrue(current.is_orphan)
 
 
 class ValidateImageSourceUrlTests(TestCase):
@@ -255,6 +292,7 @@ class ValidateImageSourceUrlTests(TestCase):
         )
 
 
+@override_settings(STORAGES=PHOTO_TEST_STORAGE)
 class PublicUserPhotoFieldTests(APITestCase):
     """Tests that PublicUserSerializer exposes photo field correctly."""
 
@@ -291,3 +329,109 @@ class PublicUserPhotoFieldTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         if response.data:
             self.assertIn("photo", response.data[0])
+
+
+@override_settings(STORAGES=PHOTO_TEST_STORAGE)
+class PhotoWorkerTests(TransactionTestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(email="worker@example.com", password="test")
+
+    def test_enqueue_waits_for_commit_and_worker_persists_photo(self):
+        from django_tasks_db.models import DBTaskResult
+
+        from users.views.oauth import enqueue_user_photo
+
+        image = _create_test_image_file()
+        with patch("users.views.oauth._sync_download_photo", return_value=(image.read(), "image/jpeg")) as download:
+            with transaction.atomic():
+                enqueue_user_photo(self.user.id, "https://api.dicebear.com/9.x/micah/png?seed=test")
+                self.assertFalse(DBTaskResult.objects.exists())
+            download.assert_not_called()
+            self.assertEqual(DBTaskResult.objects.get().status, "READY")
+            call_command(
+                "db_worker",
+                "--backend=images",
+                queue_name="images",
+                batch=True,
+                reload=False,
+                startup_delay=False,
+                verbosity=0,
+            )
+        self.assertEqual(DBTaskResult.objects.get().status, "SUCCESSFUL")
+        self.user.refresh_from_db()
+        self.assertIsNotNone(self.user.photo_image_id)
+
+    def test_rollback_does_not_enqueue(self):
+        from django_tasks_db.models import DBTaskResult
+
+        from users.views.oauth import enqueue_user_photo
+
+        with transaction.atomic():
+            enqueue_user_photo(self.user.id, "https://api.dicebear.com/photo.png")
+            transaction.set_rollback(True)
+        self.assertFalse(DBTaskResult.objects.exists())
+
+    def test_queue_failure_does_not_fail_login(self):
+        from users.views.oauth import enqueue_user_photo
+
+        with patch("django_tasks_db.DatabaseBackend.enqueue", side_effect=RuntimeError("unavailable")):
+            enqueue_user_photo(self.user.id, "https://api.dicebear.com/photo.png")
+
+    def test_worker_records_failure_without_sensitive_exception_text(self):
+        from django_tasks_db.models import DBTaskResult
+
+        from users.tasks import sync_user_photo_task
+
+        sync_user_photo_task.enqueue(str(self.user.id), "https://api.dicebear.com/photo.png")
+        with patch("users.views.oauth._sync_download_photo", side_effect=ValueError("seed=private@example.com")):
+            call_command(
+                "db_worker",
+                "--backend=images",
+                queue_name="images",
+                batch=True,
+                reload=False,
+                startup_delay=False,
+                verbosity=0,
+            )
+        result = DBTaskResult.objects.get()
+        self.assertEqual(result.status, "FAILED")
+        self.assertNotIn("private@example.com", result.traceback)
+
+
+@override_settings(STORAGES=PHOTO_TEST_STORAGE)
+class PhotoBackfillTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="legacy@example.com",
+            password="test",
+            overriden_photo_url="https://api.dicebear.com/9.x/micah/svg?seed=legacy@example.com",
+        )
+
+    def test_backfill_rasterizes_dicebear_is_idempotent_and_redacts_filename(self):
+        image = _create_test_image_file()
+        with patch(
+            "users.management.commands.backfill_user_photos.Command._download",
+            return_value=(image.read(), "image/jpeg"),
+        ) as download:
+            call_command("backfill_user_photos", stdout=io.StringIO())
+            call_command("backfill_user_photos", stdout=io.StringIO())
+        download.assert_called_once_with("https://api.dicebear.com/9.x/micah/png?seed=legacy@example.com", 5)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.overriden_photo_url)
+        self.assertIsNotNone(self.user.custom_photo_image_id)
+        self.assertNotIn("legacy@example.com", self.user.custom_photo_image.original_filename)
+
+    def test_backfill_does_not_overwrite_concurrent_reset(self):
+        from users.management.commands.backfill_user_photos import Command
+
+        image = _create_test_image_file()
+
+        def download(*args):
+            User.objects.filter(pk=self.user.pk).update(overriden_photo_url=None)
+            return image.read(), "image/jpeg"
+
+        with patch.object(Command, "_download", side_effect=download):
+            self.assertEqual(Command()._process_user(self.user, timeout=5, dry_run=False), "skip")
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.custom_photo_image_id)
+        self.assertFalse(UploadedImage.objects.exists())
