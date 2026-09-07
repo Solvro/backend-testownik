@@ -1,5 +1,5 @@
 python-dotenv==1.2.3
-Django==6.1
+Django==6.1.1
 usos-api==0.4.1
 requests==2.34.2
 djangorestframework==3.18.0
