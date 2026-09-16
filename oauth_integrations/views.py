@@ -16,14 +16,6 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from oauth_integrations.models import OAuthApplicationMetadata, OAuthClientMetadata
-from oauth_integrations.oauth_cimd import (
-    CIMDError,
-    get_cimd_metadata_for_application,
-    get_or_create_cimd_application,
-    is_cimd_client_id,
-    resolve_application_from_public_client_id,
-)
 from oauth_integrations.serializers import AuthorizationDecisionSerializer, AuthorizedAppSerializer
 
 logger = logging.getLogger(__name__)
@@ -71,33 +63,15 @@ def _log_oauth_toolkit_error(message, error, *, client_id="", redirect_uri=""):
     )
 
 
-def _preflight_client_id(client_id):
-    if not client_id:
-        return "The authorization request is missing a client_id."
+def _application_logo_uri(application):
+    logo = getattr(application, "logo_uri", "")
+    if logo:
+        return logo
 
-    application = get_application_model().objects.filter(client_id=client_id).first()
-    if application is not None:
-        return ""
+    if hasattr(application, "testownik_metadata") and application.testownik_metadata.logo_uri:
+        return application.testownik_metadata.logo_uri
 
-    if is_cimd_client_id(client_id) or "://" in client_id:
-        try:
-            get_or_create_cimd_application(client_id)
-        except CIMDError as exc:
-            logger.warning("CIMD client preflight failed: client_id=%s error=%s", client_id, exc)
-            return "Unable to validate client metadata for the provided client_id."
-        return ""
-
-    return "The client_id is not registered and is not a valid client metadata document URL."
-
-
-def _application_logo_uri(application, metadata=None):
-    if metadata is not None:
-        return metadata.logo_uri
-
-    try:
-        return application.testownik_metadata.logo_uri or ""
-    except OAuthApplicationMetadata.DoesNotExist:
-        return ""
+    return ""
 
 
 class AuthorizationRequestAPIView(OAuthLibMixin, APIView):
@@ -106,7 +80,7 @@ class AuthorizationRequestAPIView(OAuthLibMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     def _get_application(self, client_id):
-        return resolve_application_from_public_client_id(client_id)
+        return get_application_model().objects.filter(client_id=client_id).first()
 
     def _request_with_authorization_params(self, request, params):
         raw_request = request._request
@@ -133,9 +107,6 @@ class AuthorizationRequestAPIView(OAuthLibMixin, APIView):
 
     def _validate_params(self, request, params):
         client_id = params.get("client_id", "")
-        preflight_error = _preflight_client_id(client_id)
-        if preflight_error:
-            return None, None, Response({"error": preflight_error}, status=400)
 
         raw_request, original_get, original_query_string, original_user = self._request_with_authorization_params(
             request, params
@@ -171,13 +142,12 @@ class AuthorizationRequestAPIView(OAuthLibMixin, APIView):
             return Response({"error": "Invalid OAuth client."}, status=400)
 
         all_scopes = get_scopes_backend().get_all_scopes()
-        metadata = get_cimd_metadata_for_application(application)
         return Response(
             {
-                "client_id": metadata.client_id_url if metadata else application.client_id,
-                "client_name": metadata.client_name if metadata else application.name,
-                "client_uri": metadata.client_uri if metadata else "",
-                "logo_uri": _application_logo_uri(application, metadata),
+                "client_id": application.client_id,
+                "client_name": application.name,
+                "client_uri": getattr(application, "logo_uri", None),
+                "logo_uri": _application_logo_uri(application),  # noqa: F821
                 "redirect_uri": credentials["redirect_uri"],
                 "scopes": [{"value": scope, "description": all_scopes[scope]} for scope in scopes],
             }
@@ -303,14 +273,13 @@ class AuthorizedAppsViewSet(mixins.ListModelMixin, mixins.DestroyModelMixin, vie
             if app is None or app.client_id in seen:
                 continue
             seen.add(app.client_id)
-            metadata = get_cimd_metadata_for_application(app)
             apps.append(
                 {
-                    "client_id": metadata.client_id_url if metadata else app.client_id,
+                    "client_id": app.client_id,
                     "oauth_application_id": app.client_id,
-                    "client_name": metadata.client_name if metadata else app.name,
-                    "client_uri": metadata.client_uri if metadata else "",
-                    "logo_uri": _application_logo_uri(app, metadata),
+                    "client_name": app.name,
+                    "client_uri": getattr(app, "client_uri", ""),
+                    "logo_uri": _application_logo_uri(app),
                     "created": token.created,
                     "scopes": token.scope,
                 }
@@ -347,9 +316,6 @@ class AuthorizedAppsViewSet(mixins.ListModelMixin, mixins.DestroyModelMixin, vie
             raise Http404
 
     def _get_application_for_revoke(self, client_id):
-        if is_cimd_client_id(client_id):
-            metadata = OAuthClientMetadata.objects.select_related("application").filter(client_id_url=client_id).first()
-            return metadata.application if metadata else None
         return get_application_model().objects.filter(client_id=client_id).first()
 
     def _has_user_tokens(self, application):
