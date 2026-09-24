@@ -4,6 +4,8 @@ from uuid import uuid4
 from django.conf import settings
 from openai import OpenAI
 
+from ai.models import AIModel
+
 from .prompts import PROMPT_QUIZ_GENERATOR
 from .quiz_schema import Quiz
 
@@ -13,8 +15,33 @@ def get_openai_client() -> OpenAI:
     return OpenAI(api_key=api_key)
 
 
-def generate_quiz(chunk: str, question_count: int = 3, difficulty: str = "medium") -> tuple[Quiz, dict]:
-    client = get_openai_client()
+def get_quiz_model() -> AIModel:
+    model_name = getattr(settings, "OPENAI_QUIZ_MODEL", "gpt-5.6-luna")
+
+    try:
+        model = AIModel.objects.get(
+            model=model_name,
+            active=True,
+            deleted_at__isnull=True,
+        )
+    except AIModel.DoesNotExist:
+        raise ValueError(
+            f"Quiz model '{model_name}' is not registered, inactive or deleted."
+        )
+
+    return model
+
+def generate_quiz(
+        chunk: str,
+        question_count: int = 3,
+        difficulty: str = "medium",
+        client: OpenAI | None = None,
+        ai_model: AIModel | None = None,
+    ) -> tuple[Quiz, dict]:
+
+    client = client or get_openai_client()
+    ai_model = ai_model or get_quiz_model()
+
     base_prompt = PROMPT_QUIZ_GENERATOR
 
     prompt = f"""
@@ -26,10 +53,9 @@ content:
 {chunk}
 """
 
-    model_name = getattr(settings, "OPENAI_QUIZ_MODEL", "gpt-4o-mini")
 
     response = client.beta.chat.completions.parse(
-        model=model_name,
+        model=ai_model.model,
         messages=[{"role": "system", "content": base_prompt}, {"role": "user", "content": prompt}],
         response_format=Quiz,
     )
@@ -40,7 +66,7 @@ content:
         "cached_tokens": getattr(response.usage.prompt_tokens_details, "cached_tokens", 0)
         if hasattr(response.usage, "prompt_tokens_details")
         else 0,
-        "model": model_name,
+        "model": ai_model.model,
     }
 
     return response.choices[0].message.parsed, usage_info

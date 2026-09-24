@@ -12,6 +12,9 @@ from django.db.models import Count, Max, Q, Sum
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
+from ai_usage.quiz_generator.chunking import chunk_by_tokens
+from ai_usage.quiz_generator.pdf_reading import check_file_size, read_pdf
+from ai_usage.quiz_generator.quiz_generation import fix_quiz, generate_quiz
 from quizzes.services.operations import QuizOperationError, get_readable_quiz
 from users.models import AccountLevel, AccountType, UserSettings
 
@@ -21,14 +24,12 @@ from .models import (
     AIChatMessage,
     AIFallbackGrant,
     AIModel,
+    AIRequest,
     AIUsageEvent,
     AIUsageScope,
     AIUsageSettings,
     AIUserLimitOverride,
 )
-from .quiz_generator.chunking import chunk_by_tokens
-from .quiz_generator.pdf_reading import check_file_size, read_pdf
-from .quiz_generator.quiz_generation import fix_quiz, generate_quiz
 
 logger = logging.getLogger(__name__)
 SESSION_WINDOW = timedelta(hours=5)
@@ -804,74 +805,143 @@ def _message_text(content):
 
 
 def generate_json_quiz_from_pdf(*, user, pdf_file, question_count=10, difficulty="medium", request_id):
-
-    # read PDF file and chunk it
-    check_file_size(pdf_file)
-    text = read_pdf(pdf_file)
-    blocks = [b.strip() for b in text.replace("\r", "").split("\n\n") if b.strip()]
-    chunks = chunk_by_tokens(blocks)
-
-    total_chunks = len(chunks)
-    if total_chunks == 0:
-        raise ValueError("No readable content found.")
-
-    all_questions = []
-
-    # generate quiz
-    aggregated_usage = {
-        "model": None,
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "cached_tokens": 0,
-    }
-
-    base_questions_per_chunk = question_count // total_chunks
-    leftovers = question_count % total_chunks
-
-    for chunk in chunks:
-        questions_to_generate = base_questions_per_chunk
-
-        if leftovers > 0:
-            questions_to_generate += 1
-            leftovers -= 1
-
-        if questions_to_generate == 0:
-            continue
-
-        generated_quiz, usage_info = generate_quiz(chunk["text"], questions_to_generate, difficulty)
-
-        quiz_dict = generated_quiz.model_dump() if hasattr(generated_quiz, "model_dump") else generated_quiz
-
-        questions = quiz_dict.get("questions", [])
-        all_questions.extend(questions)
-
-        if usage_info:
-            aggregated_usage["model"] = usage_info.get("model", aggregated_usage["model"])
-            aggregated_usage["input_tokens"] += usage_info.get("input_tokens", 0)
-            aggregated_usage["output_tokens"] += usage_info.get("output_tokens", 0)
-            aggregated_usage["cached_tokens"] += usage_info.get("cached_tokens", 0)
-
-    raw_quiz = {
-        "title": "Generated Quiz",
-        "description": "This quiz was generated from the provided PDF content.",
-        "version": "1.0",
-        "questions": all_questions,
-    }
-
-    final_quiz = fix_quiz(raw_quiz)
-
-    record_usage(
+    claim_ai_request(
         user=user,
         scope=AIUsageScope.QUIZ_GENERATION,
-        model=aggregated_usage["model"],
-        input_tokens=aggregated_usage["input_tokens"],
-        output_tokens=aggregated_usage["output_tokens"],
-        cached_tokens=aggregated_usage["cached_tokens"],
         request_id=request_id,
-        metadata={
-            "question_count": len(all_questions),
-            "difficulty": difficulty,
-        },
     )
 
-    return final_quiz
+    try:
+        check_quota(
+            user=user,
+            scope=AIUsageScope.QUIZ_GENERATION
+        )
+
+        # read PDF file and chunk it
+        check_file_size(pdf_file)
+        text = read_pdf(pdf_file)
+        blocks = [b.strip() for b in text.replace("\r", "").split("\n\n") if b.strip()]
+        chunks = chunk_by_tokens(blocks)
+
+        total_chunks = len(chunks)
+        if total_chunks == 0:
+            raise ValueError("No readable content found.")
+
+        all_questions = []
+
+        # generate quiz
+        aggregated_usage = {
+            "model": None,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cached_tokens": 0,
+        }
+
+        base_questions_per_chunk = question_count // total_chunks
+        leftovers = question_count % total_chunks
+
+        for chunk in chunks:
+            questions_to_generate = base_questions_per_chunk
+
+            if leftovers > 0:
+                questions_to_generate += 1
+                leftovers -= 1
+
+            if questions_to_generate == 0:
+                continue
+
+            generated_quiz, usage_info = generate_quiz(chunk["text"], questions_to_generate, difficulty)
+
+            quiz_dict = generated_quiz.model_dump() if hasattr(generated_quiz, "model_dump") else generated_quiz
+
+            questions = quiz_dict.get("questions", [])
+            all_questions.extend(questions)
+
+            if usage_info:
+                aggregated_usage["model"] = usage_info.get("model", aggregated_usage["model"])
+                aggregated_usage["input_tokens"] += usage_info.get("input_tokens", 0)
+                aggregated_usage["output_tokens"] += usage_info.get("output_tokens", 0)
+                aggregated_usage["cached_tokens"] += usage_info.get("cached_tokens", 0)
+
+        raw_quiz = {
+            "title": "Generated Quiz",
+            "description": "This quiz was generated from the provided PDF content.",
+            "version": "1.0",
+            "questions": all_questions,
+        }
+
+        final_quiz = fix_quiz(raw_quiz)
+
+        record_usage(
+            user=user,
+            scope=AIUsageScope.QUIZ_GENERATION,
+            model=aggregated_usage["model"],
+            input_tokens=aggregated_usage["input_tokens"],
+            output_tokens=aggregated_usage["output_tokens"],
+            cached_tokens=aggregated_usage["cached_tokens"],
+            request_id=request_id,
+            metadata={
+                "question_count": len(all_questions),
+                "difficulty": difficulty,
+            },
+        )
+
+        AIRequest.objects.filter(
+            request_id=request_id,
+            user=user,
+        ).update(
+            status=AIRequest.Status.COMPLETED,
+            result=final_quiz,
+        )
+
+        return final_quiz
+
+    except Exception as exc:
+        AIRequest.objects.filter(
+            request_id=request_id,
+            user=user,
+        ).update(
+            status=AIRequest.Status.FAILED,
+            error=str(exc)
+        )
+        raise
+
+
+def claim_ai_request(
+        *,
+        user,
+        scope,
+        request_id
+    ) -> AIRequest:
+    try:
+        with transaction.atomic():
+            return AIRequest.objects.create(
+                request_id=request_id,
+                user=user,
+                scope=scope,
+                status=AIRequest.Status.PROCESSING,
+            )
+    except IntegrityError:
+        existing = AIRequest.objects.get(request_id=request_id)
+
+        if existing.user_id != user.id:
+            raise ValueError("Request ID already belongs to another user")
+
+        if existing.status == AIRequest.Status.PROCESSING:
+            raise ValueError(
+                f"Request {request_id} is already being processed."
+            )
+
+        if existing.status == AIRequest.Status.COMPLETED:
+            raise ValueError(
+                f"Request {request_id} has already been completed."
+            )
+
+        if existing.status == AIRequest.Status.FAILED:
+            raise ValueError(
+                f"Request {request_id} has already failed."
+            )
+
+        raise ValueError(
+            f"Request {request_id} has already been processed."
+        )
