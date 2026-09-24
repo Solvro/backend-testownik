@@ -234,7 +234,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.PROTECT,
                         related_name="default_for_settings",
-                        to="ai_usage.aimodel",
+                        to="ai.aimodel",
                     ),
                 ),
                 (
@@ -244,7 +244,7 @@ class Migration(migrations.Migration):
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
                         related_name="fallback_for_settings",
-                        to="ai_usage.aimodel",
+                        to="ai.aimodel",
                     ),
                 ),
             ],
@@ -315,7 +315,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.PROTECT,
                         related_name="fallback_grants",
-                        to="ai_usage.aimodel",
+                        to="ai.aimodel",
                     ),
                 ),
             ],
@@ -346,7 +346,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="messages",
-                        to="ai_usage.aichatconversation",
+                        to="ai.aichatconversation",
                     ),
                 ),
                 (
@@ -356,7 +356,7 @@ class Migration(migrations.Migration):
                         null=True,
                         on_delete=django.db.models.deletion.PROTECT,
                         related_name="chat_messages",
-                        to="ai_usage.aimodel",
+                        to="ai.aimodel",
                     ),
                 ),
             ],
@@ -411,7 +411,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.PROTECT,
                         related_name="daily_aggregates",
-                        to="ai_usage.aimodel",
+                        to="ai.aimodel",
                     ),
                 ),
                 (
@@ -483,7 +483,7 @@ class Migration(migrations.Migration):
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
                         related_name="usage_events",
-                        to="ai_usage.aichatconversation",
+                        to="ai.aichatconversation",
                     ),
                 ),
                 (
@@ -491,7 +491,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.PROTECT,
                         related_name="usage_events",
-                        to="ai_usage.aimodel",
+                        to="ai.aimodel",
                     ),
                 ),
                 (

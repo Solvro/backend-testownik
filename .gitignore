@@ -180,3 +180,5 @@ db.json
 
 # macOS
 .DS_Store
+
+.claude/

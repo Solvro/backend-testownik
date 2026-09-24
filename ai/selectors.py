@@ -244,7 +244,8 @@ def get_admin_stats(*, days):
         credits=Sum("credits"),
         input_tokens=Sum("input_tokens"),
         output_tokens=Sum("output_tokens"),
-        cached_tokens=Sum("cached_tokens"),
+        cache_read_tokens=Sum("cache_read_tokens"),
+        cache_write_tokens=Sum("cache_write_tokens"),
         events=Count("id"),
         aborted=Count("id", filter=Q(aborted=True)),
         errors=Count("id", filter=~Q(error="")),
@@ -253,12 +254,22 @@ def get_admin_stats(*, days):
         credits=Sum("credits"),
         input_tokens=Sum("input_tokens"),
         output_tokens=Sum("output_tokens"),
-        cached_tokens=Sum("cached_tokens"),
+        cache_read_tokens=Sum("cache_read_tokens"),
+        cache_write_tokens=Sum("cache_write_tokens"),
         events=Sum("event_count"),
         aborted=Sum("aborted_count"),
         errors=Sum("error_count"),
     )
-    for key in ("credits", "input_tokens", "output_tokens", "cached_tokens", "events", "aborted", "errors"):
+    for key in (
+        "credits",
+        "input_tokens",
+        "output_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "events",
+        "aborted",
+        "errors",
+    ):
         totals[key] = (totals[key] or 0) + (aggregate_totals[key] or 0)
     by_model = _combine_grouped_rows(
         list(

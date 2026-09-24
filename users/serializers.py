@@ -7,7 +7,7 @@ from rest_framework_simplejwt.serializers import (
 )
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from ai_usage.models import AIModel
+from ai.models import AIModel
 from users.models import StudyGroup, Term, User, UserSettings
 
 
@@ -106,6 +106,8 @@ class UserSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "email",
+            "first_name",
+            "last_name",
             "full_name",
             "is_superuser",
             "is_staff",

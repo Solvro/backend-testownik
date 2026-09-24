@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("ai_usage", "0002_seed_ai_configuration"),
+        ("ai", "0002_seed_ai_configuration"),
         ("users", "0013_courseclasstype"),
     ]
 
@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
                 null=True,
                 on_delete=django.db.models.deletion.SET_NULL,
                 related_name="preferred_by_user_settings",
-                to="ai_usage.aimodel",
+                to="ai.aimodel",
             ),
         ),
     ]
