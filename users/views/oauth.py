@@ -494,6 +494,10 @@ async def _sync_usos_user(client, access_token, access_token_secret):
 
     if photo_url:
         await sync_to_async(enqueue_user_photo)(user_obj.id, photo_url)
+    elif user_obj.photo_image_id:
+        # USOS removed the photo, so drop the cached copy too; cleanup_orphans deletes the file.
+        user_obj.photo_image = None
+        await user_obj.asave(update_fields=["photo_image"])
 
     user_groups = await client.group_service.get_groups_for_participant(
         fields=[

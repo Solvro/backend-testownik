@@ -1,6 +1,5 @@
 import logging
 
-from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
@@ -189,8 +188,9 @@ class UserPhotoView(APIView):
 
         try:
             processed_file, width, height, content_type = process_uploaded_image(request.FILES["photo"])
-        except ValidationError:
-            logger.warning("Photo upload failed for user %s", request.user.id)
+        except Exception:
+            # Truncated images pass verify() and only fail while decoding (OSError etc.).
+            logger.warning("Photo upload failed for user %s", request.user.id, exc_info=True)
             return Response(
                 {"error": "Invalid image file. Accepted formats: JPEG, PNG, GIF, WEBP, AVIF (max 10MB)."}, status=400
             )

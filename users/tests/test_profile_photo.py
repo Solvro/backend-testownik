@@ -181,6 +181,14 @@ class UserPhotoUploadEndpointTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response.data)
 
+    def test_upload_truncated_image_returns_400(self):
+        truncated = _create_test_image_file().read()[:-2]
+        photo = SimpleUploadedFile("truncated.jpg", truncated, content_type="image/jpeg")
+        response = self.client.post(self.url, {"photo": photo}, format="multipart")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.custom_photo_image_id)
+
     def test_upload_excessively_large_file_returns_400(self):
         large_content = b"x" * (11 * 1024 * 1024)  # 11MB
         large_file = SimpleUploadedFile("large.jpg", large_content, content_type="image/jpeg")
@@ -510,18 +518,14 @@ class PhotoBackfillTests(TestCase):
     TASKS={**settings.TASKS, "images": {"BACKEND": "django_tasks_db.DatabaseBackend", "QUEUES": ["images"]}},
 )
 class LoginTokenPhotoTests(TransactionTestCase):
-    def test_usos_login_token_carries_source_photo_before_worker_runs(self):
+    @staticmethod
+    def _usos_client(photo_urls):
         from types import SimpleNamespace
         from unittest.mock import AsyncMock
 
-        from asgiref.sync import async_to_sync
         from usos_api.models import StaffStatus, StudentStatus
 
-        from users.serializers import UserTokenObtainPairSerializer
-        from users.views.oauth import _sync_usos_user
-
-        usos_photo = "https://apps.usos.pwr.edu.pl/res/up/original/123.jpg"
-        client = SimpleNamespace(
+        return SimpleNamespace(
             user_service=SimpleNamespace(
                 get_user=AsyncMock(
                     return_value=SimpleNamespace(
@@ -533,14 +537,46 @@ class LoginTokenPhotoTests(TransactionTestCase):
                         sex=SimpleNamespace(value="K"),
                         student_status=SimpleNamespace(value=StudentStatus.ACTIVE_STUDENT.value),
                         staff_status=SimpleNamespace(value=StaffStatus.NOT_STAFF.value),
-                        photo_urls={"original": usos_photo},
+                        photo_urls=photo_urls,
                     )
                 )
             ),
             group_service=SimpleNamespace(get_groups_for_participant=AsyncMock(return_value=[])),
         )
 
-        user, _ = async_to_sync(_sync_usos_user)(client, None, None)
+    def test_usos_login_token_carries_source_photo_before_worker_runs(self):
+        from asgiref.sync import async_to_sync
+
+        from users.serializers import UserTokenObtainPairSerializer
+        from users.views.oauth import _sync_usos_user
+
+        usos_photo = "https://apps.usos.pwr.edu.pl/res/up/original/123.jpg"
+        user, _ = async_to_sync(_sync_usos_user)(self._usos_client({"original": usos_photo}), None, None)
 
         self.assertIsNone(user.photo_image_id)
         self.assertEqual(UserTokenObtainPairSerializer.get_token(user)["photo"], usos_photo)
+
+    def test_usos_login_without_photo_clears_cached_provider_photo(self):
+        from asgiref.sync import async_to_sync
+
+        from users.views.oauth import _sync_usos_user
+
+        user = User.objects.create_user(email="anna@student.pwr.edu.pl", password="test", usos_id=123)
+        user.photo_url = "https://apps.usos.pwr.edu.pl/res/up/original/123.jpg"
+        user.photo_image = UploadedImage.objects.create(
+            image=_create_test_image_file(),
+            original_filename="123.jpg",
+            content_type="image/jpeg",
+            file_size=100,
+            width=100,
+            height=100,
+            uploaded_by=user,
+        )
+        user.save(update_fields=["photo_url", "photo_image"])
+
+        synced, _ = async_to_sync(_sync_usos_user)(self._usos_client({}), None, None)
+
+        synced.refresh_from_db()
+        self.assertIsNone(synced.photo_image_id)
+        self.assertIsNone(synced.photo)
+        self.assertIsNone(synced.default_photo)
