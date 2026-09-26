@@ -15,6 +15,7 @@ from .user_management import (
     GuestCreateView,
     SettingsViewSet,
     StudyGroupViewSet,
+    UserPhotoView,
     UserViewSet,
 )
 from .utils import (
@@ -42,6 +43,7 @@ __all__ = [
     "StudyGroupViewSet",
     "UsosAuthorizeView",
     "UsosLoginView",
+    "UserPhotoView",
     "UserViewSet",
     "admin_login",
     "is_safe_redirect_url",

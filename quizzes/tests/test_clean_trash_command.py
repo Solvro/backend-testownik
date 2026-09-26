@@ -36,6 +36,8 @@ class CleanTrashCommandTest(TestCase):
 
         call_command("clean_trash_quizzes", stdout=out)
 
+        self.assertIn("Deleted 1 quiz(zes) from trash", out.getvalue())
+
         self.assertTrue(
             Quiz.objects.filter(id=self.quiz_old_archive.id).exists(), "Old quiz in archive should be kept."
         )
@@ -54,3 +56,4 @@ class CleanTrashCommandTest(TestCase):
 
         call_command("clean_trash_quizzes", stdout=out)
         self.assertEqual(Quiz.objects.count(), 0)
+        self.assertIn("Deleted 0 quiz(zes) from trash", out.getvalue())

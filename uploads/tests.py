@@ -140,6 +140,15 @@ class UploadFlowTests(APITestCase):
         self.assertEqual(uploaded.content_type, "image/gif")
         self.assertTrue(uploaded.image.name.endswith(".gif"))
 
+    def test_animated_upload_extension_ignores_client_filename(self):
+        img = create_animated_gif()
+        img.name = "animated.html"
+        response = self.client.post(self.upload_url, {"image": img}, format="multipart")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        uploaded = UploadedImage.objects.get(id=response.data["id"])
+        self.assertTrue(uploaded.image.name.endswith(".gif"))
+
     def test_upload_large_image_gets_resized(self):
         """Test that images larger than 1920px are automatically resized."""
         img = create_large_image_file()

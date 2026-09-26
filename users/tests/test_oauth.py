@@ -10,6 +10,8 @@ from users.models import User
 
 
 @override_settings(DEBUG=True)
+# Pin redirect origins so a local FRONTEND_URL (e.g. :3001) doesn't reject the test redirect.
+@patch("users.views.utils.ALLOWED_REDIRECT_ORIGINS", ["http://localhost:3000"])
 class SolvroOAuthTests(APITestCase):
     @patch("users.views.oauth.oauth.create_client")
     def test_solvro_login_redirect_url(self, mock_create_client):

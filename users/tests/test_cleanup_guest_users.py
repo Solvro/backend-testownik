@@ -61,6 +61,18 @@ class CleanupGuestUsersCommandTests(TestCase):
 
         self.assertTrue(User.objects.filter(pk=guest.pk).exists())
 
+    def test_other_users_recent_session_on_guest_quiz_keeps_guest(self):
+        guest = self.make_old_guest()
+        quiz = Quiz.objects.create(title="Shared by link", creator=guest, folder=guest.root_folder)
+        Quiz.objects.filter(pk=quiz.pk).update(updated_at=self.old)
+        other = User.objects.create_user(email="learner@example.com", password="password")
+        QuizSession.objects.create(quiz=quiz, user=other)
+
+        call_command("cleanup_guest_users")
+
+        self.assertTrue(User.objects.filter(pk=guest.pk).exists())
+        self.assertTrue(Quiz.objects.filter(pk=quiz.pk).exists())
+
     def test_dry_run_only_previews_deletion(self):
         guest = self.make_old_guest()
         out = StringIO()
