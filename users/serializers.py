@@ -1,7 +1,5 @@
-from urllib.parse import urlparse
-
-from django.conf import settings
 from django.db import transaction
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import InvalidToken
 from rest_framework_simplejwt.serializers import (
@@ -131,11 +129,15 @@ class UserSerializer(serializers.ModelSerializer):
     def get_has_custom_photo(self, obj):
         return obj.custom_photo_image_id is not None or bool(obj.overriden_photo_url)
 
+    @extend_schema_field(serializers.URLField(allow_null=True))
     def get_default_photo(self, obj):
-        if not obj.photo_image:
-            return getattr(obj, "photo_url", None) or None
-        url = obj.photo_image.image.url
-        return url if urlparse(url).netloc else f"{settings.BACKEND_URL}{url}"
+        if obj.photo_image and obj.photo_image.image:
+            request = self.context.get("request")
+            url = obj.photo_image.image.url
+            if request is not None:
+                return request.build_absolute_uri(url)
+            return url
+        return getattr(obj, "photo_url", None) or None
 
 
 class PublicUserSerializer(serializers.ModelSerializer):

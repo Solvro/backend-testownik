@@ -17,6 +17,7 @@ class ProfilePhotoMigrationTests(TransactionTestCase):
                 email="migration@example.com",
                 first_name="Anna",
                 last_name="Nowak",
+                photo_url="https://api.dicebear.com/9.x/adventurer/svg?seed=legacy",
                 overriden_photo_url="https://api.dicebear.com/9.x/micah/svg?seed=legacy",
             )
             with patch("socket.getaddrinfo") as dns, patch("requests.get") as download:
@@ -30,6 +31,6 @@ class ProfilePhotoMigrationTests(TransactionTestCase):
             self.assertEqual(migrated.overriden_photo_url, user.overriden_photo_url)
             self.assertIsNone(migrated.photo_image_id)
             self.assertIsNone(migrated.custom_photo_image_id)
-            self.assertNotIn("photo_url", {field.name for field in new_user._meta.fields})
+            self.assertEqual(migrated.photo_url, user.photo_url)
         finally:
             MigrationExecutor(connection).migrate(latest)

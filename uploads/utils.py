@@ -1,6 +1,5 @@
 import io
 import ipaddress
-import os
 import uuid
 from urllib.parse import urlparse
 
@@ -74,9 +73,9 @@ def process_uploaded_image(image_file):
     if is_animated:
         img_format = img.format or detected_format or "GIF"
         content_type = FORMAT_TO_MIME.get(img_format, "image/gif")
-        original_ext = os.path.splitext(image_file.name)[1].lower()
-        format_ext = f".{img_format.lower()}" if img_format else ".gif"
-        extension = original_ext if original_ext else format_ext
+        # Derive the extension from the decoded format: storages pick the served
+        # Content-Type from it, so a client-supplied name like "x.html" must not leak through.
+        extension = f".{img_format.lower()}"
 
         if img_format == "GIF":
             img.save(output, format="GIF", save_all=True, optimize=True)

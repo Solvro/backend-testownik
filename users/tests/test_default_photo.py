@@ -1,4 +1,4 @@
-from django.test import SimpleTestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from uploads.models import UploadedImage
 from users.models import User
@@ -7,21 +7,46 @@ from users.serializers import UserSerializer
 
 @override_settings(
     BACKEND_URL="https://api.example.com",
+    ALLOWED_HOSTS=["profiles.example.com"],
     MEDIA_URL="/media/",
     STORAGES={"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}},
 )
 class DefaultPhotoSerializerTests(SimpleTestCase):
+    def setUp(self):
+        self.request = RequestFactory().get("/api/user/", secure=True, HTTP_HOST="profiles.example.com")
+
     def test_original_photo_is_available_without_removing_custom_photo(self):
         original = UploadedImage(image="avatars/original.jpg")
         custom = UploadedImage(image="avatars/custom.jpg")
         user = User(email="preview@example.com", photo_image=original, custom_photo_image=custom)
 
-        data = UserSerializer(user).data
+        data = UserSerializer(user, context={"request": self.request}).data
 
-        self.assertEqual(data["default_photo"], "https://api.example.com/media/avatars/original.jpg")
+        self.assertEqual(data["default_photo"], "https://profiles.example.com/media/avatars/original.jpg")
         self.assertEqual(data["photo"], "https://api.example.com/media/avatars/custom.jpg")
         self.assertTrue(data["has_custom_photo"])
         self.assertIs(user.custom_photo_image, custom)
+
+    def test_without_request_returns_storage_url(self):
+        user = User(email="preview@example.com", photo_image=UploadedImage(image="avatars/original.jpg"))
+        self.assertEqual(UserSerializer(user).data["default_photo"], "/media/avatars/original.jpg")
+
+    def test_missing_file_returns_null(self):
+        user = User(
+            email="preview@example.com",
+            photo_image=UploadedImage(image=""),
+            custom_photo_image=UploadedImage(image="avatars/custom.jpg"),
+        )
+        self.assertIsNone(UserSerializer(user, context={"request": self.request}).data["default_photo"])
+
+    def test_missing_file_falls_back_to_legacy_account_photo(self):
+        user = User(
+            email="preview@example.com",
+            photo_image=UploadedImage(image=""),
+            custom_photo_image=UploadedImage(image="avatars/custom.jpg"),
+        )
+        user.photo_url = "https://example.com/original.jpg"
+        self.assertEqual(UserSerializer(user).data["default_photo"], user.photo_url)
 
     def test_no_original_photo_returns_null_even_with_legacy_custom_photo(self):
         user = User(email="preview@example.com", overriden_photo_url="https://example.com/custom.png")
@@ -38,7 +63,7 @@ class DefaultPhotoSerializerTests(SimpleTestCase):
     def test_absolute_storage_url_is_preserved(self):
         user = User(email="preview@example.com", photo_image=UploadedImage(image="avatars/original.jpg"))
         self.assertEqual(
-            UserSerializer(user).data["default_photo"],
+            UserSerializer(user, context={"request": self.request}).data["default_photo"],
             "https://cdn.example.com/media/avatars/original.jpg",
         )
 

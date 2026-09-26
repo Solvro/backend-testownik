@@ -31,6 +31,5 @@ class Migration(migrations.Migration):
                 to="uploads.uploadedimage",
             ),
         ),
-        # Keep overriden_photo_url for the out-of-band backfill and legacy fallback.
-        migrations.RemoveField(model_name="user", name="photo_url"),
+        # photo_url stays as the provider photo source; overriden_photo_url for the backfill.
     ]

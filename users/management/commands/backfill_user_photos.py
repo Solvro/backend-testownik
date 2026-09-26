@@ -15,11 +15,16 @@ logger = logging.getLogger(__name__)
 MAX_FILE_SIZE = 10 * 1024 * 1024
 DEFAULT_BATCH_SIZE = 100
 DEFAULT_TIMEOUT = 5
+PHOTO_SOURCES = {
+    "overriden_photo_url": "custom_photo_image",
+    "photo_url": "photo_image",
+}
 
 
 class Command(BaseCommand):
     help = (
-        "Backfill custom_photo_image from the legacy overriden_photo_url field. "
+        "Backfill custom_photo_image and photo_image from the legacy overriden_photo_url "
+        "and photo_url fields. "
         "Downloads each photo from a third-party host, so it is meant to be run "
         "out-of-band (not during `migrate`). Idempotent and batched."
     )
@@ -69,15 +74,8 @@ class Command(BaseCommand):
         if timeout <= 0 or sleep_between < 0:
             raise CommandError("--timeout must be positive and --sleep must not be negative.")
 
-        # Idempotent: only users that still have a source URL and no custom photo yet.
-        base_qs = (
-            User.objects.filter(overriden_photo_url__isnull=False)
-            .exclude(overriden_photo_url="")
-            .filter(custom_photo_image__isnull=True)
-            .order_by("id")
-        )
-
-        total_candidates = base_qs.count()
+        candidates = {source: self._candidates(source) for source in PHOTO_SOURCES}
+        total_candidates = sum(qs.count() for qs in candidates.values())
         to_process = min(total_candidates, limit) if limit is not None else total_candidates
 
         self.stdout.write(
@@ -87,34 +85,46 @@ class Command(BaseCommand):
 
         processed = succeeded = skipped = failed = 0
 
-        for user in base_qs.iterator(chunk_size=batch_size):
-            if limit is not None and processed >= limit:
-                break
-            processed += 1
+        for source, qs in candidates.items():
+            for user in qs.iterator(chunk_size=batch_size):
+                if limit is not None and processed >= limit:
+                    break
+                processed += 1
 
-            result = self._process_user(user, timeout=timeout, dry_run=dry_run)
-            if result == "ok":
-                succeeded += 1
-            elif result == "skip":
-                skipped += 1
-            else:
-                failed += 1
+                result = self._process_user(user, timeout=timeout, dry_run=dry_run, source=source)
+                if result == "ok":
+                    succeeded += 1
+                elif result == "skip":
+                    skipped += 1
+                else:
+                    failed += 1
 
-            if sleep_between and processed % batch_size == 0:
-                time.sleep(sleep_between)
+                if sleep_between and processed % batch_size == 0:
+                    time.sleep(sleep_between)
 
         self.stdout.write(
             self.style.SUCCESS(f"Done. processed={processed} succeeded={succeeded} skipped={skipped} failed={failed}")
         )
-        if not dry_run and (base_qs.count() == 0):
+        if not dry_run and not candidates["overriden_photo_url"].exists():
             self.stdout.write(
                 self.style.SUCCESS(
                     "No remaining candidates. Safe to drop `overriden_photo_url` in a contract migration."
                 )
             )
 
-    def _process_user(self, user, *, timeout: float, dry_run: bool) -> str:
-        url = user.overriden_photo_url
+    @staticmethod
+    def _candidates(source: str):
+        # Idempotent: only users that still have a source URL and no image for it yet.
+        return (
+            User.objects.filter(**{f"{source}__isnull": False})
+            .exclude(**{source: ""})
+            .filter(**{f"{PHOTO_SOURCES[source]}__isnull": True})
+            .order_by("id")
+        )
+
+    def _process_user(self, user, *, timeout: float, dry_run: bool, source: str = "overriden_photo_url") -> str:
+        target = PHOTO_SOURCES[source]
+        url = getattr(user, source)
         try:
             validate_image_source_url(url)
         except Exception:
@@ -134,14 +144,14 @@ class Command(BaseCommand):
             img = self._save_image(user, url, raw_content, content_type)
             # A user may upload/reset while the download runs. Never overwrite that choice.
             updated = User.objects.filter(
-                pk=user.pk, custom_photo_image__isnull=True, overriden_photo_url=user.overriden_photo_url
-            ).update(custom_photo_image=img, overriden_photo_url=None)
+                **{"pk": user.pk, f"{target}__isnull": True, source: getattr(user, source)}
+            ).update(**{target: img, **({source: None} if source == "overriden_photo_url" else {})})
             if not updated:
                 img.delete()
                 return "skip"
             return "ok"
         except Exception:
-            logger.warning("Failed to backfill custom photo for user %s (%s)", user.id, urlparse(url).hostname)
+            logger.warning("Failed to backfill photo for user %s (%s)", user.id, urlparse(url).hostname)
             return "fail"
 
     def _download(self, url: str, timeout: float) -> tuple[bytes, str]:

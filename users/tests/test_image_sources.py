@@ -1,6 +1,7 @@
 import socket
 from unittest.mock import Mock, patch
 
+import urllib3
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase, override_settings
 
@@ -72,6 +73,29 @@ class ImageSourceDownloadTests(SimpleTestCase):
         self.dns.return_value = self.addresses("2606:4700:4700::1111")
         self.download()
         self.assertEqual(self.pool_class.call_args.args, ("2606:4700:4700::1111",))
+
+    def test_prefers_ipv4_over_ipv6(self):
+        self.dns.return_value = self.addresses("2001:41d0:60c:4d00::", "57.128.232.77")
+        self.download()
+        self.assertEqual(self.pool_class.call_args.args, ("57.128.232.77",))
+
+    def test_falls_back_to_next_address_when_connection_fails(self):
+        self.dns.return_value = self.addresses("8.8.8.8", "2606:4700:4700::1111")
+        self.pool.urlopen.side_effect = [
+            urllib3.exceptions.NewConnectionError(Mock(), "unreachable"),
+            self.response,
+        ]
+        self.assertEqual(self.download(), (b"image", "image/avif"))
+        self.assertEqual(
+            [call.args for call in self.pool_class.call_args_list], [("8.8.8.8",), ("2606:4700:4700::1111",)]
+        )
+
+    def test_raises_when_every_address_fails_to_connect(self):
+        self.dns.return_value = self.addresses("8.8.8.8", "2606:4700:4700::1111")
+        self.pool.urlopen.side_effect = urllib3.exceptions.NewConnectionError(Mock(), "unreachable")
+        with self.assertRaises(urllib3.exceptions.NewConnectionError):
+            self.download()
+        self.assertEqual(self.pool_class.call_count, 2)
 
     def test_fails_closed_on_dns_failure_or_empty_answers(self):
         self.dns.return_value = []

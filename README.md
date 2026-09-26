@@ -77,7 +77,7 @@
 Po uruchomieniu API będzie dostępne pod:  
 [http://localhost:8000/](http://localhost:8000/)
 
-Zdjęcia profilowe wymagają osobnego workera: `python manage.py db_worker --backend images --queue-name images --no-reload`.
+Zdjęcia profilowe wymagają osobnego workera: `python manage.py db_worker --backend images --queue-name images --no-reload`. Przy `DEBUG=True` są przetwarzane od razu w żądaniu.
 
 ---
 

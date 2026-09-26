@@ -282,18 +282,20 @@ class SolvroAuthorizeView(APIView):
             messages.error(request, "Brak adresu email w profilu użytkownika.")
             return redirect(redirect_url)
 
+        # The source URL is what the login token shows until the worker stores the photo.
+        dicebear_url = f"https://api.dicebear.com/9.x/adventurer/png?seed={quote(profile['email'])}"
         user, _ = User.objects.update_or_create(
             email=profile["email"],
-            defaults={},
+            defaults={"photo_url": dicebear_url},
             create_defaults={
                 "account_type": AccountType.EMAIL,
+                "photo_url": dicebear_url,
             },
         )
 
         # Defer the avatar fetch (outbound DiceBear request + image processing + DB writes)
         # off the request thread so login latency isn't coupled to a third-party call.
         # on_commit guarantees the worker reads a committed user row.
-        dicebear_url = f"https://api.dicebear.com/9.x/adventurer/png?seed={quote(profile['email'])}"
         enqueue_user_photo(user.id, dicebear_url)
 
         return handle_oauth_login_result(request, user, jwt=jwt, redirect_url=redirect_url, guest_id=guest_id)
@@ -471,6 +473,8 @@ async def _sync_usos_user(client, access_token, access_token_secret):
         "sex": user_data.sex.value,
         "student_status": user_data.student_status.value,
         "staff_status": user_data.staff_status.value,
+        # Shown (and put in the login token) until the worker stores the photo.
+        "photo_url": photo_url,
     }
 
     if user_data.staff_status.value >= StaffStatus.NON_ACADEMIC_STAFF.value:

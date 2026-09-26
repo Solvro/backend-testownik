@@ -103,6 +103,10 @@ class User(AbstractBaseUser, PermissionsMixin):
         on_delete=models.SET_NULL,
         related_name="user_custom_photos",
     )
+    # Provider (USOS/DiceBear) photo source, refreshed on every login. `photo` falls back
+    # to it until the image worker stores a copy in `photo_image`, so a fresh login token
+    # already carries a working avatar.
+    photo_url = models.URLField(null=True, blank=True)
     # DEPRECATED transitional field. Source for the `backfill_user_photos` command,
     # which migrates it into `custom_photo_image`. Drop in a contract migration once
     # the backfill is verified complete. Until then, photo and has_custom_photo
@@ -192,7 +196,7 @@ class User(AbstractBaseUser, PermissionsMixin):
             return self.overriden_photo_url
         img = self.custom_photo_image or self.photo_image
         if not img:
-            return None
+            return self.photo_url or None
 
         url = img.image.url
         if not urlparse(url).netloc:

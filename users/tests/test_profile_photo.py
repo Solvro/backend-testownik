@@ -3,6 +3,7 @@
 import io
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
@@ -49,6 +50,20 @@ class UserPhotoModelPropertyTests(TestCase):
 
     def test_photo_returns_none_when_no_images(self):
         self.assertIsNone(self.user.photo)
+
+    def test_photo_falls_back_to_legacy_photo_url_until_synced(self):
+        self.user.photo_url = "https://api.dicebear.com/9.x/adventurer/svg?seed=legacy"
+        self.assertEqual(self.user.photo, self.user.photo_url)
+        self.user.photo_image = UploadedImage.objects.create(
+            image=_create_test_image_file(),
+            original_filename="test.jpg",
+            content_type="image/jpeg",
+            file_size=100,
+            width=100,
+            height=100,
+            uploaded_by=self.user,
+        )
+        self.assertIn(self.user.photo_image.image.name, self.user.photo)
 
     def test_photo_returns_photo_image_url(self):
         uploaded = UploadedImage.objects.create(
@@ -331,7 +346,11 @@ class PublicUserPhotoFieldTests(APITestCase):
             self.assertIn("photo", response.data[0])
 
 
-@override_settings(STORAGES=PHOTO_TEST_STORAGE)
+# These tests exercise the durable queue, which DEBUG would otherwise replace with inline execution.
+@override_settings(
+    STORAGES=PHOTO_TEST_STORAGE,
+    TASKS={**settings.TASKS, "images": {"BACKEND": "django_tasks_db.DatabaseBackend", "QUEUES": ["images"]}},
+)
 class PhotoWorkerTests(TransactionTestCase):
     def setUp(self):
         self.user = User.objects.create_user(email="worker@example.com", password="test")
@@ -421,6 +440,24 @@ class PhotoBackfillTests(TestCase):
         self.assertIsNotNone(self.user.custom_photo_image_id)
         self.assertNotIn("legacy@example.com", self.user.custom_photo_image.original_filename)
 
+    def test_backfill_converts_legacy_photo_url_into_photo_image(self):
+        User.objects.filter(pk=self.user.pk).update(
+            overriden_photo_url=None,
+            photo_url="https://api.dicebear.com/9.x/adventurer/svg?seed=legacy@example.com",
+        )
+        image = _create_test_image_file()
+        with patch(
+            "users.management.commands.backfill_user_photos.Command._download",
+            return_value=(image.read(), "image/jpeg"),
+        ) as download:
+            call_command("backfill_user_photos", stdout=io.StringIO())
+            call_command("backfill_user_photos", stdout=io.StringIO())
+        download.assert_called_once_with("https://api.dicebear.com/9.x/adventurer/png?seed=legacy@example.com", 5)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.photo_url, "https://api.dicebear.com/9.x/adventurer/svg?seed=legacy@example.com")
+        self.assertIsNotNone(self.user.photo_image_id)
+        self.assertIsNone(self.user.custom_photo_image_id)
+
     def test_backfill_does_not_overwrite_concurrent_reset(self):
         from users.management.commands.backfill_user_photos import Command
 
@@ -448,3 +485,44 @@ class PhotoBackfillTests(TestCase):
         _process_and_save_photo_file(self.user, url, raw_content, "image/avif")
         self.user.refresh_from_db()
         self.assertEqual(self.user.photo_image.original_filename, "photo.AVIF")
+
+
+@override_settings(
+    STORAGES=PHOTO_TEST_STORAGE,
+    TASKS={**settings.TASKS, "images": {"BACKEND": "django_tasks_db.DatabaseBackend", "QUEUES": ["images"]}},
+)
+class LoginTokenPhotoTests(TransactionTestCase):
+    def test_usos_login_token_carries_source_photo_before_worker_runs(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from asgiref.sync import async_to_sync
+        from usos_api.models import StaffStatus, StudentStatus
+
+        from users.serializers import UserTokenObtainPairSerializer
+        from users.views.oauth import _sync_usos_user
+
+        usos_photo = "https://apps.usos.pwr.edu.pl/res/up/original/123.jpg"
+        client = SimpleNamespace(
+            user_service=SimpleNamespace(
+                get_user=AsyncMock(
+                    return_value=SimpleNamespace(
+                        id="123",
+                        first_name="Anna",
+                        last_name="Nowak",
+                        email="anna@student.pwr.edu.pl",
+                        student_number="123456",
+                        sex=SimpleNamespace(value="K"),
+                        student_status=SimpleNamespace(value=StudentStatus.ACTIVE_STUDENT.value),
+                        staff_status=SimpleNamespace(value=StaffStatus.NOT_STAFF.value),
+                        photo_urls={"original": usos_photo},
+                    )
+                )
+            ),
+            group_service=SimpleNamespace(get_groups_for_participant=AsyncMock(return_value=[])),
+        )
+
+        user, _ = async_to_sync(_sync_usos_user)(client, None, None)
+
+        self.assertIsNone(user.photo_image_id)
+        self.assertEqual(UserTokenObtainPairSerializer.get_token(user)["photo"], usos_photo)

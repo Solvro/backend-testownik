@@ -27,7 +27,17 @@ def download_image_source(url: str, *, max_size: int, timeout: float) -> tuple[b
             raise ValidationError("Image source hostname resolves to a non-public address.")
 
     # Pin the connection, not just validation: a second hostname lookup could rebind.
-    address = sorted(addresses)[0]
+    # Prefer IPv4 and fall back to the next address, since workers often lack IPv6 egress.
+    ordered = sorted(addresses, key=lambda address: (ipaddress.ip_address(address).version, address))
+    for address in ordered[:-1]:
+        try:
+            return _download_from_address(parsed, address, port, max_size=max_size, timeout=timeout)
+        except urllib3.exceptions.ConnectTimeoutError:  # Also covers NewConnectionError.
+            continue
+    return _download_from_address(parsed, ordered[-1], port, max_size=max_size, timeout=timeout)
+
+
+def _download_from_address(parsed, address: str, port: int, *, max_size: int, timeout: float) -> tuple[bytes, str]:
     request_timeout = urllib3.Timeout(connect=timeout, read=timeout)
     if parsed.scheme == "https":
         pool = urllib3.HTTPSConnectionPool(
