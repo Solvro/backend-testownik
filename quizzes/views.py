@@ -210,12 +210,17 @@ class LastUsedQuizzesView(generics.ListAPIView):
         user = self.request.user
         user_ratings = Prefetch("ratings", queryset=QuizRating.objects.filter(user=user), to_attr="_user_rating")
         return (
-            Quiz.objects.filter(
-                sessions__user=user,
-                sessions__is_active=True,
-            )
+            Quiz.objects.filter(sessions__user=user, sessions__is_active=True)
             .exclude(folder__folder_type=FolderType.TRASH)
-            .select_related("creator", "folder", "folder__owner")
+            .select_related(
+                "creator",
+                "creator__photo_image",
+                "creator__custom_photo_image",
+                "folder",
+                "folder__owner",
+                "folder__owner__photo_image",
+                "folder__owner__custom_photo_image",
+            )
             .annotate(
                 questions_count=Count("questions", distinct=True),
                 avg_rating=Avg("ratings__score"),
@@ -327,7 +332,15 @@ class QuizViewSet(viewsets.ModelViewSet):
 
             return (
                 Quiz.objects.filter(creator=user, folder__folder_type=FolderType.REGULAR)
-                .select_related("creator", "folder", "folder__owner")
+                .select_related(
+                    "creator",
+                    "creator__photo_image",
+                    "creator__custom_photo_image",
+                    "folder",
+                    "folder__owner",
+                    "folder__owner__photo_image",
+                    "folder__owner__custom_photo_image",
+                )
                 .annotate(
                     questions_count=Count("questions", distinct=True),
                     avg_rating=Avg("ratings__score"),
@@ -341,7 +354,15 @@ class QuizViewSet(viewsets.ModelViewSet):
         queryset = Quiz.objects.all()
 
         if self.action in ("retrieve", "copy", "metadata", "progress", "record_answer"):
-            queryset = queryset.select_related("creator", "folder", "folder__owner").prefetch_related(
+            queryset = queryset.select_related(
+                "creator",
+                "creator__photo_image",
+                "creator__custom_photo_image",
+                "folder",
+                "folder__owner",
+                "folder__owner__photo_image",
+                "folder__owner__custom_photo_image",
+            ).prefetch_related(
                 Prefetch("questions", queryset=Question.objects.select_related("image_upload")),
                 Prefetch(
                     "questions__answers",
@@ -954,12 +975,22 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
         _filter &= ~Q(quiz__folder__folder_type=FolderType.TRASH)
         if self.request.query_params.get("quiz"):
             _filter &= Q(quiz_id=self.request.query_params.get("quiz"))
-        return SharedQuiz.objects.filter(_filter).prefetch_related(
-            Prefetch(
-                "quiz",
-                queryset=Quiz.objects.annotate(questions_count=Count("questions", distinct=True)).select_related(
-                    "creator", "folder", "folder__owner"
-                ),
+        return (
+            SharedQuiz.objects.filter(_filter)
+            .select_related("user", "user__photo_image", "user__custom_photo_image", "study_group")
+            .prefetch_related(
+                Prefetch(
+                    "quiz",
+                    queryset=Quiz.objects.annotate(questions_count=Count("questions", distinct=True)).select_related(
+                        "creator",
+                        "creator__photo_image",
+                        "creator__custom_photo_image",
+                        "folder",
+                        "folder__owner",
+                        "folder__owner__photo_image",
+                        "folder__owner__custom_photo_image",
+                    ),
+                )
             )
         )
 
@@ -1173,7 +1204,11 @@ class QuizRatingViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        return QuizRating.objects.filter(accessible_quizzes_q(user)).select_related("quiz", "user").distinct()
+        return (
+            QuizRating.objects.filter(accessible_quizzes_q(user))
+            .select_related("quiz", "user", "user__photo_image", "user__custom_photo_image")
+            .distinct()
+        )
 
     def list(self, request, *args, **kwargs):
         if "quiz" not in request.query_params:
@@ -1216,7 +1251,11 @@ class CommentViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        return Comment.objects.filter(accessible_quizzes_q(user)).select_related("author", "parent").distinct()
+        return (
+            Comment.objects.filter(accessible_quizzes_q(user))
+            .select_related("author", "author__photo_image", "author__custom_photo_image", "parent")
+            .distinct()
+        )
 
     def list(self, request, *args, **kwargs):
         if "quiz" not in request.query_params:
@@ -1278,12 +1317,24 @@ class LibraryView(APIView):
         return (
             Folder.objects.filter(parent_id=folder_id)
             .filter(Q(owner=user) | ~Q(folder_type=FolderType.TRASH))
+            .select_related("owner", "owner__photo_image", "owner__custom_photo_image")
             .distinct()
             .order_by("-created_at")
         )
 
     def _get_quizzes(self, user, folder_id):
-        return Quiz.objects.filter(folder_id=folder_id).distinct().order_by("-created_at")
+        return (
+            Quiz.objects.filter(folder_id=folder_id)
+            .select_related(
+                "creator",
+                "folder",
+                "folder__owner",
+                "folder__owner__photo_image",
+                "folder__owner__custom_photo_image",
+            )
+            .distinct()
+            .order_by("-created_at")
+        )
 
     def _build_breadcrumbs(self, user, folder_id):
         try:

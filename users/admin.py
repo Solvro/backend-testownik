@@ -92,7 +92,8 @@ class UserAdmin(ModelAdmin):
                     "last_name",
                     "sex",
                     "photo_url",
-                    "overriden_photo_url",
+                    "photo_image",
+                    "custom_photo_image",
                     "hide_profile",
                 )
             },
@@ -107,7 +108,7 @@ class UserAdmin(ModelAdmin):
             },
         ),
     )
-    readonly_fields = ["id", "created_at", "updated_at"]
+    readonly_fields = ["id", "photo_url", "created_at", "updated_at"]
     date_hierarchy = "created_at"
 
     inlines = (UserSettingsInline,)
