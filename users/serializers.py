@@ -1,3 +1,6 @@
+from urllib.parse import urlparse
+
+from django.conf import settings
 from django.db import transaction
 from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import InvalidToken
@@ -102,6 +105,7 @@ class CurrentUserDefault:
 
 class UserSerializer(serializers.ModelSerializer):
     has_custom_photo = serializers.SerializerMethodField()
+    default_photo = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -117,6 +121,7 @@ class UserSerializer(serializers.ModelSerializer):
             "sex",
             "gender",
             "photo",
+            "default_photo",
             "has_custom_photo",
             "hide_profile",
             "account_type",
@@ -125,6 +130,12 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_has_custom_photo(self, obj):
         return obj.custom_photo_image_id is not None or bool(obj.overriden_photo_url)
+
+    def get_default_photo(self, obj):
+        if not obj.photo_image:
+            return getattr(obj, "photo_url", None) or None
+        url = obj.photo_image.image.url
+        return url if urlparse(url).netloc else f"{settings.BACKEND_URL}{url}"
 
 
 class PublicUserSerializer(serializers.ModelSerializer):
