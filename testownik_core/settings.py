@@ -328,14 +328,15 @@ EMAIL_TIMEOUT = 10
 
 SPECTACULAR_SETTINGS = spectacular.SPECTACULAR_SETTINGS
 
-# Photo downloads use a durable queue consumed by `manage.py db_worker --backend images`.
-# In development they run inline by default, so no separate worker is needed.
+# Durable background work (one queue per kind of task) is consumed by
+# `manage.py db_worker --backend background --queue-name '*'`.
+# In development it runs inline by default, so no separate worker is needed.
 # Keep the existing email task behavior on the default backend.
 TASKS = {
     "default": {
         "BACKEND": "django.tasks.backends.immediate.ImmediateBackend",
     },
-    "images": {
+    "background": {
         "BACKEND": ("django.tasks.backends.immediate.ImmediateBackend" if DEBUG else "django_tasks_db.DatabaseBackend"),
         "QUEUES": ["images"],
     },

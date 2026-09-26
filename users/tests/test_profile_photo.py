@@ -357,7 +357,7 @@ class PublicUserPhotoFieldTests(APITestCase):
 # These tests exercise the durable queue, which DEBUG would otherwise replace with inline execution.
 @override_settings(
     STORAGES=PHOTO_TEST_STORAGE,
-    TASKS={**settings.TASKS, "images": {"BACKEND": "django_tasks_db.DatabaseBackend", "QUEUES": ["images"]}},
+    TASKS={**settings.TASKS, "background": {"BACKEND": "django_tasks_db.DatabaseBackend", "QUEUES": ["images"]}},
 )
 class PhotoWorkerTests(TransactionTestCase):
     PROVIDER_URL = "https://api.dicebear.com/photo.png"
@@ -380,7 +380,7 @@ class PhotoWorkerTests(TransactionTestCase):
             self.assertEqual(DBTaskResult.objects.get().status, "READY")
             call_command(
                 "db_worker",
-                "--backend=images",
+                "--backend=background",
                 queue_name="images",
                 batch=True,
                 reload=False,
@@ -459,7 +459,7 @@ class PhotoWorkerTests(TransactionTestCase):
         with patch("users.views.oauth._sync_download_photo", side_effect=ValueError("seed=private@example.com")):
             call_command(
                 "db_worker",
-                "--backend=images",
+                "--backend=background",
                 queue_name="images",
                 batch=True,
                 reload=False,
@@ -544,7 +544,7 @@ class PhotoBackfillTests(TestCase):
 
 @override_settings(
     STORAGES=PHOTO_TEST_STORAGE,
-    TASKS={**settings.TASKS, "images": {"BACKEND": "django_tasks_db.DatabaseBackend", "QUEUES": ["images"]}},
+    TASKS={**settings.TASKS, "background": {"BACKEND": "django_tasks_db.DatabaseBackend", "QUEUES": ["images"]}},
 )
 class LoginTokenPhotoTests(TransactionTestCase):
     @staticmethod
