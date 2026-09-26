@@ -58,6 +58,7 @@ from quizzes.permissions import (
     IsSharedQuizCreatorOrReadOnly,
     accessible_quizzes_q,
     is_internal_api_request,
+    not_guest_owned_q,
     quiz_is_deleted,
     user_has_quiz_read_access,
 )
@@ -211,6 +212,7 @@ class LastUsedQuizzesView(generics.ListAPIView):
         user_ratings = Prefetch("ratings", queryset=QuizRating.objects.filter(user=user), to_attr="_user_rating")
         return (
             Quiz.objects.filter(sessions__user=user, sessions__is_active=True)
+            .filter(Q(folder__owner=user) | not_guest_owned_q())
             .exclude(folder__folder_type=FolderType.TRASH)
             .select_related(
                 "creator",
@@ -449,7 +451,8 @@ class QuizViewSet(viewsets.ModelViewSet):
             raise PermissionDenied(message)
 
         if has_internal_access:
-            if not (quiz.visibility >= 1 or (user.is_authenticated and user.owns_quiz_via_folder(quiz))):
+            is_owner = user.is_authenticated and user.owns_quiz_via_folder(quiz)
+            if not is_owner and (quiz.visibility < 1 or quiz.folder.owner.account_type == AccountType.GUEST):
                 raise PermissionDenied("You do not have permission to access this quiz metadata.")
         elif not user_has_quiz_read_access(user, quiz):
             raise PermissionDenied("You do not have permission to access this quiz metadata.")

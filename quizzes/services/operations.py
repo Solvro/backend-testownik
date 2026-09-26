@@ -16,7 +16,7 @@ from quizzes.models import (
     QuizSession,
     SharedQuiz,
 )
-from quizzes.permissions import DELETED_QUIZ_MESSAGE, quiz_is_deleted, user_has_quiz_read_access
+from quizzes.permissions import DELETED_QUIZ_MESSAGE, not_guest_owned_q, quiz_is_deleted, user_has_quiz_read_access
 from quizzes.services.normalizer import normalize
 
 PUBLIC_VISIBILITY = 3
@@ -60,11 +60,16 @@ def searchable_quizzes_queryset(user, query: str):
     return (
         base.filter(
             Q(folder__owner=user)
-            | Q(visibility__gte=PUBLIC_VISIBILITY)
-            | Q(sharedquiz__user=user, visibility__gte=1)
-            | Q(
-                sharedquiz__study_group__in=user.study_groups.all(),
-                visibility__gte=1,
+            | (
+                not_guest_owned_q()
+                & (
+                    Q(visibility__gte=PUBLIC_VISIBILITY)
+                    | Q(sharedquiz__user=user, visibility__gte=1)
+                    | Q(
+                        sharedquiz__study_group__in=user.study_groups.all(),
+                        visibility__gte=1,
+                    )
+                )
             )
         )
         .select_related("creator")
@@ -94,7 +99,7 @@ def grouped_search_quizzes(user, query: str, *, include_public: bool):
     public_quizzes = Quiz.objects.none()
     if include_public:
         public_quizzes = Quiz.objects.filter(
-            active_quiz_filter, title__icontains=query, visibility__gte=PUBLIC_VISIBILITY
+            active_quiz_filter, not_guest_owned_q(), title__icontains=query, visibility__gte=PUBLIC_VISIBILITY
         ).select_related("creator")
     return {
         "user_quizzes": user_quizzes,
