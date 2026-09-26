@@ -589,8 +589,11 @@ def _process_and_save_photo_file(user, url, raw_content: bytes, content_type: st
         height=height,
         uploaded_by_id=user.id,
     )
+    # A newer login may have changed or removed the provider photo while this task ran.
+    if not User.objects.filter(pk=user.pk, photo_url=url).update(photo_image=img):
+        img.delete()
+        return
     user.photo_image = img
-    user.save(update_fields=["photo_image"])
 
 
 def _sync_download_photo(url: str, max_size: int) -> tuple[bytes, str]:
@@ -603,6 +606,9 @@ def _sync_process_and_save_photo(user, url):
     try:
         validate_image_source_url(url)
 
+        # Skip stale tasks queued before a later login changed or removed the provider photo.
+        if user.photo_url != url:
+            return
         # Re-check in the worker: several logins may have queued before the first finished.
         if _has_fresh_photo(user.id):
             return

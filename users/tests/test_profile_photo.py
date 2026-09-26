@@ -360,8 +360,11 @@ class PublicUserPhotoFieldTests(APITestCase):
     TASKS={**settings.TASKS, "images": {"BACKEND": "django_tasks_db.DatabaseBackend", "QUEUES": ["images"]}},
 )
 class PhotoWorkerTests(TransactionTestCase):
+    PROVIDER_URL = "https://api.dicebear.com/photo.png"
+
     def setUp(self):
         self.user = User.objects.create_user(email="worker@example.com", password="test")
+        User.objects.filter(pk=self.user.pk).update(photo_url=self.PROVIDER_URL)
 
     def test_enqueue_waits_for_commit_and_worker_persists_photo(self):
         from django_tasks_db.models import DBTaskResult
@@ -371,7 +374,7 @@ class PhotoWorkerTests(TransactionTestCase):
         image = _create_test_image_file()
         with patch("users.views.oauth._sync_download_photo", return_value=(image.read(), "image/jpeg")) as download:
             with transaction.atomic():
-                enqueue_user_photo(self.user.id, "https://api.dicebear.com/9.x/micah/png?seed=test")
+                enqueue_user_photo(self.user.id, self.PROVIDER_URL)
                 self.assertFalse(DBTaskResult.objects.exists())
             download.assert_not_called()
             self.assertEqual(DBTaskResult.objects.get().status, "READY")
@@ -394,9 +397,34 @@ class PhotoWorkerTests(TransactionTestCase):
         from users.views.oauth import enqueue_user_photo
 
         with transaction.atomic():
-            enqueue_user_photo(self.user.id, "https://api.dicebear.com/photo.png")
+            enqueue_user_photo(self.user.id, self.PROVIDER_URL)
             transaction.set_rollback(True)
         self.assertFalse(DBTaskResult.objects.exists())
+
+    def test_stale_task_does_not_restore_removed_provider_photo(self):
+        from users.tasks import sync_user_photo_task
+
+        User.objects.filter(pk=self.user.pk).update(photo_url=None)
+        with patch("users.views.oauth._sync_download_photo") as download:
+            sync_user_photo_task.call(str(self.user.id), self.PROVIDER_URL)
+        download.assert_not_called()
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.photo_image_id)
+
+    def test_provider_change_during_download_discards_photo(self):
+        from users.tasks import sync_user_photo_task
+
+        image = _create_test_image_file()
+
+        def download(*args):
+            User.objects.filter(pk=self.user.pk).update(photo_url=None)
+            return image.read(), "image/jpeg"
+
+        with patch("users.views.oauth._sync_download_photo", side_effect=download):
+            sync_user_photo_task.call(str(self.user.id), self.PROVIDER_URL)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.photo_image_id)
+        self.assertFalse(UploadedImage.objects.exists())
 
     def test_fresh_photo_is_not_enqueued(self):
         from django_tasks_db.models import DBTaskResult
@@ -413,21 +441,21 @@ class PhotoWorkerTests(TransactionTestCase):
             uploaded_by=self.user,
         )
         self.user.save(update_fields=["photo_image"])
-        enqueue_user_photo(self.user.id, "https://api.dicebear.com/photo.png")
+        enqueue_user_photo(self.user.id, self.PROVIDER_URL)
         self.assertFalse(DBTaskResult.objects.exists())
 
     def test_queue_failure_does_not_fail_login(self):
         from users.views.oauth import enqueue_user_photo
 
         with patch("django_tasks_db.DatabaseBackend.enqueue", side_effect=RuntimeError("unavailable")):
-            enqueue_user_photo(self.user.id, "https://api.dicebear.com/photo.png")
+            enqueue_user_photo(self.user.id, self.PROVIDER_URL)
 
     def test_worker_records_failure_without_sensitive_exception_text(self):
         from django_tasks_db.models import DBTaskResult
 
         from users.tasks import sync_user_photo_task
 
-        sync_user_photo_task.enqueue(str(self.user.id), "https://api.dicebear.com/photo.png")
+        sync_user_photo_task.enqueue(str(self.user.id), self.PROVIDER_URL)
         with patch("users.views.oauth._sync_download_photo", side_effect=ValueError("seed=private@example.com")):
             call_command(
                 "db_worker",
@@ -508,6 +536,7 @@ class PhotoBackfillTests(TestCase):
         url = "https://api.dicebear.com/photo.AVIF?seed=private@example.com#fragment"
         saved = Command()._save_image(self.user, url, raw_content, "image/avif")
         self.assertEqual(saved.original_filename, "photo.AVIF")
+        User.objects.filter(pk=self.user.pk).update(photo_url=url)
         _process_and_save_photo_file(self.user, url, raw_content, "image/avif")
         self.user.refresh_from_db()
         self.assertEqual(self.user.photo_image.original_filename, "photo.AVIF")
