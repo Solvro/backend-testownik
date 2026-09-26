@@ -69,6 +69,7 @@ class UserAdmin(ModelAdmin):
         "updated_at",
     ]
     search_fields = ["first_name", "last_name", "student_number", "email", "usos_id"]
+    autocomplete_fields = ["photo_image", "custom_photo_image"]
 
     fieldsets = (
         (
