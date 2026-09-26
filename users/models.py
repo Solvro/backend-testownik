@@ -63,6 +63,13 @@ class CustomUserManager(BaseUserManager):
         return self.create_user(email, password, **extra_fields)
 
 
+def _absolute_media_url(url: str) -> str:
+    # Local file storage returns "/media/..."; S3 already returns absolute URLs.
+    if not urlparse(url).netloc:
+        return f"{settings.BACKEND_URL}{url}"
+    return url
+
+
 class User(AbstractBaseUser, PermissionsMixin):
     objects = CustomUserManager()
 
@@ -197,12 +204,14 @@ class User(AbstractBaseUser, PermissionsMixin):
         img = self.custom_photo_image or self.photo_image
         if not img:
             return self.photo_url or None
+        return _absolute_media_url(img.image.url)
 
-        url = img.image.url
-        if not urlparse(url).netloc:
-            backend_url = settings.BACKEND_URL
-            return f"{backend_url}{url}"
-        return url
+    @property
+    def default_photo(self) -> str | None:
+        """Provider photo shown after a reset; ignores the custom photo."""
+        if self.photo_image and self.photo_image.image:
+            return _absolute_media_url(self.photo_image.image.url)
+        return self.photo_url or None
 
     @property
     def gender(self) -> str | None:

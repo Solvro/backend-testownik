@@ -22,14 +22,16 @@ class DefaultPhotoSerializerTests(SimpleTestCase):
 
         data = UserSerializer(user, context={"request": self.request}).data
 
-        self.assertEqual(data["default_photo"], "https://profiles.example.com/media/avatars/original.jpg")
+        self.assertEqual(data["default_photo"], "https://api.example.com/media/avatars/original.jpg")
         self.assertEqual(data["photo"], "https://api.example.com/media/avatars/custom.jpg")
         self.assertTrue(data["has_custom_photo"])
         self.assertIs(user.custom_photo_image, custom)
 
-    def test_without_request_returns_storage_url(self):
+    def test_without_request_uses_backend_url(self):
         user = User(email="preview@example.com", photo_image=UploadedImage(image="avatars/original.jpg"))
-        self.assertEqual(UserSerializer(user).data["default_photo"], "/media/avatars/original.jpg")
+        self.assertEqual(
+            UserSerializer(user).data["default_photo"], "https://api.example.com/media/avatars/original.jpg"
+        )
 
     def test_missing_file_returns_null(self):
         user = User(

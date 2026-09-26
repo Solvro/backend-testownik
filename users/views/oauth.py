@@ -532,6 +532,13 @@ async def _sync_usos_user(client, access_token, access_token_secret):
 
 
 MAX_PHOTO_FILE_SIZE = 10 * 1024 * 1024
+PHOTO_REFRESH_INTERVAL = timedelta(hours=24)
+
+
+def _has_fresh_photo(user_id) -> bool:
+    return User.objects.filter(
+        pk=user_id, photo_image__uploaded_at__gte=timezone.now() - PHOTO_REFRESH_INTERVAL
+    ).exists()
 
 
 def enqueue_user_photo(user_id, url):
@@ -539,6 +546,9 @@ def enqueue_user_photo(user_id, url):
 
     def enqueue():
         try:
+            # Skip queuing (and a task-result row) on every login while the stored copy is fresh.
+            if _has_fresh_photo(user_id):
+                return
             sync_user_photo_task.enqueue(str(user_id), url)
         except Exception:
             logger.warning("Failed to enqueue profile photo for user %s", user_id)
@@ -589,17 +599,9 @@ def _sync_process_and_save_photo(user, url):
     try:
         validate_image_source_url(url)
 
-        if user.photo_image_id:
-            from uploads.models import UploadedImage
-
-            try:
-                photo_image = UploadedImage.objects.get(pk=user.photo_image_id)
-            except UploadedImage.DoesNotExist:
-                photo_image = None
-                user.photo_image = None
-                user.save(update_fields=["photo_image"])
-            if photo_image and (timezone.now() - photo_image.uploaded_at < timedelta(hours=24)):
-                return
+        # Re-check in the worker: several logins may have queued before the first finished.
+        if _has_fresh_photo(user.id):
+            return
 
         raw_content, content_type = _sync_download_photo(url, MAX_PHOTO_FILE_SIZE)
         _process_and_save_photo_file(user, url, raw_content, content_type)

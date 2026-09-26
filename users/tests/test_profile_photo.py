@@ -390,6 +390,24 @@ class PhotoWorkerTests(TransactionTestCase):
             transaction.set_rollback(True)
         self.assertFalse(DBTaskResult.objects.exists())
 
+    def test_fresh_photo_is_not_enqueued(self):
+        from django_tasks_db.models import DBTaskResult
+
+        from users.views.oauth import enqueue_user_photo
+
+        self.user.photo_image = UploadedImage.objects.create(
+            image=_create_test_image_file(),
+            original_filename="test.jpg",
+            content_type="image/jpeg",
+            file_size=100,
+            width=100,
+            height=100,
+            uploaded_by=self.user,
+        )
+        self.user.save(update_fields=["photo_image"])
+        enqueue_user_photo(self.user.id, "https://api.dicebear.com/photo.png")
+        self.assertFalse(DBTaskResult.objects.exists())
+
     def test_queue_failure_does_not_fail_login(self):
         from users.views.oauth import enqueue_user_photo
 

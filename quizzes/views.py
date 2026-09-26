@@ -975,12 +975,22 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
         _filter &= ~Q(quiz__folder__folder_type=FolderType.TRASH)
         if self.request.query_params.get("quiz"):
             _filter &= Q(quiz_id=self.request.query_params.get("quiz"))
-        return SharedQuiz.objects.filter(_filter).prefetch_related(
-            Prefetch(
-                "quiz",
-                queryset=Quiz.objects.annotate(questions_count=Count("questions", distinct=True)).select_related(
-                    "creator", "folder", "folder__owner"
-                ),
+        return (
+            SharedQuiz.objects.filter(_filter)
+            .select_related("user", "user__photo_image", "user__custom_photo_image", "study_group")
+            .prefetch_related(
+                Prefetch(
+                    "quiz",
+                    queryset=Quiz.objects.annotate(questions_count=Count("questions", distinct=True)).select_related(
+                        "creator",
+                        "creator__photo_image",
+                        "creator__custom_photo_image",
+                        "folder",
+                        "folder__owner",
+                        "folder__owner__photo_image",
+                        "folder__owner__custom_photo_image",
+                    ),
+                )
             )
         )
 
@@ -1307,12 +1317,24 @@ class LibraryView(APIView):
         return (
             Folder.objects.filter(parent_id=folder_id)
             .filter(Q(owner=user) | ~Q(folder_type=FolderType.TRASH))
+            .select_related("owner", "owner__photo_image", "owner__custom_photo_image")
             .distinct()
             .order_by("-created_at")
         )
 
     def _get_quizzes(self, user, folder_id):
-        return Quiz.objects.filter(folder_id=folder_id).distinct().order_by("-created_at")
+        return (
+            Quiz.objects.filter(folder_id=folder_id)
+            .select_related(
+                "creator",
+                "folder",
+                "folder__owner",
+                "folder__owner__photo_image",
+                "folder__owner__custom_photo_image",
+            )
+            .distinct()
+            .order_by("-created_at")
+        )
 
     def _build_breadcrumbs(self, user, folder_id):
         try:
