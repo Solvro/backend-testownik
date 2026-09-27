@@ -14,8 +14,10 @@ from ai.models import (
     AIChatMessage,
     AIFallbackGrant,
     AIModel,
+    AIRequest,
     AIUsageDailyAggregate,
     AIUsageEvent,
+    AIUsageScope,
     AIUsageSettings,
     AIUserLimitOverride,
 )
@@ -24,6 +26,7 @@ from ai.services import (
     AIUsageAccessDenied,
     _reset_at,
     check_quota,
+    claim_ai_request,
     get_limits,
     get_usage_summary,
     record_usage,
@@ -1087,3 +1090,71 @@ class AIUsageServicesTests(TestCase):
         self.assertFalse(wrong_model.quota_exempt)
         self.assertTrue(approved.quota_exempt)
         self.assertFalse(reused.quota_exempt)
+
+    def test_claim_ai_request_creates_request(self):
+        request_id = "quiz-request-1"
+
+        request = claim_ai_request(
+            user=self.user,
+            scope=AIUsageScope.QUIZ_GENERATION,
+            request_id=request_id,
+        )
+
+        self.assertEqual(request.request_id, request_id)
+        self.assertEqual(request.user, self.user)
+        self.assertEqual(
+            request.scope,
+            AIUsageScope.QUIZ_GENERATION,
+        )
+        self.assertEqual(
+            request.status,
+            AIRequest.Status.PROCESSING,
+        )
+
+
+    def test_claim_ai_request_rejects_duplicate_request_id(self):
+        request_id = "quiz-request-duplicate"
+
+        claim_ai_request(
+            user=self.user,
+            scope=AIUsageScope.QUIZ_GENERATION,
+            request_id=request_id,
+        )
+
+        with self.assertRaisesMessage(ValueError, "already"):
+            claim_ai_request(
+                user=self.user,
+                scope=AIUsageScope.QUIZ_GENERATION,
+                request_id=request_id,
+            )
+
+        self.assertEqual(
+            AIRequest.objects.filter(request_id=request_id).count(),
+            1,
+        )
+
+
+    def test_claim_ai_request_rejects_request_id_from_another_user(self):
+        request_id = "quiz-request-other-user"
+
+        other_user = User.objects.create_user(
+            email="other@example.com",
+            account_type=AccountType.EMAIL,
+            account_level=AccountLevel.BASIC,
+        )
+
+        claim_ai_request(
+            user=other_user,
+            scope=AIUsageScope.QUIZ_GENERATION,
+            request_id=request_id,
+        )
+
+        with self.assertRaisesMessage(
+            ValueError,
+            "already belongs to another user",
+        ):
+            claim_ai_request(
+                user=self.user,
+                scope=AIUsageScope.QUIZ_GENERATION,
+                request_id=request_id,
+            )

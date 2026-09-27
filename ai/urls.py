@@ -14,6 +14,7 @@ from .views import (
     AvailableModelsView,
     ChatDetailView,
     ChatListView,
+    GenerateQuizView,
     InternalQuotaCheckView,
     InternalUsageReportView,
     MyUsageView,
@@ -38,4 +39,5 @@ urlpatterns = [
     path("ai/usage/admin/users/<uuid:user_id>/events/", AdminUserEventsView.as_view(), name="ai_admin_user_events"),
     path("ai/usage/admin/settings/", AdminSettingsView.as_view(), name="ai_admin_settings"),
     path("", include(router.urls)),
+    path("ai/usage/admin/generate-quiz/", GenerateQuizView.as_view(), name="ai_generate_quiz"),
 ]
