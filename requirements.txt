@@ -4,7 +4,7 @@ django-tasks-db==0.13.0
 django-stubs-ext==6.1.0
 usos-api==0.4.1
 requests==2.34.2
-djangorestframework==3.18.0
+djangorestframework==3.18.1
 djangorestframework-simplejwt==5.5.1
 django-cors-headers==4.9.0
 adrf==0.1.14
