@@ -146,7 +146,7 @@ class AuthorizationRequestAPIView(OAuthLibMixin, APIView):
             {
                 "client_id": application.client_id,
                 "client_name": application.name,
-                "client_uri": getattr(application, "logo_uri", None),
+                "client_uri": getattr(application, "client_uri", ""),
                 "logo_uri": _application_logo_uri(application),  # noqa: F821
                 "redirect_uri": credentials["redirect_uri"],
                 "scopes": [{"value": scope, "description": all_scopes[scope]} for scope in scopes],
