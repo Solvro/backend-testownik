@@ -1,5 +1,5 @@
 import urllib.parse
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.http import HttpResponseRedirect
 from django.test import override_settings
@@ -7,6 +7,7 @@ from django.urls import reverse
 from rest_framework.test import APITestCase
 
 from users.models import User
+from users.views.oauth import _decode_usos_redirect, _encode_usos_redirect
 
 
 @override_settings(DEBUG=True)
@@ -64,3 +65,69 @@ class SolvroOAuthTests(APITestCase):
 
         self.assertIn("access_token", response.cookies)
         self.assertIn("refresh_token", response.cookies)
+
+
+MOBILE_REDIRECT = (
+    "http://localhost:3000/oauth/authorize?client_id=testownik-mobile"
+    "&redirect_uri=testownik%3A%2F%2Fauth&scope=quizzes%3Aread+quizzes%3Awrite"
+)
+
+
+def _usos_client_mock():
+    client = MagicMock()
+    client.get_authorization_url = AsyncMock(return_value="https://apps.usos.pwr.edu.pl/authorize")
+    client.connection.auth_manager.get_request_token.return_value = ("token", "secret")
+    context = MagicMock()
+    context.__aenter__ = AsyncMock(return_value=client)
+    context.__aexit__ = AsyncMock(return_value=False)
+    return client, context
+
+
+@override_settings(DEBUG=True)
+@patch.dict("os.environ", {"USOS_CONSUMER_KEY": "key", "USOS_CONSUMER_SECRET": "secret"})
+class UsosOAuthTests(APITestCase):
+    @patch("users.views.oauth.USOSClient")
+    def test_login_callback_has_no_percent_escapes(self, mock_usos_client):
+        """USOS rejects the request-token signature for callbacks containing %-escapes."""
+        client, mock_usos_client.return_value = _usos_client_mock()
+
+        response = self.client.get(reverse("login_usos"), {"jwt": "true", "redirect": MOBILE_REDIRECT})
+
+        self.assertEqual(response.status_code, 302)
+        callback_url = client.get_authorization_url.call_args.args[0]
+        self.assertNotIn("%", callback_url)
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(callback_url).query)
+        self.assertEqual(query["jwt"], ["true"])
+        self.assertEqual(_decode_usos_redirect(query["redirect_b64"][0]), MOBILE_REDIRECT)
+
+    @patch("users.views.oauth.USOSClient")
+    def test_authorize_retry_restores_encoded_redirect(self, mock_usos_client):
+        _, mock_usos_client.return_value = _usos_client_mock()
+
+        response = self.client.get(
+            reverse("authorize_usos"),
+            {"jwt": "true", "redirect_b64": _encode_usos_redirect(MOBILE_REDIRECT), "oauth_token": "missing"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(response.url).query)
+        self.assertEqual(query["redirect"], [MOBILE_REDIRECT])
+        self.assertEqual(query["retry"], ["1"])
+        self.assertNotIn("redirect_b64", query)
+
+    @patch("users.views.oauth.USOSClient")
+    def test_authorize_rejects_unsafe_encoded_redirect(self, mock_usos_client):
+        _, mock_usos_client.return_value = _usos_client_mock()
+
+        response = self.client.get(
+            reverse("authorize_usos"),
+            {
+                "jwt": "true",
+                "redirect_b64": _encode_usos_redirect("https://evil.example/"),
+                "oauth_token": "missing",
+                "retry": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(response.url.startswith("https://evil.example"))

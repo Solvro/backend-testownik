@@ -94,6 +94,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django_tasks_db",
     "users.apps.UsersConfig",
+    "mobile_api",
     "grades.apps.GradesConfig",
     "quizzes.apps.QuizzesConfig",
     "wrapped.apps.WrappedConfig",
@@ -156,7 +157,7 @@ MIDDLEWARE = [
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "oauth_integrations.authentication.APIBearerAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
@@ -355,13 +356,21 @@ OAUTH2_PROVIDER = {
         "study:read": "Wyświetlanie sesji nauki i postępów",
         "study:write": "Zapisywanie odpowiedzi i uruchamianie sesji nauki",
         "user:read": "Wyświetlanie profilu użytkownika i ustawień",
+        "user:write": "Zmiana własnego profilu i ustawień",
+        "grades:read": "Wyświetlanie ocen z USOS",
+        "notifications:read": "Wyświetlanie powiadomień",
+        "notifications:write": "Zarządzanie własnymi powiadomieniami",
+        "feedback:write": "Przesyłanie opinii",
+        "ai:read": "Wyświetlanie ustawień i historii AI",
+        "ai:write": "Korzystanie z asystenta AI",
+        "web:read": "Wyświetlanie podsumowań w aplikacji Testownik",
     },
     "DEFAULT_SCOPES": ["quizzes:read", "user:read"],
     "ACCESS_TOKEN_EXPIRE_SECONDS": 1800,
     "REFRESH_TOKEN_EXPIRE_SECONDS": 2592000,
     "ROTATE_REFRESH_TOKEN": True,
     "PKCE_REQUIRED": True,
-    "ALLOWED_REDIRECT_URI_SCHEMES": ["https", "http"],
+    "ALLOWED_REDIRECT_URI_SCHEMES": ["https", "http", "testownik"],
     "OAUTH2_VALIDATOR_CLASS": "oauth_integrations.oauth_cimd.CIMDOAuth2Validator",
 }
 

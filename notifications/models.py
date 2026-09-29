@@ -47,6 +47,8 @@ class Notification(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=128)
     content = models.TextField()
+    # Where tapping the notification leads: an app path or a frontend URL.
+    link = models.CharField(max_length=500, blank=True, default="")
     is_read = models.BooleanField(default=False)
     notification_type = models.CharField(max_length=20, choices=NotificationType.choices)
     delivery_status = models.CharField(

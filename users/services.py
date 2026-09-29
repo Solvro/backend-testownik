@@ -105,3 +105,20 @@ def migrate_guest_to_user(guest_id: str, target_user: User) -> bool:
             e,
         )
         return False
+
+
+def delete_account(user: User) -> None:
+    """Delete an account and everything it owns, within the caller's transaction.
+
+    Quizzes block deleting their folder, so the account's own quizzes go first, and
+    anyone else's quiz filed in one of its folders moves to its creator's root folder.
+    """
+    from quizzes.models import Quiz, QuizSession, SharedQuiz
+
+    Quiz.objects.filter(creator=user).delete()
+    for quiz in Quiz.objects.filter(folder__owner=user).select_related("creator__root_folder"):
+        quiz.folder = quiz.creator.root_folder
+        quiz.save(update_fields=["folder"])
+    QuizSession.objects.filter(user=user).delete()
+    SharedQuiz.objects.filter(user=user).delete()
+    user.delete()

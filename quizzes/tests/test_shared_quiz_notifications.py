@@ -1,12 +1,17 @@
 from unittest.mock import Mock, patch
 
 from django.test import TransactionTestCase
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APITestCase
 
+from quizzes.models import Quiz
 from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
     should_send_notification,
 )
+from users.models import StudyGroup, User
 
 
 class ShouldSendNotificationTests(TransactionTestCase):
@@ -163,3 +168,39 @@ class NotifyQuizSharedToGroupsTests(TransactionTestCase):
         notify_quiz_shared_to_groups(mock_quiz, mock_group)
 
         mock_task.enqueue.assert_not_called()
+
+
+class SharingNotifiesOnlyNewAccessTests(APITestCase):
+    """Sharing notifies people who gain access, not those who could already open the quiz."""
+
+    def setUp(self):
+        self.owner = User.objects.create(email="owner@test.com", student_number="100000")
+        self.member = User.objects.create(email="member@test.com", student_number="100001")
+        self.first_only = User.objects.create(email="first@test.com", student_number="100002")
+        self.second_only = User.objects.create(email="second@test.com", student_number="100003")
+        self.first = StudyGroup.objects.create(id="first", name="First")
+        self.first.members.add(self.owner, self.member, self.first_only)
+        self.second = StudyGroup.objects.create(id="second", name="Second")
+        self.second.members.add(self.member, self.second_only)
+        self.quiz = Quiz.objects.create(title="Quiz", creator=self.owner, folder=self.owner.root_folder, visibility=1)
+        self.client.force_authenticate(user=self.owner)
+
+    def share(self, **target):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                reverse("sharedquiz-list"), {"quiz_id": str(self.quiz.id), **target}, format="json"
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @patch("quizzes.services.notifications.send_quiz_shared_emails_task")
+    @patch("quizzes.services.notifications.should_send_notification", return_value=True)
+    def test_overlapping_shares_notify_each_person_once(self, _should_send, task):
+        self.share(study_group_id="first")
+        self.share(study_group_id="second")
+        self.share(user_id=str(self.member.id))
+
+        notified = [set(call.args[1]) for call in task.enqueue.call_args_list]
+        self.assertEqual(
+            notified,
+            [{str(self.member.id), str(self.first_only.id)}, {str(self.second_only.id)}],
+        )

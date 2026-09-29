@@ -252,6 +252,22 @@ class Answer(models.Model):
         return self.image_url
 
 
+class QuizShortcut(models.Model):
+    """A link to a quiz someone else owns, filed in one of the user's folders."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="quiz_shortcuts")
+    folder = models.ForeignKey(Folder, on_delete=models.CASCADE, related_name="shortcuts")
+    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="shortcuts")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["folder", "quiz"], name="one_shortcut_per_folder")]
+
+    def __str__(self):
+        return f"Shortcut to {self.quiz_id} in {self.folder_id}"
+
+
 class SharedQuiz(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE)

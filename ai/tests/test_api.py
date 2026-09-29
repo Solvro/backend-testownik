@@ -18,6 +18,7 @@ from ai.models import (
     AIUserLimitOverride,
 )
 from ai.serializers import AIModelSerializer, AIUsageSettingsSerializer
+from quizzes.models import Quiz
 from users.models import User, UserSettings
 
 
@@ -754,3 +755,31 @@ class AIModelEditingTests(APITestCase):
             f"/api/ai/usage/admin/models/{model.pk}/", {"cache_write_weight": "-1"}, format="json"
         )
         self.assertEqual(negative.status_code, 400)
+
+
+class AIChatListTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(email="chat-list@example.com")
+        self.other = User.objects.create_user(email="chat-list-other@example.com")
+        self.quiz = Quiz.objects.create(title="Chat quiz", creator=self.user, folder=self.user.root_folder)
+        self.client.force_authenticate(self.user)
+
+    def test_lists_own_conversations_for_a_quiz_with_message_counts(self):
+        mine = AIChatConversation.objects.create(user=self.user, quiz=self.quiz, title="About the quiz")
+        AIChatMessage.objects.create(conversation=mine, role="user", order=0)
+        AIChatMessage.objects.create(conversation=mine, role="assistant", order=1)
+        AIChatConversation.objects.create(user=self.user, title="Another quiz")
+        AIChatConversation.objects.create(user=self.other, quiz=self.quiz, title="Someone else")
+
+        response = self.client.get(f"/api/ai/chats/?quiz={self.quiz.id}")
+
+        self.assertEqual(response.status_code, 200)
+        results = response.data["results"]
+        self.assertEqual([row["id"] for row in results], [str(mine.id)])
+        self.assertEqual(results[0]["message_count"], 2)
+
+    def test_invalid_quiz_filter_returns_no_conversations(self):
+        AIChatConversation.objects.create(user=self.user, quiz=self.quiz)
+        response = self.client.get("/api/ai/chats/?quiz=not-a-uuid")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["results"], [])

@@ -1,3 +1,6 @@
+import uuid
+
+from django.db.models import Count
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import generics, status, viewsets
@@ -206,7 +209,15 @@ class ChatListView(generics.ListAPIView):
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return self.queryset
-        return AIChatConversation.objects.filter(user=self.request.user).select_related("quiz")
+        conversations = AIChatConversation.objects.filter(user=self.request.user).select_related("quiz")
+        # The mobile assistant lists the conversations about the quiz it is open for.
+        quiz = self.request.query_params.get("quiz")
+        if quiz:
+            try:
+                conversations = conversations.filter(quiz_id=uuid.UUID(quiz))
+            except ValueError:
+                return AIChatConversation.objects.none()
+        return conversations.annotate(message_count=Count("messages"))
 
 
 class ChatDetailView(generics.RetrieveDestroyAPIView):

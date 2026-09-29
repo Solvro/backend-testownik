@@ -19,6 +19,7 @@ from oauth_integrations.views import (
     AuthorizationRequestAPIView,
     AuthorizationServerMetadataView,
     AuthorizedAppsViewSet,
+    OAuthIdentityView,
     ProtectedResourceMetadataView,
 )
 from testownik_core.views import ApiIndexView
@@ -83,6 +84,7 @@ base_urlpatterns = [
         mcp_view,
         name="mcp_server_streamable_http_endpoint",
     ),
+    path("mobile/", include("mobile_api.urls")),
     # Include app routes
     path("", include("users.urls")),
     path("", include("quizzes.urls")),
@@ -93,6 +95,7 @@ base_urlpatterns = [
     path("", include("blog.urls")),
     path("", include("ai.urls")),
     # OAuth 2.0
+    path("oauth/identity/", OAuthIdentityView.as_view(), name="oauth_identity"),
     path("oauth/authorize/request/", AuthorizationRequestAPIView.as_view(), name="oauth_authorize_request"),
     path("oauth/", include("oauth2_provider.urls", namespace="oauth2_provider")),
     path("oauth/authorized-apps/", AuthorizedAppsViewSet.as_view({"get": "list"}), name="authorized_apps"),

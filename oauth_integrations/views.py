@@ -357,3 +357,32 @@ class AuthorizedAppsViewSet(mixins.ListModelMixin, mixins.DestroyModelMixin, vie
             AccessToken.objects.filter(user=self.request.user, application=application).exists()
             or RefreshToken.objects.filter(user=self.request.user, application=application).exists()
         )
+
+
+class OAuthIdentityView(APIView):
+    """Resolve an AI-scoped bearer token for the first-party web AI service."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        payload = {
+            key: getattr(user, key)
+            for key in (
+                "first_name",
+                "last_name",
+                "full_name",
+                "email",
+                "student_number",
+                "photo",
+                "is_staff",
+                "is_superuser",
+                "is_banned",
+                "account_type",
+                "account_level",
+            )
+        }
+        payload.update(user_id=str(user.pk), token_type="access", exp=0, iat=0, jti="oauth")
+        response = Response(payload)
+        response["Cache-Control"] = "no-store"
+        return response

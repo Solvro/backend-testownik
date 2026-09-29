@@ -1,6 +1,7 @@
 import logging
 import os
 from asyncio import CancelledError, sleep
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from datetime import timedelta
 from urllib.parse import quote, urlparse
 
@@ -37,6 +38,7 @@ from .auth_helpers import (
 from .utils import (
     add_query_params,
     build_oauth_callback_url,
+    get_safe_redirect_url,
 )
 
 dotenv.load_dotenv()
@@ -163,7 +165,10 @@ class UsosLoginView(AsyncAPIView):
         if error_response is not None:
             return error_response
 
-        callback_url = build_oauth_callback_url(request, "/api/authorize/usos/", build_callback_params(params))
+        callback_params = build_callback_params(params)
+        if "redirect" in callback_params:
+            callback_params["redirect_b64"] = _encode_usos_redirect(callback_params.pop("redirect"))
+        callback_url = build_oauth_callback_url(request, "/api/authorize/usos/", callback_params)
 
         usos_key = os.getenv("USOS_CONSUMER_KEY")
         usos_secret = os.getenv("USOS_CONSUMER_SECRET")
@@ -351,7 +356,7 @@ class UsosAuthorizeView(AsyncAPIView):
         tags=["Authentication"],
     )
     async def get(self, request):
-        redirect_url = resolve_callback_redirect_url(request)
+        redirect_url = _resolve_usos_callback_redirect_url(request)
         jwt = request.GET.get("jwt", "false") == "true"
         guest_id = request.GET.get("guest_id", "")
 
@@ -418,6 +423,28 @@ class UsosAuthorizeView(AsyncAPIView):
         return await ahandle_oauth_login_result(request, user, jwt=jwt, redirect_url=redirect_url, guest_id=guest_id)
 
 
+# USOS rejects the request-token signature whenever oauth_callback contains a %-escape,
+# so a redirect with its own query string (e.g. the mobile OAuth authorize URL) travels
+# base64url-encoded, whose alphabet needs no escaping.
+def _encode_usos_redirect(url: str) -> str:
+    return urlsafe_b64encode(url.encode()).decode().rstrip("=")
+
+
+def _decode_usos_redirect(value: str) -> str:
+    try:
+        return urlsafe_b64decode(value + "=" * (-len(value) % 4)).decode()
+    except ValueError:
+        return ""
+
+
+def _resolve_usos_callback_redirect_url(request):
+    encoded = request.GET.get("redirect_b64")
+    if encoded is None:
+        return resolve_callback_redirect_url(request)
+    index = resolve_url("index")
+    return get_safe_redirect_url(_decode_usos_redirect(encoded), request, default=index)
+
+
 def _usos_retry_or_error(request, redirect_url: str, jwt: bool, *, error: str):
     """
     Handle a recoverable USOS failure: on first attempt, bounce back through /api/login/usos/
@@ -426,6 +453,8 @@ def _usos_retry_or_error(request, redirect_url: str, jwt: bool, *, error: str):
     if request.GET.get("retry") != "1":
         login_url = request.build_absolute_uri("/api/login/usos/")
         params = request.GET.copy()
+        if "redirect_b64" in params:
+            params["redirect"] = _decode_usos_redirect(params.pop("redirect_b64")[-1])
         params["retry"] = "1"
         return redirect(add_query_params(login_url, dict(params)))
 

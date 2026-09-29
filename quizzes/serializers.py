@@ -14,6 +14,7 @@ from quizzes.models import (
     Quiz,
     QuizRating,
     QuizSession,
+    QuizShortcut,
     SharedQuiz,
 )
 from uploads.models import UploadedImage
@@ -524,6 +525,7 @@ class QuizSerializer(serializers.ModelSerializer):
 
 
 class QuizMetaDataSerializer(serializers.ModelSerializer):
+    question_count = serializers.IntegerField(source="questions_count", read_only=True, default=None)
     creator = PublicUserSerializer(read_only=True)
     can_edit = serializers.SerializerMethodField()
     last_used_at = serializers.SerializerMethodField()
@@ -536,6 +538,7 @@ class QuizMetaDataSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "title",
+            "question_count",
             "description",
             "creator",
             "visibility",
@@ -626,7 +629,7 @@ class QuizMetaDataWithQuestionSerializer(QuizMetaDataSerializer):
     question_count = serializers.IntegerField(read_only=True)
 
     class Meta(QuizMetaDataSerializer.Meta):
-        fields = QuizMetaDataSerializer.Meta.fields + ["preview_question", "question_count"]
+        fields = QuizMetaDataSerializer.Meta.fields + ["preview_question"]
 
 
 class SharedQuizSerializer(serializers.ModelSerializer):
@@ -762,6 +765,9 @@ class MoveFolderSerializer(serializers.Serializer):
 class QuizSearchResultSerializer(serializers.ModelSerializer):
     """Serializer for search results."""
 
+    question_count = serializers.SerializerMethodField()
+    last_used_at = serializers.SerializerMethodField()
+
     creator = serializers.CharField(source="creator.full_name", read_only=True)
 
     class Meta:
@@ -770,9 +776,18 @@ class QuizSearchResultSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "description",
+            "question_count",
+            "last_used_at",
             "creator",
             "is_anonymous",
         ]
+
+    def get_question_count(self, instance):
+        return self.context.get("quiz_metadata", {}).get(instance.pk, {}).get("question_count")
+
+    def get_last_used_at(self, instance):
+        value = self.context.get("quiz_metadata", {}).get(instance.pk, {}).get("last_used_at")
+        return value.isoformat() if value else None
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -807,8 +822,19 @@ class LibraryItemSerializer(serializers.Serializer):
                 "id": instance.id,
                 "name": instance.name,
                 "type": "folder",
+                "folder_type": instance.folder_type,
                 "owner": PublicUserSerializer(instance.owner).data,
                 "can_edit": instance.has_edit_permission(user),
+                "created_at": instance.created_at,
+            }
+
+        if isinstance(instance, QuizShortcut):
+            # A shortcut lists as its quiz; `shortcut_id` lets the owner move or remove it.
+            quiz = instance.quiz
+            return {
+                **self.to_representation(quiz),
+                "shortcut_id": instance.id,
+                "can_manage": False,
                 "created_at": instance.created_at,
             }
 
@@ -820,11 +846,14 @@ class LibraryItemSerializer(serializers.Serializer):
             return {
                 "id": instance.id,
                 "name": instance.title,
+                "question_count": getattr(instance, "questions_count", None),
                 "description": instance.description,
                 "type": "quiz",
                 "owner": owner,
                 "can_edit": instance.can_edit(user),
+                "can_manage": instance.creator_id == user.pk and instance.folder.owner_id == user.pk,
                 "created_at": instance.created_at,
+                "last_used_at": getattr(instance, "last_used_at", None),
                 "archived_at": instance.archived_at,
                 "deleted_at": instance.deleted_at,
             }

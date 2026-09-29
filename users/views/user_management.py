@@ -12,7 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from quizzes.models import Quiz, QuizSession, SharedQuiz
+from quizzes.models import Quiz
 from quizzes.permissions import IsInternalApiRequest
 from uploads.models import UploadedImage
 from uploads.utils import process_uploaded_image
@@ -25,6 +25,7 @@ from users.serializers import (
     UserSettingsSerializer,
     UserTokenObtainPairSerializer,
 )
+from users.services import delete_account
 
 logger = logging.getLogger(__name__)
 
@@ -380,8 +381,16 @@ class DeleteAccountView(APIView):
         if transfer_to_user_id:
             try:
                 transfer_to_user = User.objects.get(id=transfer_to_user_id)
-            except User.DoesNotExist:
+            except (User.DoesNotExist, ValueError, ValidationError):
                 return Response({"error": "User to transfer quizzes to not found"}, status=404)
+            # Quizzes may only go to another real, active account.
+            if (
+                transfer_to_user.pk == request.user.pk
+                or not transfer_to_user.is_active
+                or transfer_to_user.is_banned
+                or transfer_to_user.account_type == AccountType.GUEST
+            ):
+                return Response({"error": "This person cannot receive your quizzes"}, status=400)
             if transfer_to_user.root_folder is None:
                 return Response(
                     {"error": "Transfer target user has no root folder"},
@@ -395,8 +404,6 @@ class DeleteAccountView(APIView):
                     folder=transfer_to_user.root_folder,
                 )
 
-            QuizSession.objects.filter(user=request.user).delete()
-            SharedQuiz.objects.filter(user=request.user).delete()
-            request.user.delete()
+            delete_account(request.user)
 
         return Response({"message": "Account deleted successfully"})

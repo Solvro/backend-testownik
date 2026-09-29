@@ -254,7 +254,8 @@ def course_name_from_reports(reports: list[ExamReport]) -> str | None:
 def passing_status(grades: list[SerializedGrade]) -> str:
     counted_grades = [grade for grade in grades if grade["counts_into_average"]]
     if not counted_grades:
-        return "not_yet_passed"
+        # Pass/fail courses ("zal.", "zrealizowany") are graded outside the average.
+        return "passed" if any(grade["passes"] for grade in grades) else "not_yet_passed"
     if any(grade["passes"] for grade in counted_grades):
         return "passed"
     return "failed"

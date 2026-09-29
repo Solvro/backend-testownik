@@ -68,7 +68,7 @@ class NotificationViewSetAPITestCase(APITestCase):
         response = self.client.get(self._detail_url(self.own_unread))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Fields the frontend needs to render/filter notifications must be present.
-        for field in ("id", "title", "content", "is_read", "notification_type", "created_at", "updated_at"):
+        for field in ("id", "title", "content", "link", "is_read", "notification_type", "created_at", "updated_at"):
             self.assertIn(field, response.data)
 
     def test_retrieve_other_users_notification_returns_404(self):

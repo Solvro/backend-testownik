@@ -22,6 +22,7 @@ def send_notification(
     from_email: str | None = None,
     connection=None,
     fail_silently: bool = True,
+    link: str | None = None,
 ) -> Notification:
     """
     Single entry point for sending a notification to a user.
@@ -44,6 +45,8 @@ def send_notification(
     before a record is created or a transport is called. If ``fail_silently`` is ``False``
     the underlying exception is re-raised AFTER the failure is persisted.
 
+    ``link`` is where the notification leads in the apps; it defaults to ``cta_url``.
+
     Returns:
         The created :class:`Notification` instance.
     """
@@ -58,6 +61,7 @@ def send_notification(
         user=user,
         title=title,
         content=content,
+        link=link or cta_url or "",
         notification_type=notification_type,
         delivery_status=initial_status,
     )

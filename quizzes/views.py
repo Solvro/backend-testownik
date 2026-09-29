@@ -4,7 +4,7 @@ import uuid
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Avg, Count, Prefetch, Q
+from django.db.models import Avg, Count, Max, Prefetch, Q
 from django.utils import timezone
 from django.utils.html import escape
 from django.utils.module_loading import import_string
@@ -42,6 +42,7 @@ from quizzes.models import (
     Quiz,
     QuizRating,
     QuizSession,
+    QuizShortcut,
     SharedQuiz,
 )
 from quizzes.permissions import (
@@ -85,11 +86,13 @@ from quizzes.services.metadata import get_preview_question
 from quizzes.services.notifications import (
     notify_quiz_shared_to_groups,
     notify_quiz_shared_to_users,
+    users_with_access,
 )
 from quizzes.services.operations import (
     UNSET,
     QuizOperationError,
     get_random_recent_question,
+    get_readable_quiz,
     grouped_search_quizzes,
     record_quiz_answer,
     reset_readable_session,
@@ -270,18 +273,30 @@ class SearchQuizzesView(APIView):
             query,
             include_public=request.user.account_type == AccountType.STUDENT,
         )
+        # One aggregate query for every bucket; never fetch counts per search row.
+        quiz_ids = {quiz.pk for quizzes in grouped_quizzes.values() for quiz in quizzes}
+        metadata = {
+            item["id"]: item
+            for item in Quiz.objects.filter(pk__in=quiz_ids)
+            .annotate(
+                question_count=Count("questions", distinct=True),
+                last_used_at=Max("sessions__updated_at", filter=Q(sessions__user=request.user)),
+            )
+            .values("id", "question_count", "last_used_at")
+        }
+        context = {"request": request, "quiz_metadata": metadata}
         result = {
             "user_quizzes": QuizSearchResultSerializer(
-                grouped_quizzes["user_quizzes"], many=True, context={"request": request}
+                grouped_quizzes["user_quizzes"], many=True, context=context
             ).data,
             "shared_quizzes": QuizSearchResultSerializer(
-                grouped_quizzes["shared_quizzes"], many=True, context={"request": request}
+                grouped_quizzes["shared_quizzes"], many=True, context=context
             ).data,
             "group_quizzes": QuizSearchResultSerializer(
-                grouped_quizzes["group_quizzes"], many=True, context={"request": request}
+                grouped_quizzes["group_quizzes"], many=True, context=context
             ).data,
             "public_quizzes": QuizSearchResultSerializer(
-                grouped_quizzes["public_quizzes"], many=True, context={"request": request}
+                grouped_quizzes["public_quizzes"], many=True, context=context
             ).data,
         }
 
@@ -985,13 +1000,16 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
         )
 
     def perform_create(self, serializer):
+        # Only people gaining access are notified, so sharing a quiz with
+        # overlapping groups or a group member doesn't repeat the notification.
+        already_shared = users_with_access(serializer.validated_data["quiz"])
         shared_quiz = serializer.save()
 
         def send_notification():
             if shared_quiz.user:
-                notify_quiz_shared_to_users(shared_quiz.quiz, shared_quiz.user)
+                notify_quiz_shared_to_users(shared_quiz.quiz, shared_quiz.user, already_shared)
             elif shared_quiz.study_group:
-                notify_quiz_shared_to_groups(shared_quiz.quiz, shared_quiz.study_group)
+                notify_quiz_shared_to_groups(shared_quiz.quiz, shared_quiz.study_group, already_shared)
 
         transaction.on_commit(send_notification)
 
@@ -1312,7 +1330,39 @@ class LibraryView(APIView):
         )
 
     def _get_quizzes(self, user, folder_id):
-        return Quiz.objects.filter(folder_id=folder_id).distinct().order_by("-created_at")
+        return (
+            Quiz.objects.filter(folder_id=folder_id)
+            .annotate(
+                last_used_at=Max("sessions__updated_at", filter=Q(sessions__user=user)),
+                questions_count=Count("questions", distinct=True),
+            )
+            .order_by("-created_at")
+        )
+
+    def _get_shortcuts(self, user, folder_id):
+        shortcuts = list(
+            QuizShortcut.objects.filter(owner=user, folder_id=folder_id, quiz__deleted_at__isnull=True)
+            .select_related("quiz__folder__owner")
+            .order_by("-created_at")
+        )
+        # Reuse the quiz annotations so shortcuts show progress like the quizzes they point to.
+        annotated = {
+            quiz.id: quiz
+            for quiz in Quiz.objects.filter(id__in=[s.quiz_id for s in shortcuts])
+            .select_related("folder__owner")
+            .annotate(
+                last_used_at=Max("sessions__updated_at", filter=Q(sessions__user=user)),
+                questions_count=Count("questions", distinct=True),
+            )
+        }
+        readable = []
+        for shortcut in shortcuts:
+            quiz = annotated.get(shortcut.quiz_id)
+            if quiz is None or not user_has_quiz_read_access(user, quiz):
+                continue
+            shortcut.quiz = quiz
+            readable.append(shortcut)
+        return readable
 
     def _build_breadcrumbs(self, user, folder_id):
         try:
@@ -1391,10 +1441,59 @@ class LibraryView(APIView):
                 {"error": "You do not have permission to access this folder"}, status=status.HTTP_403_FORBIDDEN
             )
 
-        items = list(self._get_subfolders(user, folder_id)) + list(self._get_quizzes(user, folder_id))
+        items = (
+            list(self._get_subfolders(user, folder_id))
+            + list(self._get_quizzes(user, folder_id))
+            + self._get_shortcuts(user, folder_id)
+        )
         return Response(
             {
                 "path": self._build_breadcrumbs(user, folder_id),
+                "can_create_folder": Folder.objects.filter(pk=folder_id, owner=user, folder_type="regular").exists(),
                 "items": LibraryItemSerializer(items, many=True, context={"request": request}).data,
             }
         )
+
+
+class QuizShortcutViewSet(mixins.CreateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet):
+    """Shortcuts file someone else's quiz in one of your folders without copying it."""
+
+    permission_classes = [IsAuthenticated]
+    queryset = QuizShortcut.objects.all()
+
+    def get_queryset(self):
+        return QuizShortcut.objects.filter(owner=self.request.user)
+
+    def _folder(self, folder_id):
+        folder = Folder.objects.filter(pk=folder_id, owner=self.request.user, folder_type=FolderType.REGULAR).first()
+        if folder is None:
+            raise ValidationError({"folder_id": "Choose one of your folders."})
+        return folder
+
+    @staticmethod
+    def _data(shortcut):
+        return {"id": shortcut.id, "quiz": shortcut.quiz_id, "folder": shortcut.folder_id}
+
+    @extend_schema(summary="Add a shortcut to a quiz in one of your folders")
+    def create(self, request, *args, **kwargs):
+        try:
+            quiz = get_readable_quiz(request.user, request.data.get("quiz_id"))
+        except QuizOperationError as error:
+            return Response({"error": str(error)}, status=error.status_code)
+        if quiz.creator_id == request.user.pk:
+            raise ValidationError({"quiz_id": "This quiz is already in your library."})
+        folder = self._folder(request.data.get("folder_id"))
+        shortcut, created = QuizShortcut.objects.get_or_create(owner=request.user, folder=folder, quiz=quiz)
+        return Response(self._data(shortcut), status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    @extend_schema(summary="Move a shortcut to another of your folders")
+    @action(detail=True, methods=["post"])
+    def move(self, request, pk=None):
+        shortcut = self.get_object()
+        folder = self._folder(request.data.get("folder_id"))
+        if QuizShortcut.objects.filter(folder=folder, quiz_id=shortcut.quiz_id).exclude(pk=shortcut.pk).exists():
+            shortcut.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        shortcut.folder = folder
+        shortcut.save(update_fields=["folder"])
+        return Response(self._data(shortcut))

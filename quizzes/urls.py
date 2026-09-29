@@ -8,6 +8,7 @@ from quizzes.views import (
     LibraryView,
     QuestionViewSet,
     QuizRatingViewSet,
+    QuizShortcutViewSet,
     QuizViewSet,
     RandomQuestionView,
     ReportQuestionIssueView,
@@ -22,6 +23,7 @@ router.register("folders", FolderViewSet)
 router.register("questions", QuestionViewSet)
 router.register("quiz-ratings", QuizRatingViewSet)
 router.register("comments", CommentViewSet)
+router.register("quiz-shortcuts", QuizShortcutViewSet)
 
 urlpatterns = [
     path("", include(router.urls)),

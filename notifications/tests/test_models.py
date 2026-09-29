@@ -114,6 +114,22 @@ class SendNotificationUtilTestCase(TestCase):
         self.assertEqual(notification.notification_type, NotificationType.EMAIL)
         self.assertEqual(notification.delivery_status, DeliveryStatus.DELIVERED)
 
+    def test_link_defaults_to_the_call_to_action(self):
+        with patch("notifications.utils.send_email", return_value=True):
+            emailed = send_notification(
+                user=self.user,
+                title="Title",
+                content="Body",
+                notification_type=NotificationType.EMAIL,
+                cta_url="https://testownik.example/quiz/1",
+            )
+        explicit = send_notification(user=self.user, title="Title", content="Body", link="/quizzes")
+        plain = send_notification(user=self.user, title="Title", content="Body")
+
+        self.assertEqual(emailed.link, "https://testownik.example/quiz/1")
+        self.assertEqual(explicit.link, "/quizzes")
+        self.assertEqual(plain.link, "")
+
     def test_in_app_notification_is_persisted_only(self):
         with patch("notifications.utils.send_email") as mocked_send_email:
             notification = send_notification(

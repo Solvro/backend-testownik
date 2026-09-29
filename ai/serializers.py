@@ -301,9 +301,11 @@ class AIUsageEventSerializer(serializers.ModelSerializer):
 
 
 class AIChatConversationListSerializer(serializers.ModelSerializer):
+    message_count = serializers.IntegerField(read_only=True, default=0)
+
     class Meta:
         model = AIChatConversation
-        fields = ("id", "quiz", "scope", "title", "created_at", "updated_at")
+        fields = ("id", "quiz", "scope", "title", "created_at", "updated_at", "message_count")
 
 
 class AIChatMessageSerializer(serializers.ModelSerializer):
