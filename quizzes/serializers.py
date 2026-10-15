@@ -14,8 +14,10 @@ from quizzes.models import (
     Quiz,
     QuizRating,
     QuizSession,
+    QuizVersion,
     SharedQuiz,
 )
+from quizzes.services.history import decode_snapshot
 from uploads.models import UploadedImage
 from users.models import StudyGroup, User, UserSettings
 from users.serializers import (
@@ -23,6 +25,25 @@ from users.serializers import (
     StudyGroupSerializer,
     UserSettingsSerializer,
 )
+
+
+def claim_ids(model, rows):
+    """Keeps the client-generated "id" of rows about to be created, unless it
+    is repeated or another row already uses it, in which case it is dropped
+    and the row gets a new ID.
+
+    Clients create IDs for new questions and answers, so a second save, or a
+    retried one whose response was lost, updates the same rows instead of
+    deleting and recreating them. Call this after deleting replaced rows.
+    """
+    wanted = {row["id"] for row in rows if row.get("id") is not None}
+    taken = set(model.objects.filter(id__in=wanted).values_list("id", flat=True)) if wanted else set()
+    seen = set()
+    for row in rows:
+        row_id = row.pop("id", None)
+        if row_id is not None and row_id not in taken and row_id not in seen:
+            seen.add(row_id)
+            row["id"] = row_id
 
 
 class AnswerSerializer(serializers.ModelSerializer):
@@ -119,8 +140,10 @@ class QuestionSerializer(serializers.ModelSerializer):
             quiz = validated_data["quiz"]
             max_order = quiz.questions.aggregate(models.Max("order"))["order__max"]
             validated_data["order"] = (max_order or 0) + 1
+        claim_ids(Question, [validated_data])
         question = Question.objects.create(**validated_data)
 
+        claim_ids(Answer, answers_data)
         for answer_data in answers_data:
             Answer.objects.create(question=question, **answer_data)
 
@@ -146,6 +169,7 @@ class QuestionSerializer(serializers.ModelSerializer):
 
             ids_to_delete = existing_ids - incoming_ids
             Answer.objects.filter(id__in=ids_to_delete).delete()
+            claim_ids(Answer, [item for item in answers_data if item.get("id") not in existing_ids])
 
             for answer_data in answers_data:
                 answer_id = answer_data.get("id", None)
@@ -163,8 +187,6 @@ class QuestionSerializer(serializers.ModelSerializer):
                     answer.is_correct = answer_data.get("is_correct", answer.is_correct)
                     answer.save()
                 else:
-                    if "id" in answer_data:
-                        del answer_data["id"]
                     Answer.objects.create(question=instance, **answer_data)
 
         return instance
@@ -204,9 +226,10 @@ class BulkCreateQuestionsSerializer(serializers.Serializer):
         questions_to_create = []
         questions_answers_data = []
 
+        claim_ids(Question, questions_data)
+        claim_ids(Answer, [a_data for q_data in questions_data for a_data in q_data.get("answers", [])])
         for q_data in questions_data:
             answers_data = q_data.pop("answers", [])
-            q_data.pop("id", None)
             q_data.pop("quiz", None)
             max_order += 1
             q_data.setdefault("order", max_order)
@@ -218,7 +241,6 @@ class BulkCreateQuestionsSerializer(serializers.Serializer):
         all_answers = []
         for question, answers_data in zip(created_questions, questions_answers_data):
             for a_data in answers_data:
-                a_data.pop("id", None)
                 all_answers.append(Answer(question=question, **a_data))
 
         if all_answers:
@@ -392,9 +414,10 @@ class QuizSerializer(serializers.ModelSerializer):
         questions_to_create = []
         questions_answers_data = []
 
+        claim_ids(Question, questions_data)
+        claim_ids(Answer, [a_data for q_data in questions_data for a_data in q_data.get("answers", [])])
         for q_data in questions_data:
             answers_data = q_data.pop("answers", [])
-            q_data.pop("id", None)
             questions_to_create.append(Question(quiz=quiz, **q_data))
             questions_answers_data.append(answers_data)
 
@@ -403,7 +426,6 @@ class QuizSerializer(serializers.ModelSerializer):
         all_answers = []
         for question, answers_data in zip(created_questions, questions_answers_data):
             for a_data in answers_data:
-                a_data.pop("id", None)
                 all_answers.append(Answer(question=question, **a_data))
 
         if all_answers:
@@ -428,7 +450,7 @@ class QuizSerializer(serializers.ModelSerializer):
 
         - Existing questions (by ID) are updated
         - Missing questions are deleted
-        - New questions (no ID or unknown ID) are created
+        - New questions are created, keeping a client-generated ID when it is free
         """
         existing_questions = {q.id: q for q in quiz.questions.prefetch_related("answers").all()}
         existing_ids = set(existing_questions.keys())
@@ -438,13 +460,23 @@ class QuizSerializer(serializers.ModelSerializer):
         questions_to_create = []
         answers_to_sync = []
 
-        question_fields = ["order", "text", "image_url", "image_upload", "explanation", "multiple"]
+        question_fields = [
+            "order",
+            "text",
+            "image_url",
+            "image_upload",
+            "explanation",
+            "multiple",
+            "question_type",
+            "is_markdown_enabled",
+        ]
 
         for q_data in questions_data:
             answers_data = q_data.pop("answers", [])
-            question_id = q_data.pop("id", None)
+            question_id = q_data.get("id")
 
             if question_id and question_id in existing_ids:
+                q_data.pop("id")
                 question = existing_questions[question_id]
                 incoming_ids.add(question_id)
                 answers_to_sync.append((question, answers_data))
@@ -487,7 +519,7 @@ class QuizSerializer(serializers.ModelSerializer):
             return
 
         all_answers_to_update = []
-        all_answers_to_create = []
+        answers_to_create = []
         all_answer_ids_to_delete = set()
 
         answer_fields = ["order", "text", "image_url", "image_upload", "is_correct"]
@@ -498,9 +530,10 @@ class QuizSerializer(serializers.ModelSerializer):
             incoming_ids = set()
 
             for a_data in answers_data:
-                answer_id = a_data.pop("id", None)
+                answer_id = a_data.get("id")
 
                 if answer_id and answer_id in existing_ids:
+                    a_data.pop("id")
                     answer = existing_answers[answer_id]
                     incoming_ids.add(answer_id)
 
@@ -509,7 +542,7 @@ class QuizSerializer(serializers.ModelSerializer):
                             setattr(answer, attr, value)
                         all_answers_to_update.append(answer)
                 else:
-                    all_answers_to_create.append(Answer(question=question, **a_data))
+                    answers_to_create.append((question, a_data))
 
             all_answer_ids_to_delete.update(existing_ids - incoming_ids)
 
@@ -519,8 +552,10 @@ class QuizSerializer(serializers.ModelSerializer):
         if all_answers_to_update:
             Answer.objects.bulk_update(all_answers_to_update, answer_fields)
 
-        if all_answers_to_create:
-            Answer.objects.bulk_create(all_answers_to_create)
+        if answers_to_create:
+            # After the deletes, so an answer moved between questions keeps its ID.
+            claim_ids(Answer, [a_data for _, a_data in answers_to_create])
+            Answer.objects.bulk_create([Answer(question=question, **a_data) for question, a_data in answers_to_create])
 
 
 class QuizMetaDataSerializer(serializers.ModelSerializer):
@@ -941,3 +976,49 @@ class CommentSerializer(serializers.ModelSerializer):
             data["content"] = ""
 
         return data
+
+
+class QuizVersionSerializer(serializers.ModelSerializer):
+    """A version of a quiz's content, without the content."""
+
+    author = PublicUserSerializer(read_only=True)
+
+    class Meta:
+        model = QuizVersion
+        fields = [
+            "version",
+            "created_at",
+            "updated_at",
+            "author",
+            "source",
+            "restored_from",
+            "title",
+            "question_count",
+            "summary",
+        ]
+        read_only_fields = fields
+
+
+class QuizVersionDetailSerializer(QuizVersionSerializer):
+    """A version with its content. Uploaded images are resolved to `image`
+    URLs; images deleted since have none."""
+
+    content = serializers.SerializerMethodField()
+
+    class Meta(QuizVersionSerializer.Meta):
+        fields = [*QuizVersionSerializer.Meta.fields, "content"]
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.DictField())
+    def get_content(self, obj):
+        snapshot = decode_snapshot(obj.snapshot)
+        items = [*snapshot["questions"], *(a for q in snapshot["questions"] for a in q["answers"])]
+        upload_ids = {item["image_upload"] for item in items if item["image_upload"]}
+        request = self.context.get("request")
+        urls = {}
+        for upload in UploadedImage.objects.filter(id__in=upload_ids):
+            url = upload.image.url
+            urls[str(upload.id)] = request.build_absolute_uri(url) if request is not None else url
+        for item in items:
+            item["image"] = urls.get(item["image_upload"]) or item["image_url"] or None
+        return snapshot

@@ -5,6 +5,7 @@ import uuid
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Avg, Count, Prefetch, Q
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.html import escape
 from django.utils.module_loading import import_string
@@ -42,6 +43,7 @@ from quizzes.models import (
     Quiz,
     QuizRating,
     QuizSession,
+    QuizVersionSource,
     SharedQuiz,
 )
 from quizzes.permissions import (
@@ -79,8 +81,17 @@ from quizzes.serializers import (
     QuizSerializer,
     QuizSessionSerializer,
     QuizStatsSerializer,
+    QuizVersionDetailSerializer,
+    QuizVersionSerializer,
     RecordAnswerSerializer,
     SharedQuizSerializer,
+)
+from quizzes.services.history import (
+    decode_snapshot,
+    ensure_baseline,
+    record_created,
+    restore_payload,
+    track_quiz_change,
 )
 from quizzes.services.metadata import get_preview_question
 from quizzes.services.notifications import (
@@ -482,10 +493,12 @@ class QuizViewSet(viewsets.ModelViewSet):
         return Response(data)
 
     def perform_create(self, serializer):
-        serializer.save(creator=self.request.user, folder=self.request.user.root_folder)
+        quiz = serializer.save(creator=self.request.user, folder=self.request.user.root_folder)
+        record_created(quiz, user=self.request.user, source=QuizVersionSource.CREATE)
 
     def perform_update(self, serializer):
-        serializer.save(version=serializer.instance.version + 1)
+        with track_quiz_change(serializer.instance, user=self.request.user, source=QuizVersionSource.EDITOR):
+            serializer.save(version=serializer.instance.version + 1)
 
     def perform_destroy(self, instance):
         if instance.folder.owner != self.request.user:
@@ -951,6 +964,7 @@ class QuizViewSet(viewsets.ModelViewSet):
                 )
 
         Answer.objects.bulk_create(new_answers)
+        record_created(new_quiz, user=request.user, source=QuizVersionSource.COPY)
 
         new_quiz = Quiz.objects.prefetch_related("questions__answers").get(pk=new_quiz.pk)
 
@@ -958,6 +972,69 @@ class QuizViewSet(viewsets.ModelViewSet):
             QuizSerializer(new_quiz, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
         )
+
+    def _editable_quiz_for_history(self):
+        quiz = self.get_object()
+        if not quiz.can_edit(self.request.user):
+            raise PermissionDenied("Only editors can see the version history of this quiz")
+        return quiz
+
+    @extend_schema(responses={200: QuizVersionSerializer(many=True)})
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="versions",
+        permission_classes=[permissions.IsAuthenticated, HasOAuthQuizScopeForMethods],
+    )
+    def versions(self, request, pk=None):
+        """Versions of the quiz content, newest first. Editors only."""
+        quiz = self._editable_quiz_for_history()
+        if not quiz.versions.exists():
+            # A quiz untouched since history began gets its current content as
+            # the first version, so the history is never empty.
+            with transaction.atomic():
+                ensure_baseline(Quiz.objects.select_for_update().get(pk=quiz.pk))
+        versions = quiz.versions.select_related("author", "author__photo_image", "author__custom_photo_image").defer(
+            "snapshot"
+        )
+        return Response(QuizVersionSerializer(versions, many=True, context={"request": request}).data)
+
+    @extend_schema(responses={200: QuizVersionDetailSerializer})
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"versions/(?P<version>[0-9]+)",
+        permission_classes=[permissions.IsAuthenticated, HasOAuthQuizScopeForMethods],
+    )
+    def version_detail(self, request, pk=None, version=None):
+        """One version with its full content."""
+        quiz = self._editable_quiz_for_history()
+        quiz_version = get_object_or_404(quiz.versions.select_related("author"), version=int(version))
+        return Response(QuizVersionDetailSerializer(quiz_version, context={"request": request}).data)
+
+    @extend_schema(request=None, responses={200: QuizSerializer})
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"versions/(?P<version>[0-9]+)/restore",
+        permission_classes=[permissions.IsAuthenticated, HasOAuthQuizScopeForMethods],
+    )
+    def restore_version(self, request, pk=None, version=None):
+        """Brings back the content of a version as a new version. Questions
+        and answers removed since keep their original IDs when still free."""
+        quiz = self._editable_quiz_for_history()
+        if quiz_is_deleted(quiz):
+            raise PermissionDenied(DELETED_QUIZ_MESSAGE)
+        quiz_version = get_object_or_404(quiz.versions, version=int(version))
+        payload = restore_payload(decode_snapshot(quiz_version.snapshot))
+        with track_quiz_change(
+            quiz, user=request.user, source=QuizVersionSource.RESTORE, restored_from=quiz_version.version
+        ):
+            serializer = QuizSerializer(quiz, data=payload, partial=True, context=self.get_serializer_context())
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+        quiz = Quiz.objects.prefetch_related("questions__answers").get(pk=quiz.pk)
+        return Response(QuizSerializer(quiz, context=self.get_serializer_context()).data)
 
 
 class SharedQuizViewSet(viewsets.ModelViewSet):
@@ -1103,6 +1180,15 @@ class QuestionViewSet(
     queryset = Question.objects.all()
     permission_classes = [permissions.IsAuthenticated, IsQuizCreatorOrCollaboratorOrReadOnly, IsQuestionReadable]
 
+    def perform_create(self, serializer):
+        quiz = serializer.validated_data["quiz"]
+        with track_quiz_change(quiz, user=self.request.user, source=QuizVersionSource.QUESTION):
+            serializer.save()
+
+    def perform_update(self, serializer):
+        with track_quiz_change(serializer.instance.quiz, user=self.request.user, source=QuizVersionSource.QUESTION):
+            serializer.save()
+
     @extend_schema(
         request=BulkCreateQuestionsSerializer,
         responses={201: QuestionSerializer(many=True)},
@@ -1111,7 +1197,8 @@ class QuestionViewSet(
     def bulk_create(self, request):
         serializer = BulkCreateQuestionsSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
-        questions = serializer.save()
+        with track_quiz_change(serializer.validated_data["quiz"], user=request.user, source=QuizVersionSource.QUESTION):
+            questions = serializer.save()
         return Response(
             QuestionSerializer(questions, many=True, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
@@ -1146,7 +1233,8 @@ class QuestionViewSet(
             new_question = instance.quiz.questions.exclude(id=instance.id).order_by("?").first()
             affected_sessions.update(current_question=new_question)
 
-        instance.delete()
+        with track_quiz_change(instance.quiz, user=request.user, source=QuizVersionSource.QUESTION):
+            instance.delete()
 
         return Response({"current_question": new_question.id if new_question else None}, status=status.HTTP_200_OK)
 
