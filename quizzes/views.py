@@ -1032,8 +1032,9 @@ class QuizViewSet(viewsets.ModelViewSet):
         payload = restore_payload(decode_snapshot(quiz_version.snapshot))
         with track_quiz_change(
             quiz, user=request.user, source=QuizVersionSource.RESTORE, restored_from=quiz_version.version
-        ):
-            serializer = QuizSerializer(quiz, data=payload, partial=True, context=self.get_serializer_context())
+        ) as locked:
+            # Against the locked quiz, so a stale instance cannot write back old fields.
+            serializer = QuizSerializer(locked, data=payload, partial=True, context=self.get_serializer_context())
             serializer.is_valid(raise_exception=True)
             serializer.save()
         quiz = quiz_with_content(quiz.pk)

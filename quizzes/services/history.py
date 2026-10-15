@@ -190,6 +190,11 @@ def track_quiz_change(quiz, *, user, source, restored_from=None):
         locked.refresh_from_db()
         after = build_snapshot(locked)
         if after == before:
+            if locked.version < version_before:
+                # The block wrote back a stale, lower version without changing content.
+                Quiz.objects.filter(pk=locked.pk).update(version=version_before)
+                locked.refresh_from_db(fields=["version"])
+                quiz.version = locked.version
             return
         if locked.version <= version_before:
             # The block did not move the version on, or wrote back a stale,

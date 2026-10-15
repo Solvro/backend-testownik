@@ -307,6 +307,15 @@ class QuizVersionTestCase(QuizHistoryTestCase):
         self.assertEqual(stale["version"], 3)
         self.assertEqual(Quiz.objects.get(pk=quiz["id"]).version, 3)
 
+    def test_a_stale_save_without_content_changes_keeps_the_version(self):
+        quiz = self.create_quiz([_question("Pierwsze")])
+        question = quiz["questions"][0]
+        self.save(quiz["id"], {"questions": [{**question, "text": "Zmiana"}]})
+        self.assertEqual(Quiz.objects.get(pk=quiz["id"]).version, 2)
+        # A metadata-only PATCH from a client which still holds version 1.
+        self.save(quiz["id"], {"visibility": 0, "version": 1})
+        self.assertGreaterEqual(Quiz.objects.get(pk=quiz["id"]).version, 2)
+
     @mock.patch("quizzes.services.history.MERGE_WINDOW", timedelta(0))
     def test_restoring_keeps_question_flags(self):
         quiz = self.create_quiz([_question("Pierwsze", 1), {**_question("Fiszka", 2), "is_flashcard": True}])
