@@ -85,6 +85,7 @@ from quizzes.serializers import (
     QuizVersionSerializer,
     RecordAnswerSerializer,
     SharedQuizSerializer,
+    quiz_with_content,
 )
 from quizzes.services.history import (
     decode_snapshot,
@@ -497,8 +498,10 @@ class QuizViewSet(viewsets.ModelViewSet):
         record_created(quiz, user=self.request.user, source=QuizVersionSource.CREATE)
 
     def perform_update(self, serializer):
-        with track_quiz_change(serializer.instance, user=self.request.user, source=QuizVersionSource.EDITOR):
-            serializer.save(version=serializer.instance.version + 1)
+        with track_quiz_change(serializer.instance, user=self.request.user, source=QuizVersionSource.EDITOR) as locked:
+            # The serializer's instance may predate another save; number from the DB.
+            serializer.instance.version = locked.version
+            serializer.save(version=locked.version + 1)
 
     def perform_destroy(self, instance):
         if instance.folder.owner != self.request.user:
@@ -1033,7 +1036,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             serializer = QuizSerializer(quiz, data=payload, partial=True, context=self.get_serializer_context())
             serializer.is_valid(raise_exception=True)
             serializer.save()
-        quiz = Quiz.objects.prefetch_related("questions__answers").get(pk=quiz.pk)
+        quiz = quiz_with_content(quiz.pk)
         return Response(QuizSerializer(quiz, context=self.get_serializer_context()).data)
 
 

@@ -17,7 +17,6 @@ from contextlib import contextmanager
 from datetime import timedelta
 
 from django.db import transaction
-from django.db.models import F
 from django.utils import timezone
 
 from quizzes.models import Question, Quiz, QuizVersion, QuizVersionSource
@@ -36,6 +35,8 @@ QUESTION_FIELDS = (
     "multiple",
     "question_type",
     "is_markdown_enabled",
+    "is_ai_generated",
+    "is_flashcard",
     "image_url",
 )
 ANSWER_FIELDS = ("order", "text", "is_correct", "image_url")
@@ -177,6 +178,7 @@ def track_quiz_change(quiz, *, user, source, restored_from=None):
     """Records a version when the content of `quiz` changes inside the block.
 
     Bumps `Quiz.version` when the block changed the content without doing so.
+    Yields the quiz as locked and freshly loaded; write version numbers from it.
     """
     with transaction.atomic():
         # Serializes concurrent changes, so versions are numbered in order.
@@ -184,13 +186,15 @@ def track_quiz_change(quiz, *, user, source, restored_from=None):
         before = build_snapshot(locked)
         ensure_baseline(locked, before)
         version_before = locked.version
-        yield
+        yield locked
         locked.refresh_from_db()
         after = build_snapshot(locked)
         if after == before:
             return
-        if locked.version == version_before:
-            Quiz.objects.filter(pk=locked.pk).update(version=F("version") + 1)
+        if locked.version <= version_before:
+            # The block did not move the version on, or wrote back a stale,
+            # lower one from an instance loaded before another save.
+            Quiz.objects.filter(pk=locked.pk).update(version=version_before + 1)
             locked.refresh_from_db(fields=["version"])
         quiz.version = locked.version
         _record(locked, before, after, user=user, source=source, restored_from=restored_from)

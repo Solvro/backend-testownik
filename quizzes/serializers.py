@@ -27,6 +27,15 @@ from users.serializers import (
 )
 
 
+def quiz_with_content(pk):
+    """A quiz with its questions, answers and their images loaded, for
+    serializing without a query per image."""
+    return Quiz.objects.prefetch_related(
+        models.Prefetch("questions", queryset=Question.objects.select_related("image_upload")),
+        models.Prefetch("questions__answers", queryset=Answer.objects.select_related("image_upload")),
+    ).get(pk=pk)
+
+
 def claim_ids(model, rows):
     """Keeps the client-generated "id" of rows about to be created, unless it
     is repeated or another row already uses it, in which case it is dropped
@@ -404,7 +413,7 @@ class QuizSerializer(serializers.ModelSerializer):
         if questions_data is not None:
             self._sync_questions(instance, questions_data)
 
-        return Quiz.objects.prefetch_related("questions__answers").get(pk=instance.pk)
+        return quiz_with_content(instance.pk)
 
     def _create_questions(self, quiz, questions_data):
         """Bulk create questions and their answers."""
@@ -418,6 +427,8 @@ class QuizSerializer(serializers.ModelSerializer):
         claim_ids(Answer, [a_data for q_data in questions_data for a_data in q_data.get("answers", [])])
         for q_data in questions_data:
             answers_data = q_data.pop("answers", [])
+            # Clients echo back the question's own `quiz`; it is this quiz.
+            q_data.pop("quiz", None)
             questions_to_create.append(Question(quiz=quiz, **q_data))
             questions_answers_data.append(answers_data)
 
@@ -469,6 +480,8 @@ class QuizSerializer(serializers.ModelSerializer):
             "multiple",
             "question_type",
             "is_markdown_enabled",
+            "is_ai_generated",
+            "is_flashcard",
         ]
 
         for q_data in questions_data:

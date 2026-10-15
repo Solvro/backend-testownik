@@ -133,6 +133,15 @@ class ClientIdTestCase(QuizHistoryTestCase):
         self.assertIn(moved["id"], [a["id"] for a in saved["questions"][1]["answers"]])
         self.assertEqual(len(saved["questions"][0]["answers"]), 1)
 
+    def test_recreating_a_question_from_an_echoed_response_works(self):
+        """Clients send back question objects as the API returned them, with
+        the `quiz` field; a removed question sent again must be recreated."""
+        quiz = self.create_quiz([_question("Pierwsze", 1), _question("Drugie", 2)])
+        first, second = quiz["questions"]
+        self.save(quiz["id"], {"questions": [first]})
+        saved = self.save(quiz["id"], {"questions": [first, second]})
+        self.assertEqual([q["id"] for q in saved["questions"]], [first["id"], second["id"]])
+
     def test_bulk_create_keeps_client_ids(self):
         quiz = self.create_quiz([])
         question_id = str(uuid.uuid4())
@@ -283,6 +292,35 @@ class QuizVersionTestCase(QuizHistoryTestCase):
         self.assertEqual(newest["restored_from"], 1)
         self.assertEqual(newest["version"], response.data["version"])
         self.assertEqual(len(self.versions(quiz["id"])), 3)
+
+    @mock.patch("quizzes.services.history.MERGE_WINDOW", timedelta(0))
+    def test_a_stale_client_cannot_reuse_a_version_number(self):
+        """Two editors loaded the quiz at the same version; both saves must
+        get their own version numbers instead of colliding."""
+        quiz = self.create_quiz([_question("Pierwsze")])
+        question = quiz["questions"][0]
+        # Another editor's save moves the quiz on while this client holds v1.
+        self.save(quiz["id"], {"questions": [{**question, "text": "Cudza zmiana"}]})
+        stale = self.save(quiz["id"], {"title": "Spóźniony tytuł", "version": 1})
+        versions = self.versions(quiz["id"])
+        self.assertEqual([v["version"] for v in versions], [3, 2, 1])
+        self.assertEqual(stale["version"], 3)
+        self.assertEqual(Quiz.objects.get(pk=quiz["id"]).version, 3)
+
+    @mock.patch("quizzes.services.history.MERGE_WINDOW", timedelta(0))
+    def test_restoring_keeps_question_flags(self):
+        quiz = self.create_quiz([_question("Pierwsze", 1), {**_question("Fiszka", 2), "is_flashcard": True}])
+        first, flagged = quiz["questions"]
+        self.save(
+            quiz["id"], {"questions": [first, {**flagged, "text": "Zmiana", "is_ai_generated": True}]}
+        )  # records v2 with both flags
+        self.save(quiz["id"], {"questions": [first]})  # removes the flagged question
+
+        response = self.client.post(reverse("quiz-restore-version", args=[quiz["id"], 2]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        restored = Question.objects.get(id=quiz["questions"][1]["id"])
+        self.assertTrue(restored.is_flashcard)
+        self.assertTrue(restored.is_ai_generated)
 
     def test_only_editors_see_and_restore_history(self):
         quiz = self.create_quiz([_question("Pierwsze")])

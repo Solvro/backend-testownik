@@ -498,12 +498,16 @@ class QuizTools(AnnotatedMCPToolset):
                         return {"error": {f"updates[{index}]": _plain_data(exc.detail)}}
                     serializers.append((question, serializer))
 
-                updated_ids = []
+                # One version per quiz for the whole batch.
+                by_quiz = {}
                 for question, serializer in serializers:
-                    if serializer is not None:
-                        with track_quiz_change(question.quiz, user=self.request.user, source=QuizVersionSource.MCP):
-                            serializer.save()
-                    updated_ids.append(str(question.id))
+                    by_quiz.setdefault(question.quiz_id, (question.quiz, []))[1].append(serializer)
+                for quiz, quiz_serializers in by_quiz.values():
+                    with track_quiz_change(quiz, user=self.request.user, source=QuizVersionSource.MCP):
+                        for serializer in quiz_serializers:
+                            if serializer is not None:
+                                serializer.save()
+                updated_ids = [str(question.id) for question, _ in serializers]
         except ValidationError as exc:
             return _validation_error(exc.detail)
 
