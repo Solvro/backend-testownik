@@ -459,6 +459,12 @@ class QuizVersion(models.Model):
     question_count = models.PositiveIntegerField(default=0)
     summary = models.JSONField(default=dict, blank=True, help_text="Changes compared with the previous version")
     snapshot = models.BinaryField(help_text="zlib-compressed JSON of the quiz content")
+    uploads = models.ManyToManyField(
+        "uploads.UploadedImage",
+        blank=True,
+        related_name="quiz_versions",
+        help_text="Uploaded images the snapshot refers to, kept from orphan cleanup while this version exists",
+    )
 
     class Meta:
         ordering = ["-version"]

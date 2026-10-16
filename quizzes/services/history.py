@@ -71,6 +71,16 @@ def build_snapshot(quiz):
     }
 
 
+def snapshot_uploads(snapshot):
+    """IDs of the uploaded images a snapshot refers to."""
+    return {question["image_upload"] for question in snapshot["questions"] if question["image_upload"]} | {
+        answer["image_upload"]
+        for question in snapshot["questions"]
+        for answer in question["answers"]
+        if answer["image_upload"]
+    }
+
+
 def encode_snapshot(snapshot):
     return zlib.compress(json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")).encode())
 
@@ -103,7 +113,7 @@ def summarize(before, after):
 
 def _save_version(quiz, snapshot, *, author, source, previous, restored_from=None, created_at=None):
     now = timezone.now()
-    return QuizVersion.objects.create(
+    version = QuizVersion.objects.create(
         quiz=quiz,
         version=quiz.version,
         author=author,
@@ -117,6 +127,10 @@ def _save_version(quiz, snapshot, *, author, source, previous, restored_from=Non
         summary={} if source == QuizVersionSource.BASELINE else summarize(previous, snapshot),
         snapshot=encode_snapshot(snapshot),
     )
+    # Referencing the uploads keeps `cleanup_orphans` from deleting images
+    # which only an older version still uses, so restoring brings them back.
+    version.uploads.set(snapshot_uploads(snapshot))
+    return version
 
 
 def _prune(quiz):
@@ -151,6 +165,7 @@ def _record(quiz, before, after, *, user, source, restored_from):
         latest.summary = summarize(decode_snapshot(earlier.snapshot) if earlier else None, after)
         latest.snapshot = encode_snapshot(after)
         latest.save()
+        latest.uploads.set(snapshot_uploads(after))
         return latest
     version = _save_version(quiz, after, author=author, source=source, previous=before, restored_from=restored_from)
     _prune(quiz)
@@ -208,12 +223,7 @@ def track_quiz_change(quiz, *, user, source, restored_from=None):
 def restore_payload(snapshot):
     """Quiz serializer data for a snapshot. Uploaded images which no longer
     exist are dropped, keeping any image URL."""
-    upload_ids = {question["image_upload"] for question in snapshot["questions"] if question["image_upload"]} | {
-        answer["image_upload"]
-        for question in snapshot["questions"]
-        for answer in question["answers"]
-        if answer["image_upload"]
-    }
+    upload_ids = snapshot_uploads(snapshot)
     existing = {str(pk) for pk in UploadedImage.objects.filter(id__in=upload_ids).values_list("id", flat=True)}
 
     def upload(value):

@@ -13,6 +13,7 @@ from rest_framework.test import APITestCase
 
 from quizzes.models import Answer, Question, Quiz, QuizVersion, QuizVersionSource
 from quizzes.services.history import decode_snapshot, restore_payload
+from uploads.models import UploadedImage
 from users.models import User
 
 
@@ -365,6 +366,48 @@ class QuizVersionTestCase(QuizHistoryTestCase):
             ],
             ["D", "C", "B"],
         )
+
+    def upload(self):
+        return UploadedImage.objects.create(
+            image="uploads/test.png", original_filename="test.png", content_type="image/png", file_size=1
+        )
+
+    @mock.patch("quizzes.services.history.MERGE_WINDOW", timedelta(0))
+    def test_versions_reference_the_uploaded_images_they_use(self):
+        first, second = self.upload(), self.upload()
+        quiz = self.create_quiz([_question("Q", answers=[_answer("A", True, 1), _answer("B", False, 2)])])
+        question = quiz["questions"][0]
+        self.save(quiz["id"], {"questions": [{**question, "image_upload": str(first.id)}]})
+        self.assertEqual(list(first.quiz_versions.values_list("version", flat=True)), [2])
+        self.assertFalse(first.is_orphan)
+
+        # Replacing the image in a later version keeps the old upload alive through the older version.
+        self.save(quiz["id"], {"questions": [{**question, "image_upload": str(second.id)}]})
+        self.assertEqual(list(first.quiz_versions.values_list("version", flat=True)), [2])
+        self.assertEqual(list(second.quiz_versions.values_list("version", flat=True)), [3])
+        self.assertFalse(first.is_orphan)
+
+    def test_merged_versions_follow_the_current_images(self):
+        first, second = self.upload(), self.upload()
+        quiz = self.create_quiz([_question("Q")])
+        question = quiz["questions"][0]
+        self.save(quiz["id"], {"questions": [{**question, "image_upload": str(first.id)}]})
+        self.save(quiz["id"], {"questions": [{**question, "image_upload": str(second.id)}]})
+        self.assertEqual(QuizVersion.objects.filter(quiz_id=quiz["id"]).count(), 2)
+        self.assertTrue(first.is_orphan)
+        self.assertFalse(second.is_orphan)
+
+    @mock.patch("quizzes.services.history.MERGE_WINDOW", timedelta(0))
+    @mock.patch("quizzes.services.history.MAX_VERSIONS", 2)
+    def test_pruned_versions_release_their_images(self):
+        old = self.upload()
+        quiz = self.create_quiz([_question("Q")])
+        question = quiz["questions"][0]
+        self.save(quiz["id"], {"questions": [{**question, "image_upload": str(old.id)}]})
+        for text in ("A", "B"):
+            self.save(quiz["id"], {"questions": [{**question, "text": text}]})
+        self.assertFalse(QuizVersion.objects.filter(quiz_id=quiz["id"], version=2).exists())
+        self.assertTrue(old.is_orphan)
 
     def test_restoring_drops_uploaded_images_which_no_longer_exist(self):
         snapshot = {
