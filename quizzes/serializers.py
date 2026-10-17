@@ -55,14 +55,33 @@ def claim_ids(model, rows):
             row["id"] = row_id
 
 
+class UploadedImageField(serializers.PrimaryKeyRelatedField):
+    """An uploaded image by ID. A view which already loaded the images in
+    bulk passes them as `context["uploads"]`, keyed by ID string, so nested
+    rows do not each query for theirs."""
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("queryset", UploadedImage.objects.all())
+        kwargs.setdefault("required", False)
+        kwargs.setdefault("allow_null", True)
+        super().__init__(**kwargs)
+
+    def to_internal_value(self, data):
+        uploads = self.context.get("uploads")
+        if uploads is None:
+            return super().to_internal_value(data)
+        upload = uploads.get(str(data))
+        if upload is None:
+            self.fail("does_not_exist", pk_value=data)
+        return upload
+
+
 class AnswerSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(required=False)
 
     image_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
     image = serializers.SerializerMethodField()
-    image_upload = serializers.PrimaryKeyRelatedField(
-        queryset=UploadedImage.objects.all(), required=False, allow_null=True
-    )
+    image_upload = UploadedImageField()
     image_width = serializers.IntegerField(source="image_upload.width", read_only=True, allow_null=True)
     image_height = serializers.IntegerField(source="image_upload.height", read_only=True, allow_null=True)
 
@@ -99,9 +118,7 @@ class QuestionSerializer(serializers.ModelSerializer):
 
     image_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
     image = serializers.SerializerMethodField()
-    image_upload = serializers.PrimaryKeyRelatedField(
-        queryset=UploadedImage.objects.all(), required=False, allow_null=True
-    )
+    image_upload = UploadedImageField()
     image_width = serializers.IntegerField(source="image_upload.width", read_only=True, allow_null=True)
     image_height = serializers.IntegerField(source="image_upload.height", read_only=True, allow_null=True)
 
@@ -166,7 +183,9 @@ class QuestionSerializer(serializers.ModelSerializer):
         instance.text = validated_data.get("text", instance.text)
 
         instance.image_url = validated_data.get("image_url", instance.image_url)
-        instance.image_upload = validated_data.get("image_upload", instance.image_upload)
+        if "image_upload" in validated_data:
+            # Reading the current image as a default would query for it.
+            instance.image_upload = validated_data["image_upload"]
 
         instance.explanation = validated_data.get("explanation", instance.explanation)
         instance.multiple = validated_data.get("multiple", instance.multiple)
@@ -463,7 +482,13 @@ class QuizSerializer(serializers.ModelSerializer):
         - Missing questions are deleted
         - New questions are created, keeping a client-generated ID when it is free
         """
-        existing_questions = {q.id: q for q in quiz.questions.prefetch_related("answers").all()}
+        # With the images joined, comparing them below needs no query per row.
+        existing_questions = {
+            q.id: q
+            for q in quiz.questions.select_related("image_upload").prefetch_related(
+                models.Prefetch("answers", queryset=Answer.objects.select_related("image_upload"))
+            )
+        }
         existing_ids = set(existing_questions.keys())
         incoming_ids = set()
 

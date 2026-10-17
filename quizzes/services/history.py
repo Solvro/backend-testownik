@@ -220,14 +220,21 @@ def track_quiz_change(quiz, *, user, source, restored_from=None):
         _record(locked, before, after, user=user, source=source, restored_from=restored_from)
 
 
-def restore_payload(snapshot):
+def snapshot_upload_objects(snapshot):
+    """The uploaded images a snapshot refers to which still exist, by ID
+    string, loaded in one query."""
+    return {str(pk): upload for pk, upload in UploadedImage.objects.in_bulk(snapshot_uploads(snapshot)).items()}
+
+
+def restore_payload(snapshot, uploads=None):
     """Quiz serializer data for a snapshot. Uploaded images which no longer
-    exist are dropped, keeping any image URL."""
-    upload_ids = snapshot_uploads(snapshot)
-    existing = {str(pk) for pk in UploadedImage.objects.filter(id__in=upload_ids).values_list("id", flat=True)}
+    exist are dropped, keeping any image URL. `uploads` is the result of
+    `snapshot_upload_objects`, loaded once when the caller needs it too."""
+    if uploads is None:
+        uploads = snapshot_upload_objects(snapshot)
 
     def upload(value):
-        return value if value in existing else None
+        return value if value in uploads else None
 
     return {
         "title": snapshot["title"],

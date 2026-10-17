@@ -92,6 +92,7 @@ from quizzes.services.history import (
     ensure_baseline,
     record_created,
     restore_payload,
+    snapshot_upload_objects,
     track_quiz_change,
 )
 from quizzes.services.metadata import get_preview_question
@@ -1029,12 +1030,20 @@ class QuizViewSet(viewsets.ModelViewSet):
         if quiz_is_deleted(quiz):
             raise PermissionDenied(DELETED_QUIZ_MESSAGE)
         quiz_version = get_object_or_404(quiz.versions, version=int(version))
-        payload = restore_payload(decode_snapshot(quiz_version.snapshot))
+        snapshot = decode_snapshot(quiz_version.snapshot)
+        uploads = snapshot_upload_objects(snapshot)
+        payload = restore_payload(snapshot, uploads)
         with track_quiz_change(
             quiz, user=request.user, source=QuizVersionSource.RESTORE, restored_from=quiz_version.version
         ) as locked:
             # Against the locked quiz, so a stale instance cannot write back old fields.
-            serializer = QuizSerializer(locked, data=payload, partial=True, context=self.get_serializer_context())
+            serializer = QuizSerializer(
+                locked,
+                data=payload,
+                partial=True,
+                # The images were loaded once above; the rows reuse them.
+                context={**self.get_serializer_context(), "uploads": uploads},
+            )
             serializer.is_valid(raise_exception=True)
             serializer.save()
         quiz = quiz_with_content(quiz.pk)

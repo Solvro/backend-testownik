@@ -6,6 +6,8 @@ import uuid
 from datetime import timedelta
 from unittest import mock
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -408,6 +410,30 @@ class QuizVersionTestCase(QuizHistoryTestCase):
             self.save(quiz["id"], {"questions": [{**question, "text": text}]})
         self.assertFalse(QuizVersion.objects.filter(quiz_id=quiz["id"], version=2).exists())
         self.assertTrue(old.is_orphan)
+
+    def test_restoring_loads_the_referenced_images_once(self):
+        """Every question and answer of the restored content refers to the
+        same image; resolving them must not query for it row by row."""
+        upload = UploadedImage.objects.create(
+            image="uploads/test.png", original_filename="test.png", content_type="image/png", file_size=1
+        )
+        questions = []
+        for order in range(1, 11):
+            question = _question(f"Pytanie {order}", order)
+            question["image_upload"] = str(upload.id)
+            for answer in question["answers"]:
+                answer["image_upload"] = str(upload.id)
+            questions.append(question)
+        quiz = self.create_quiz(questions)
+        self.save(quiz["id"], {"title": "Zmieniony"})
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.post(reverse("quiz-restore-version", args=[quiz["id"], 1]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        image_queries = [query["sql"] for query in queries if "uploads_uploadedimage" in query["sql"]]
+        # One bulk load for validation, plus the joins of the content loads
+        # before and after the change, the version's upload links and the response.
+        self.assertLessEqual(len(image_queries), 8, image_queries)
 
     def test_restoring_drops_uploaded_images_which_no_longer_exist(self):
         snapshot = {
