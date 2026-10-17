@@ -427,3 +427,49 @@ class Comment(models.Model):
         self.is_deleted = True
         self.deleted_at = timezone.now()
         self.save(update_fields=["is_deleted", "deleted_at"])
+
+
+class QuizVersionSource(models.TextChoices):
+    BASELINE = "baseline", "Stan sprzed historii"
+    CREATE = "create", "Utworzenie"
+    COPY = "copy", "Kopia"
+    EDITOR = "editor", "Edytor"
+    QUESTION = "question", "Edycja pytania"
+    AI = "ai", "Asystent AI"
+    MCP = "mcp", "MCP"
+    RESTORE = "restore", "Przywrócenie"
+
+
+class QuizVersion(models.Model):
+    """The content of a quiz after a change, for its version history.
+
+    The snapshot holds the title, description, questions, and answers with
+    their IDs, compressed. Consecutive changes by one author are merged into
+    one version; see `quizzes.services.history`.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="versions")
+    version = models.PositiveIntegerField(help_text="Quiz.version for this content")
+    author = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    source = models.CharField(max_length=16, choices=QuizVersionSource.choices)
+    restored_from = models.PositiveIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(default=timezone.now, help_text="Last change merged into this version")
+    title = models.CharField(max_length=255)
+    question_count = models.PositiveIntegerField(default=0)
+    summary = models.JSONField(default=dict, blank=True, help_text="Changes compared with the previous version")
+    snapshot = models.BinaryField(help_text="zlib-compressed JSON of the quiz content")
+    uploads = models.ManyToManyField(
+        "uploads.UploadedImage",
+        blank=True,
+        related_name="quiz_versions",
+        help_text="Uploaded images the snapshot refers to, kept from orphan cleanup while this version exists",
+    )
+
+    class Meta:
+        ordering = ["-version"]
+        constraints = [UniqueConstraint(fields=["quiz", "version"], name="unique_quiz_version")]
+
+    def __str__(self):
+        return f"{self.quiz_id} v{self.version}"

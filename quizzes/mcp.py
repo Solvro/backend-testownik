@@ -6,6 +6,7 @@ from quizzes.models import (
     Question,
     QuestionType,
     Quiz,
+    QuizVersionSource,
 )
 from quizzes.serializers import (
     BulkCreateQuestionsSerializer,
@@ -13,6 +14,7 @@ from quizzes.serializers import (
     QuizMetaDataSerializer,
     QuizSerializer,
 )
+from quizzes.services.history import record_created, track_quiz_change
 from quizzes.services.operations import (
     QuizOperationError,
     get_current_session_question,
@@ -307,6 +309,7 @@ class QuizTools(AnnotatedMCPToolset):
                     )
                     serializer.is_valid(raise_exception=True)
                     serializer.save()
+                record_created(quiz, user=user, source=QuizVersionSource.MCP)
                 created = len(normalized_questions)
         except _QuestionError as exc:
             return {"error": str(exc)}
@@ -350,7 +353,8 @@ class QuizTools(AnnotatedMCPToolset):
             "explanation": explanation,
         }
         try:
-            question = _create_single_question(quiz, spec, self.request)
+            with track_quiz_change(quiz, user=self.request.user, source=QuizVersionSource.MCP):
+                question = _create_single_question(quiz, spec, self.request)
         except _QuestionError as exc:
             return {"error": str(exc)}
         except ValidationError as exc:
@@ -376,7 +380,8 @@ class QuizTools(AnnotatedMCPToolset):
             return {"error": "Provide at least one question."}
 
         try:
-            created_questions = _create_questions(quiz, questions, self.request)
+            with track_quiz_change(quiz, user=self.request.user, source=QuizVersionSource.MCP):
+                created_questions = _create_questions(quiz, questions, self.request)
         except _QuestionError as exc:
             return {"error": str(exc)}
         except ValidationError as exc:
@@ -428,7 +433,8 @@ class QuizTools(AnnotatedMCPToolset):
         )
         try:
             serializer.is_valid(raise_exception=True)
-            serializer.save()
+            with track_quiz_change(question.quiz, user=self.request.user, source=QuizVersionSource.MCP):
+                serializer.save()
         except ValidationError as exc:
             return _validation_error(exc.detail)
         return {"id": str(question.id), "status": "updated"}
@@ -492,11 +498,16 @@ class QuizTools(AnnotatedMCPToolset):
                         return {"error": {f"updates[{index}]": _plain_data(exc.detail)}}
                     serializers.append((question, serializer))
 
-                updated_ids = []
+                # One version per quiz for the whole batch.
+                by_quiz = {}
                 for question, serializer in serializers:
-                    if serializer is not None:
-                        serializer.save()
-                    updated_ids.append(str(question.id))
+                    by_quiz.setdefault(question.quiz_id, (question.quiz, []))[1].append(serializer)
+                for quiz, quiz_serializers in by_quiz.values():
+                    with track_quiz_change(quiz, user=self.request.user, source=QuizVersionSource.MCP):
+                        for serializer in quiz_serializers:
+                            if serializer is not None:
+                                serializer.save()
+                updated_ids = [str(question.id) for question, _ in serializers]
         except ValidationError as exc:
             return _validation_error(exc.detail)
 
@@ -510,7 +521,8 @@ class QuizTools(AnnotatedMCPToolset):
             question = get_editable_question(self.request.user, question_id)
         except QuizOperationError as exc:
             return _operation_error(exc)
-        question.delete()
+        with track_quiz_change(question.quiz, user=self.request.user, source=QuizVersionSource.MCP):
+            question.delete()
         return {"status": "deleted"}
 
 

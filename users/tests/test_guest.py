@@ -10,7 +10,8 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quizzes.models import Folder, Quiz, QuizSession
+from quizzes.models import Comment, Folder, Question, QuestionIssue, Quiz, QuizSession, QuizVersionSource
+from quizzes.services.history import record_created
 from users.models import AccountType, EmailLoginToken, User
 from users.services import migrate_guest_to_user
 
@@ -85,6 +86,24 @@ class MigrateGuestToUserTestCase(TestCase):
         self.assertTrue(result)
         folder.refresh_from_db()
         self.assertEqual(folder.owner, self.target_user)
+
+    def test_migrate_authorship_of_versions_comments_and_issues(self):
+        """Records which only point at the guest keep their author instead of
+        losing it when the guest is deleted."""
+        quiz = Quiz.objects.create(title="Guest Quiz", creator=self.guest, folder=self.guest.root_folder)
+        question = Question.objects.create(quiz=quiz, order=1, text="Q")
+        record_created(quiz, user=self.guest, source=QuizVersionSource.CREATE)
+        comment = Comment.objects.create(quiz=quiz, author=self.guest, content="Uwaga")
+        issue = QuestionIssue.objects.create(question=question, user=self.guest, content="Literówka")
+
+        result = migrate_guest_to_user(str(self.guest.id), self.target_user)
+
+        self.assertTrue(result)
+        self.assertEqual(quiz.versions.get().author, self.target_user)
+        comment.refresh_from_db()
+        self.assertEqual(comment.author, self.target_user)
+        issue.refresh_from_db()
+        self.assertEqual(issue.user, self.target_user)
 
     def test_guest_is_deleted_after_migration(self):
         """The guest account is deleted after successful migration."""
