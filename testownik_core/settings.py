@@ -364,7 +364,7 @@ OAUTH2_PROVIDER = {
     "ROTATE_REFRESH_TOKEN": True,
     "PKCE_REQUIRED": True,
     "ALLOWED_REDIRECT_URI_SCHEMES": ["https", "http"],
-    "OAUTH2_VALIDATOR_CLASS": "oauth_integrations.oauth_cimd.CIMDOAuth2Validator",
+    "CIMD_ENABLED": True,
 }
 
 # MCP Server (django-mcp-server)

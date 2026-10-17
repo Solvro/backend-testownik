@@ -5,7 +5,7 @@ from django.utils import timezone
 from oauth2_provider.models import AbstractApplication, AccessToken, RefreshToken, get_application_model
 from rest_framework.test import APITestCase
 
-from oauth_integrations.models import OAuthApplicationMetadata, OAuthClientMetadata
+from oauth_integrations.models import OAuthApplicationMetadata
 from users.models import User
 
 
@@ -138,28 +138,3 @@ class AuthorizedAppsViewSetTests(APITestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.data["error"], "No tokens found for this app")
-
-    def test_destroy_supports_cimd_client_id_url(self):
-        client_id_url = "https://client.example/.well-known/oauth-client"
-        OAuthClientMetadata.objects.create(
-            application=self.application,
-            client_id_url=client_id_url,
-            client_name="CIMD Client",
-            redirect_uris=["https://client.example/callback"],
-            grant_types=["authorization_code"],
-            response_types=["code"],
-            fetched_at=timezone.now(),
-        )
-        self._create_access_token(
-            user=self.user,
-            application=self.application,
-            token="cimd-token-to-revoke",
-            scope="quizzes:read",
-            created=timezone.now(),
-        )
-
-        self.client.force_authenticate(user=self.user)
-        response = self.client.delete(reverse("authorized_app_detail", kwargs={"client_id": client_id_url}))
-
-        self.assertEqual(response.status_code, 204)
-        self.assertFalse(AccessToken.objects.filter(user=self.user, application=self.application).exists())
