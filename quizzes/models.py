@@ -435,7 +435,8 @@ class QuizVersionSource(models.TextChoices):
     COPY = "copy", "Kopia"
     EDITOR = "editor", "Edytor"
     QUESTION = "question", "Edycja pytania"
-    MCP = "mcp", "Asystent AI"
+    AI = "ai", "Asystent AI"
+    MCP = "mcp", "MCP"
     RESTORE = "restore", "Przywrócenie"
 
 

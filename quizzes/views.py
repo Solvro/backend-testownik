@@ -90,6 +90,7 @@ from quizzes.serializers import (
 from quizzes.services.history import (
     decode_snapshot,
     ensure_baseline,
+    question_source,
     record_created,
     restore_payload,
     snapshot_upload_objects,
@@ -496,7 +497,8 @@ class QuizViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         quiz = serializer.save(creator=self.request.user, folder=self.request.user.root_folder)
-        record_created(quiz, user=self.request.user, source=QuizVersionSource.CREATE)
+        source = QuizVersionSource.AI if quiz.is_ai_generated else QuizVersionSource.CREATE
+        record_created(quiz, user=self.request.user, source=source)
 
     def perform_update(self, serializer):
         with track_quiz_change(serializer.instance, user=self.request.user, source=QuizVersionSource.EDITOR) as locked:
@@ -1195,7 +1197,8 @@ class QuestionViewSet(
 
     def perform_create(self, serializer):
         quiz = serializer.validated_data["quiz"]
-        with track_quiz_change(quiz, user=self.request.user, source=QuizVersionSource.QUESTION):
+        source = question_source([serializer.validated_data])
+        with track_quiz_change(quiz, user=self.request.user, source=source):
             serializer.save()
 
     def perform_update(self, serializer):
@@ -1210,7 +1213,8 @@ class QuestionViewSet(
     def bulk_create(self, request):
         serializer = BulkCreateQuestionsSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
-        with track_quiz_change(serializer.validated_data["quiz"], user=request.user, source=QuizVersionSource.QUESTION):
+        source = question_source(serializer.validated_data["questions"])
+        with track_quiz_change(serializer.validated_data["quiz"], user=request.user, source=source):
             questions = serializer.save()
         return Response(
             QuestionSerializer(questions, many=True, context={"request": request}).data,

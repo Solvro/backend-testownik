@@ -26,7 +26,23 @@ MERGE_WINDOW = timedelta(minutes=10)
 MAX_VERSIONS = 100
 
 # Sources whose consecutive changes may be merged into one version.
-MERGEABLE_SOURCES = {QuizVersionSource.EDITOR, QuizVersionSource.QUESTION, QuizVersionSource.MCP}
+MERGEABLE_SOURCES = {
+    QuizVersionSource.EDITOR,
+    QuizVersionSource.QUESTION,
+    QuizVersionSource.AI,
+    QuizVersionSource.MCP,
+}
+
+
+def question_source(rows):
+    """The source of questions being added: `AI` when every one is flagged as
+    AI generated, which is how the in-app assistant saves its questions;
+    `QUESTION` otherwise."""
+    rows = list(rows)
+    if rows and all(row.get("is_ai_generated") for row in rows):
+        return QuizVersionSource.AI
+    return QuizVersionSource.QUESTION
+
 
 QUESTION_FIELDS = (
     "order",

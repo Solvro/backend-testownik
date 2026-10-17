@@ -167,6 +167,25 @@ class QuizVersionTestCase(QuizHistoryTestCase):
         self.assertEqual(version["author"]["id"], str(self.user.id))
         self.assertEqual(version["summary"], {"created": True, "added": 1})
 
+    def test_questions_saved_by_the_assistant_record_the_ai_source(self):
+        quiz = self.create_quiz([_question("Pierwsze")])
+        response = self.client.post(
+            reverse("question-bulk-create"),
+            {"quiz": quiz["id"], "questions": [{**_question("Od asystenta", 2), "is_ai_generated": True}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(self.versions(quiz["id"])[0]["source"], QuizVersionSource.AI)
+
+        # A question the author adds keeps the plain source.
+        response = self.client.post(
+            reverse("question-bulk-create"),
+            {"quiz": quiz["id"], "questions": [_question("Od autora", 3)]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(self.versions(quiz["id"])[0]["source"], QuizVersionSource.QUESTION)
+
     @mock.patch("quizzes.services.history.MERGE_WINDOW", timedelta(0))
     def test_each_change_records_a_version_with_a_summary(self):
         quiz = self.create_quiz([_question("Pierwsze", 1), _question("Drugie", 2)])
