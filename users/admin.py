@@ -29,7 +29,7 @@ from unfold.admin import ModelAdmin, StackedInline
 
 from oauth_integrations.models import OAuthApplicationMetadata
 
-from .models import CourseClassType, EmailLoginToken, StudyGroup, Term, User, UserSettings
+from .models import AccountLevelGrant, CourseClassType, EmailLoginToken, StudyGroup, Term, User, UserSettings
 
 
 class UserSettingsInline(StackedInline):
@@ -231,3 +231,8 @@ class OutstandingTokenAdmin(BaseOutstandingTokenAdmin, ModelAdmin):
 @admin.register(BlacklistedToken)
 class BlacklistedTokenAdmin(BaseBlacklistedTokenAdmin, ModelAdmin):
     autocomplete_fields = ["token"]
+
+
+@admin.register(AccountLevelGrant)
+class AccountLevelGrantAdmin(ModelAdmin):
+    pass
