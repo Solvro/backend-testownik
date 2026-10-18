@@ -387,7 +387,7 @@ class AccountLevelGrant(models.Model):
         max_length=100,
         null=True,
         blank=True,
-        unique=True,
+        help_text="Reference to the source of the grant.",
     )
     reason = models.CharField(max_length=500, blank=True)
     starts_at = models.DateTimeField(default=now)
@@ -408,6 +408,11 @@ class AccountLevelGrant(models.Model):
             models.CheckConstraint(
                 condition=Q(expires_at__isnull=True) | Q(expires_at__gt=F("starts_at")),
                 name="account_grant_expires_after_start",
+            ),
+            models.UniqueConstraint(
+                fields=["source", "source_ref"],
+                condition=Q(source_ref__isnull=False) & ~Q(source_ref=""),
+                name="account_grant_unique_source_ref",
             ),
         ]
         permissions = [("manage_account_levels", "Can manage account levels")]
