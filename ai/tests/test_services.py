@@ -884,7 +884,8 @@ class AIUsageServicesTests(TestCase):
             request_id="old-rollup",
             cache_write_tokens=4,
         )
-        old_time = timezone.now() - timedelta(days=2)
+        # Pruning uses local calendar days, including across DST changes.
+        old_time = timezone.localtime() - timedelta(days=2)
         AIUsageEvent.objects.filter(pk=event.pk).update(created_at=old_time)
         AIUsageDailyAggregate.objects.create(
             user=self.user,

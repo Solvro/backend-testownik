@@ -281,6 +281,8 @@ class QuizTools(AnnotatedMCPToolset):
 
         The quiz and all its questions are flagged is_ai_generated=true so the UI
         can label them. Prefer passing questions here over many add_question calls.
+        New quizzes use the default unlisted-by-link visibility with anonymous
+        access disabled; this is not the stricter private visibility setting.
         If any question is invalid, nothing is created and an error pointing to the
         offending index is returned.
         """
@@ -515,7 +517,7 @@ class QuizTools(AnnotatedMCPToolset):
 
 
 class StudyTools(AnnotatedMCPToolset):
-    @tool_annotations(title="Get quiz session", read_only=True, destructive=False, idempotent=False)
+    @tool_annotations(title="Get quiz session", read_only=False, destructive=False, idempotent=False)
     def get_quiz_session(self, quiz_id: str) -> dict:
         """Get or create an active study session for a quiz. Returns session
         state, progress counts, and the current question."""
@@ -553,9 +555,11 @@ class StudyTools(AnnotatedMCPToolset):
             "total_questions": state.quiz.questions.count(),
         }
 
-    @tool_annotations(title="Get next question", read_only=True, destructive=False, idempotent=False)
+    @tool_annotations(title="Get next question", read_only=False, destructive=False, idempotent=False)
     def get_next_question(self, quiz_id: str) -> dict:
-        """Get the next question to study based on the session's current state."""
+        """Get the current study question, creating an active session if needed.
+        If no question is selected, choose one and save it in the session.
+        """
         _require_scope(self.request, "study:read")
         try:
             state = get_readable_session(self.request.user, quiz_id, prefetch_quiz=True)
