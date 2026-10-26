@@ -126,7 +126,14 @@ class QuizProgressTestCase(APITestCase):
         # Update quiz, omit q1 from questions data to trigger deletion
         data = {
             "title": "Updated Quiz",
-            "questions": [{"id": str(self.q2.id), "order": self.q2.order, "text": self.q2.text, "answers": []}],
+            "questions": [
+                {
+                    "id": str(self.q2.id),
+                    "order": self.q2.order,
+                    "text": self.q2.text,
+                    "answers": [{"order": 1, "text": "Tak", "is_correct": True}],
+                }
+            ],
         }
         response = self.client.patch(url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -257,7 +264,7 @@ class RecordAnswerTestCase(APITestCase):
         response = self.client.post(url, data, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("do not belong to this question", response.data["error"])
+        self.assertIn("nie należy do tego pytania", response.data["error"])
 
     def test_record_answer_invalid_study_time(self):
         """Test that invalid study_time format returns 400."""

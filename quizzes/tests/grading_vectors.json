@@ -1,0 +1,116 @@
+[
+  {
+    "mode": "exact",
+    "expected": "Warszawa",
+    "typed": "  warszawa ",
+    "match": true
+  },
+  {
+    "mode": "exact",
+    "expected": "Warszawa",
+    "typed": "Warszwa",
+    "match": false
+  },
+  {
+    "mode": "exact",
+    "expected": "Prawda",
+    "typed": "prawda",
+    "match": true
+  },
+  {
+    "mode": "similar",
+    "expected": "Warszawa",
+    "typed": "Warszwa",
+    "match": true
+  },
+  {
+    "mode": "similar",
+    "expected": "Warszawa",
+    "typed": "Wrszwa",
+    "match": true
+  },
+  {
+    "mode": "similar",
+    "expected": "Warszawa",
+    "typed": "Krakow",
+    "match": false
+  },
+  {
+    "mode": "similar",
+    "expected": "łódź",
+    "typed": "lodz",
+    "match": true
+  },
+  {
+    "mode": "similar",
+    "expected": "Łódź",
+    "typed": "Lodz",
+    "match": true
+  },
+  {
+    "mode": "similar",
+    "expected": "kot",
+    "typed": "kod",
+    "match": false
+  },
+  {
+    "mode": "similar",
+    "expected": "kot",
+    "typed": "kot",
+    "match": true
+  },
+  {
+    "mode": "similar",
+    "expected": "e-mail",
+    "typed": "email",
+    "match": true
+  },
+  {
+    "mode": "similar",
+    "expected": "fotosynteza",
+    "typed": "fotosytneza",
+    "match": true
+  },
+  {
+    "mode": "similar",
+    "expected": "fotosynteza",
+    "typed": "fotsyntza",
+    "match": true
+  },
+  {
+    "mode": "similar",
+    "expected": "fotosynteza",
+    "typed": "fotsntza",
+    "match": false
+  },
+  {
+    "mode": "similar",
+    "expected": "Zjednoczone Królestwo Wielkiej Brytanii",
+    "typed": "zjednoczone krolestwo wielkiej brytani",
+    "match": true
+  },
+  {
+    "mode": "exact",
+    "expected": "2,5",
+    "typed": "2.5",
+    "match": false
+  },
+  {
+    "mode": "similar",
+    "expected": "2,5",
+    "typed": "25",
+    "match": true
+  },
+  {
+    "mode": "similar",
+    "expected": "",
+    "typed": "abc",
+    "match": false
+  },
+  {
+    "mode": "exact",
+    "expected": "a b  c",
+    "typed": "a  b c",
+    "match": true
+  }
+]

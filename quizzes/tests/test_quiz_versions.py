@@ -30,7 +30,7 @@ def _question(text, order=1, question_id=None, answers=None):
     data = {
         "order": order,
         "text": text,
-        "multiple": False,
+        "type": "single_choice",
         "answers": answers or [_answer("Tak", True, 1), _answer("Nie", False, 2)],
     }
     if question_id is not None:
@@ -340,7 +340,18 @@ class QuizVersionTestCase(QuizHistoryTestCase):
 
     @mock.patch("quizzes.services.history.MERGE_WINDOW", timedelta(0))
     def test_restoring_keeps_question_flags(self):
-        quiz = self.create_quiz([_question("Pierwsze", 1), {**_question("Fiszka", 2), "is_flashcard": True}])
+        quiz = self.create_quiz(
+            [
+                _question("Pierwsze", 1),
+                {
+                    **_question("Fiszka", 2),
+                    "type": "open",
+                    "open_matching": "similar",
+                    "shuffle_answers": False,
+                    "answers": [_answer("Tak", True)],
+                },
+            ]
+        )
         first, flagged = quiz["questions"]
         self.save(
             quiz["id"], {"questions": [first, {**flagged, "text": "Zmiana", "is_ai_generated": True}]}
@@ -350,7 +361,9 @@ class QuizVersionTestCase(QuizHistoryTestCase):
         response = self.client.post(reverse("quiz-restore-version", args=[quiz["id"], 2]))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         restored = Question.objects.get(id=quiz["questions"][1]["id"])
-        self.assertTrue(restored.is_flashcard)
+        self.assertEqual(restored.type, "open")
+        self.assertEqual(restored.open_matching, "similar")
+        self.assertFalse(restored.shuffle_answers)
         self.assertTrue(restored.is_ai_generated)
 
     def test_only_editors_see_and_restore_history(self):
@@ -464,8 +477,7 @@ class QuizVersionTestCase(QuizHistoryTestCase):
                     "order": 1,
                     "text": "Q",
                     "explanation": "",
-                    "multiple": False,
-                    "question_type": 0,
+                    "type": "single_choice",
                     "is_markdown_enabled": True,
                     "image_url": "https://example.com/zapas.png",
                     "image_upload": str(uuid.uuid4()),

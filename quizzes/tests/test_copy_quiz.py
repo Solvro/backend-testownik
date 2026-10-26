@@ -42,6 +42,19 @@ class CopyQuizTestCase(APITestCase):
         self.assertEqual(new_question.answers.first().text, "A1")
         self.assertTrue(new_question.answers.first().is_correct)
 
+    def test_copy_preserves_question_type_and_settings(self):
+        self.question.type = "open"
+        self.question.shuffle_answers = False
+        self.question.open_matching = "similar"
+        self.question.save()
+        SharedQuiz.objects.create(quiz=self.quiz, user=self.user)
+        response = self.client.post(reverse("quiz-copy", kwargs={"pk": self.quiz.id}))
+        self.assertEqual(response.status_code, 201, response.data)
+        copied = Question.objects.get(quiz_id=response.data["id"])
+        self.assertEqual(copied.type, "open")
+        self.assertFalse(copied.shuffle_answers)
+        self.assertEqual(copied.open_matching, "similar")
+
     def test_copy_shared_via_group(self):
         group = StudyGroup.objects.create(id="testgroup", name="Test Group")
         group.members.add(self.user)

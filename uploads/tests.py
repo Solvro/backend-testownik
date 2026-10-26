@@ -210,7 +210,12 @@ class UploadFlowTests(APITestCase):
         # 2. Create Quiz with Question using image_upload
         quiz = Quiz.objects.create(title="Test Quiz", creator=self.user, folder=self.user.root_folder)
 
-        question_data = {"order": 1, "text": "Question with image", "image_upload": image_id, "answers": []}
+        question_data = {
+            "order": 1,
+            "text": "Question with image",
+            "image_upload": image_id,
+            "answers": [{"order": 1, "text": "Tak", "is_correct": True}],
+        }
 
         quiz_url = reverse("quiz-detail", args=[quiz.id])
         data = {"title": "UPDATED", "questions": [question_data]}
@@ -233,7 +238,12 @@ class UploadFlowTests(APITestCase):
         data = {
             "title": "Test",
             "questions": [
-                {"order": 1, "text": "Question with external image", "image_url": external_url, "answers": []}
+                {
+                    "order": 1,
+                    "text": "Question with external image",
+                    "image_url": external_url,
+                    "answers": [{"order": 1, "text": "Tak", "is_correct": True}],
+                }
             ],
         }
 
