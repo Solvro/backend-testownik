@@ -18,6 +18,7 @@ from quizzes.models import (
     SharedQuiz,
 )
 from quizzes.services.history import decode_snapshot
+from quizzes.services.question_validation import validate_question
 from uploads.models import UploadedImage
 from users.models import StudyGroup, User, UserSettings
 from users.serializers import (
@@ -135,12 +136,12 @@ class QuestionSerializer(serializers.ModelSerializer):
             "image_width",
             "image_height",
             "explanation",
-            "multiple",
+            "type",
+            "shuffle_answers",
+            "open_matching",
             "answers",
             "quiz",
-            "question_type",
             "is_ai_generated",
-            "is_flashcard",
             "is_markdown_enabled",
         ]
 
@@ -157,7 +158,16 @@ class QuestionSerializer(serializers.ModelSerializer):
         if new_quiz and new_quiz.folder.folder_type == FolderType.TRASH:
             raise serializers.ValidationError({"quiz": "Cannot add questions to a deleted quiz."})
 
-        return data
+        instance = self.instance
+        # Nested serializers do not receive an instance from DRF. Resolve it
+        # within this quiz once, so omitted types keep their current value.
+        if instance is None and isinstance(self.root.instance, Quiz) and data.get("id"):
+            if not hasattr(self.root, "_validation_questions"):
+                self.root._validation_questions = {
+                    q.id: q for q in self.root.instance.questions.prefetch_related("answers")
+                }
+            instance = self.root._validation_questions.get(data["id"])
+        return validate_question(data, instance)
 
     @transaction.atomic
     def create(self, validated_data):
@@ -188,7 +198,9 @@ class QuestionSerializer(serializers.ModelSerializer):
             instance.image_upload = validated_data["image_upload"]
 
         instance.explanation = validated_data.get("explanation", instance.explanation)
-        instance.multiple = validated_data.get("multiple", instance.multiple)
+        for field in ("type", "shuffle_answers", "open_matching", "is_ai_generated", "is_markdown_enabled"):
+            if field in validated_data:
+                setattr(instance, field, validated_data[field])
         instance.save()
 
         if answers_data is not None:
@@ -294,7 +306,7 @@ class DurationInSecondsField(serializers.Field):
 
 
 class AnswerRecordSerializer(serializers.ModelSerializer):
-    """Serializer for AnswerRecord."""
+    """Answer UUIDs for choice types, one text for open, [] for skips/self-assessments."""
 
     class Meta:
         model = AnswerRecord
@@ -502,29 +514,30 @@ class QuizSerializer(serializers.ModelSerializer):
             "image_url",
             "image_upload",
             "explanation",
-            "multiple",
-            "question_type",
+            "type",
+            "shuffle_answers",
+            "open_matching",
             "is_markdown_enabled",
             "is_ai_generated",
-            "is_flashcard",
         ]
 
         for q_data in questions_data:
-            answers_data = q_data.pop("answers", [])
+            answers_data = q_data.pop("answers", None)
             question_id = q_data.get("id")
 
             if question_id and question_id in existing_ids:
                 q_data.pop("id")
                 question = existing_questions[question_id]
                 incoming_ids.add(question_id)
-                answers_to_sync.append((question, answers_data))
+                if answers_data is not None:
+                    answers_to_sync.append((question, answers_data))
 
                 if self._has_changes(question, q_data, question_fields):
                     for attr, value in q_data.items():
                         setattr(question, attr, value)
                     questions_to_update.append(question)
             else:
-                questions_to_create.append((q_data, answers_data))
+                questions_to_create.append((q_data, answers_data or []))
 
         removed_ids = existing_ids - incoming_ids
         if removed_ids:
@@ -908,6 +921,12 @@ class LibraryItemSerializer(serializers.Serializer):
 class RecordAnswerSerializer(serializers.Serializer):
     question_id = serializers.UUIDField()
     selected_answers = serializers.ListField(allow_empty=True)
+    self_assessment = serializers.BooleanField(required=False)
+
+    def validate(self, data):
+        if "self_assessment" in data and data["selected_answers"]:
+            raise serializers.ValidationError({"selected_answers": "Samoocena wymaga pustej listy odpowiedzi."})
+        return data
 
 
 class QuestionStatsSerializer(serializers.Serializer):

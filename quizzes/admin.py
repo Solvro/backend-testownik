@@ -36,8 +36,8 @@ class QuestionInline(StackedInline):
 
 @admin.register(Question)
 class QuestionAdmin(ModelAdmin):
-    list_display = ["quiz", "order", "text", "multiple", "is_ai_generated"]
-    list_filter = ["multiple", "is_ai_generated"]
+    list_display = ["quiz", "order", "text", "type", "is_ai_generated"]
+    list_filter = ["type", "is_ai_generated"]
     search_fields = ["text", "quiz__title"]
     inlines = [AnswerInline]
     autocomplete_fields = ["quiz", "image_upload"]

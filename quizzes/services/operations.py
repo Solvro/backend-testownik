@@ -11,13 +11,12 @@ from quizzes.models import (
     AnswerRecord,
     FolderType,
     Question,
-    QuestionType,
     Quiz,
     QuizSession,
     SharedQuiz,
 )
 from quizzes.permissions import DELETED_QUIZ_MESSAGE, not_guest_owned_q, quiz_is_deleted, user_has_quiz_read_access
-from quizzes.services.normalizer import normalize
+from quizzes.services.grading import GradingError, grade
 
 PUBLIC_VISIBILITY = 3
 UNSET = object()
@@ -212,46 +211,11 @@ def get_random_recent_question(user, *, days: int = 90):
     return questions.select_related("quiz").prefetch_related("answers").order_by("id")[random_offset]
 
 
-def _resolve_answer_correctness(question, selected_answers, *, closed_only: bool):
-    if closed_only and question.question_type != QuestionType.CLOSED:
-        raise QuizOperationError("MCP only supports submitting answers for normal questions.", status_code=400)
-
-    if question.question_type == QuestionType.CLOSED:
-        answers = list(question.answers.all())
-        selected_ids = set(str(answer) for answer in selected_answers)
-        valid_answer_ids = set(str(answer.id) for answer in answers)
-        if not selected_ids.issubset(valid_answer_ids):
-            message = (
-                "One or more selected answers are invalid"
-                if closed_only
-                else "One or more selected answers do not belong to this question"
-            )
-            raise QuizOperationError(message, status_code=400)
-        correct_answer_ids = set(str(answer.id) for answer in answers if answer.is_correct)
-        return correct_answer_ids == selected_ids, list(selected_ids)
-
-    if question.question_type == QuestionType.TRUE_FALSE:
-        if len(selected_answers) > 1:
-            raise QuizOperationError("Invalid list size for this question type", status_code=400)
-        if question.tf_answer is None:
-            raise QuizOperationError("Question does not have tf answer", status_code=500)
-        user_answer = selected_answers[0]
-        if not isinstance(user_answer, bool):
-            raise QuizOperationError("Invalid data type", status_code=400)
-        return user_answer == question.tf_answer, selected_answers
-
-    if question.question_type == QuestionType.OPEN:
-        if len(selected_answers) > 1:
-            raise QuizOperationError("Invalid list size for this question type", status_code=400)
-        input_text = selected_answers[0]
-        if not isinstance(input_text, str):
-            raise QuizOperationError("Invalid data type", status_code=400)
-        correct_answer = question.answers.filter(is_correct=True).first()
-        if correct_answer is None:
-            raise QuizOperationError("Question has no correct answer", status_code=500)
-        return normalize(input_text) == normalize(correct_answer.text), selected_answers
-
-    raise QuizOperationError("Unsupported question type", status_code=400)
+def _resolve_answer_correctness(question, selected_answers):
+    try:
+        return grade(question, selected_answers), selected_answers
+    except GradingError as exc:
+        raise QuizOperationError(str(exc), status_code=400) from exc
 
 
 def record_quiz_answer(
@@ -260,7 +224,7 @@ def record_quiz_answer(
     question_id,
     selected_answers,
     *,
-    closed_only: bool = False,
+    self_assessment=UNSET,
     study_time=None,
     next_question_id=UNSET,
     choose_random_next: bool = False,
@@ -274,7 +238,12 @@ def record_quiz_answer(
     except (Question.DoesNotExist, ValueError, TypeError, DjangoValidationError) as exc:
         raise QuizOperationError("Question not found in this quiz", status_code=404) from exc
 
-    was_correct, recorded_answers = _resolve_answer_correctness(question, selected_answers, closed_only=closed_only)
+    if self_assessment is not UNSET:
+        if selected_answers != [] or type(self_assessment) is not bool:
+            raise QuizOperationError("Samoocena wymaga pustej listy odpowiedzi i wartości logicznej.", status_code=400)
+        was_correct, recorded_answers = self_assessment, []
+    else:
+        was_correct, recorded_answers = _resolve_answer_correctness(question, selected_answers)
     record = AnswerRecord.objects.create(
         session=session,
         question=question,

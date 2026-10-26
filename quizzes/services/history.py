@@ -48,11 +48,11 @@ QUESTION_FIELDS = (
     "order",
     "text",
     "explanation",
-    "multiple",
-    "question_type",
+    "type",
+    "shuffle_answers",
+    "open_matching",
     "is_markdown_enabled",
     "is_ai_generated",
-    "is_flashcard",
     "image_url",
 )
 ANSWER_FIELDS = ("order", "text", "is_correct", "image_url")

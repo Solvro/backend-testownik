@@ -866,6 +866,15 @@ class QuizViewSet(viewsets.ModelViewSet):
         data = get_quiz_hourly_stats(quiz, user=user)
         return Response(data)
 
+    @extend_schema(
+        request=RecordAnswerSerializer,
+        responses={201: AnswerRecordSerializer},
+        description=(
+            "Record selected answer UUIDs for choice types or one text string for open questions. "
+            "An empty list skips the question. Optional self_assessment grades any question directly "
+            "and requires selected_answers=[]. study_time and next_question update the session as usual."
+        ),
+    )
     @action(
         detail=True,
         methods=["post"],
@@ -891,6 +900,7 @@ class QuizViewSet(viewsets.ModelViewSet):
                 quiz.id,
                 question_id,
                 selected_answers,
+                self_assessment=serializer.validated_data.get("self_assessment", UNSET),
                 study_time=request.data.get("study_time") if "study_time" in request.data else None,
                 next_question_id=next_question_id,
             )
@@ -949,7 +959,9 @@ class QuizViewSet(viewsets.ModelViewSet):
                     image_url=q.image_url,
                     image_upload_id=q.image_upload_id,
                     explanation=q.explanation,
-                    multiple=q.multiple,
+                    type=q.type,
+                    shuffle_answers=q.shuffle_answers,
+                    open_matching=q.open_matching,
                 )
             )
 
