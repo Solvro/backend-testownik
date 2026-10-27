@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from django.forms.models import inlineformset_factory
 from django.test import SimpleTestCase
@@ -530,6 +531,18 @@ class QuestionTypesTestCase(APITestCase):
         self.multiple_question.refresh_from_db()
         self.assertEqual(self.multiple_question.type, "multiple_choice")
 
+    def test_skipping_every_type_is_incorrect_in_rest_and_mcp(self):
+        tools = StudyTools(request=SimpleNamespace(user=self.user, auth=SimpleNamespace(scope="study:write")))
+        self.multiple_question.answers.update(is_correct=False)
+        for question in (self.closed_question, self.multiple_question, self.open_question, self.tf_question):
+            with self.subTest(type=question.type):
+                response = self.client.post(
+                    self.url, {"question_id": str(question.id), "selected_answers": []}, format="json"
+                )
+                self.assertEqual(response.status_code, 201, response.data)
+                self.assertFalse(response.data["was_correct"])
+                self.assertFalse(tools.submit_answer(str(self.quiz.id), str(question.id), [])["was_correct"])
+
     def test_duplicate_answer_ids_rejected_before_writes(self):
         tools = QuizTools(request=SimpleNamespace(user=self.user, auth=SimpleNamespace(scope="quizzes:write")))
         answers = [
@@ -746,3 +759,10 @@ class GradingVectorsTestCase(SimpleTestCase):
     def test_osa_is_restricted(self):
         self.assertEqual(osa_distance("CA", "ABC"), 3)
         self.assertEqual(osa_distance("ab", "ba"), 1)
+
+    def test_similar_bounds_skip_distance_and_allow_equality_for_long_strings(self):
+        with patch("quizzes.services.grading.osa_distance", side_effect=AssertionError("distance must be skipped")):
+            self.assertFalse(matches_open("abcdefghijk", ["abcdefgh"], "similar"))
+            self.assertFalse(matches_open("a" * 512 + "b", ["a" * 513], "similar"))
+            self.assertTrue(matches_open("a" * 513, ["a" * 513], "similar"))
+        self.assertTrue(matches_open("no match", ["a" * 513, "no match"], "similar"))

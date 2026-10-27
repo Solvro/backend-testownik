@@ -11,7 +11,7 @@ class GradingError(ValueError):
 
 
 def normalize(text: str) -> str:
-    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text)).strip().lower()
+    return re.sub(r"[\s\ufeff]+", " ", unicodedata.normalize("NFC", text)).strip().lower()
 
 
 def simplify(text: str) -> str:
@@ -50,17 +50,26 @@ def matches_open(typed: str, accepted: list[str], mode: str) -> bool:
         return any(normalize(typed) == normalize(answer) for answer in accepted)
     if mode == OpenMatching.SIMILAR:
         typed = simplify(typed)
-        return any(osa_distance(typed, expected) <= allowance(len(expected)) for expected in map(simplify, accepted))
+        for expected in map(simplify, accepted):
+            limit = allowance(len(expected))
+            if abs(len(typed) - len(expected)) > limit:
+                continue
+            if len(typed) > 512 or len(expected) > 512:
+                if typed == expected:
+                    return True
+            elif osa_distance(typed, expected) <= limit:
+                return True
+        return False
     raise GradingError("Nieobsługiwany sposób dopasowania odpowiedzi.")
 
 
 def grade(question, selected) -> bool:
     if not isinstance(selected, list):
         raise GradingError("Odpowiedzi muszą być listą.")
+    if selected == []:
+        return False
     answers = list(question.answers.all())
     if question.type == QuestionType.OPEN:
-        if not selected:
-            return False
         if len(selected) != 1 or not isinstance(selected[0], str):
             raise GradingError("Pytanie otwarte wymaga jednej odpowiedzi tekstowej.")
         return matches_open(selected[0], [a.text for a in answers if a.is_correct], question.open_matching)
