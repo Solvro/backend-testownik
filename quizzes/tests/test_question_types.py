@@ -306,8 +306,10 @@ class QuestionTypesTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_tf_has_answer_labels(self):
-        self.assertEqual(self.tf_question.answers.count(), 2)
-        self.assertFalse(self.tf_question.shuffle_answers)
+        self.assertEqual(
+            list(self.tf_question.answers.values_list("order", "text", "is_correct")),
+            [(1, "Prawda", False), (2, "Fałsz", True)],
+        )
 
     def test_open_skipped(self):
         response = self.client.post(
@@ -400,12 +402,11 @@ class QuestionTypesTestCase(APITestCase):
                 self.assertEqual(bulk.status_code, 400, bulk.data)
                 self.assertIn("error", tools.add_question(str(self.quiz.id), **payload))
 
-    def test_true_false_shuffling_forced_in_single_and_bulk_writes(self):
+    def test_true_false_type_settings_and_answers_in_single_and_bulk_writes(self):
         for bulk in (False, True):
             payload = {
                 "text": "TF",
                 "type": "true_false",
-                "shuffle_answers": True,
                 "open_matching": "similar",
                 "order": 1,
                 "answers": [
@@ -425,8 +426,12 @@ class QuestionTypesTestCase(APITestCase):
                 )
                 self.assertEqual(response.status_code, 201, response.data)
                 question = Question.objects.get(id=response.data["id"])
-            self.assertFalse(question.shuffle_answers)
+            self.assertEqual(question.type, QuestionType.TRUE_FALSE)
             self.assertEqual(question.open_matching, OpenMatching.SIMILAR)
+            self.assertEqual(
+                list(question.answers.values_list("order", "text", "is_correct")),
+                [(1, "Zgadza się", True), (2, "Nie", False)],
+            )
 
     def test_partial_edit_keeps_current_type_and_checks_existing_images(self):
         response = self.client.patch(
@@ -467,7 +472,6 @@ class QuestionTypesTestCase(APITestCase):
         )
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(response.data["type"], "single_choice")
-        self.assertTrue(response.data["shuffle_answers"])
         self.assertEqual(response.data["open_matching"], "exact")
         self.assertEqual(
             set(response.data),
@@ -482,7 +486,6 @@ class QuestionTypesTestCase(APITestCase):
                 "image_height",
                 "explanation",
                 "type",
-                "shuffle_answers",
                 "open_matching",
                 "answers",
                 "quiz",
@@ -500,7 +503,7 @@ class QuestionTypesTestCase(APITestCase):
             ("true_false", [{"text": "Prawda", "is_correct": True}, {"text": "Fałsz", "is_correct": False}]),
         ]:
             created = quizzes.add_question(
-                str(self.quiz.id), "MCP", answers=answers, type=kind, shuffle_answers=True, open_matching="similar"
+                str(self.quiz.id), "MCP", answers=answers, type=kind, open_matching="similar"
             )
             self.assertNotIn("error", created)
             question = Question.objects.get(id=created["id"])

@@ -960,7 +960,6 @@ class QuizViewSet(viewsets.ModelViewSet):
                     image_upload_id=q.image_upload_id,
                     explanation=q.explanation,
                     type=q.type,
-                    shuffle_answers=q.shuffle_answers,
                     open_matching=q.open_matching,
                 )
             )

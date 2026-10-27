@@ -46,7 +46,6 @@ def validate_question(data, instance=None):
             error = "Pytanie prawda/fałsz musi mieć dokładnie dwie odpowiedzi, w tym jedną poprawną."
         elif {value(answer, "order") for answer in answers} != {1, 2}:
             error = "Odpowiedzi prawda/fałsz muszą mieć kolejność 1 (prawda) i 2 (fałsz)."
-        data["shuffle_answers"] = False
     elif question_type == QuestionType.OPEN:
         if not answers or correct_count != len(answers):
             error = "Pytanie otwarte musi mieć co najmniej jedną odpowiedź i wszystkie muszą być poprawne."

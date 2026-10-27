@@ -44,7 +44,6 @@ class QuestionForm(forms.ModelForm):
             "image_upload",
             "explanation",
             "type",
-            "shuffle_answers",
             "open_matching",
             "is_ai_generated",
             "is_markdown_enabled",

@@ -205,7 +205,6 @@ class Question(models.Model):
     )
     explanation = models.TextField(blank=True)
     type = models.CharField(max_length=20, choices=QuestionType.choices, default=QuestionType.SINGLE_CHOICE)
-    shuffle_answers = models.BooleanField(default=True)
     open_matching = models.CharField(max_length=10, choices=OpenMatching.choices, default=OpenMatching.EXACT)
 
     is_ai_generated = models.BooleanField(default=False)
@@ -218,13 +217,6 @@ class Question(models.Model):
 
     def __str__(self):
         return f"Q{self.order}: {self.text[:50]}"
-
-    def save(self, *args, **kwargs):
-        if self.type == QuestionType.TRUE_FALSE:
-            self.shuffle_answers = False
-            if kwargs.get("update_fields") is not None:
-                kwargs["update_fields"] = set(kwargs["update_fields"]) | {"shuffle_answers"}
-        super().save(*args, **kwargs)
 
     @property
     def image(self):

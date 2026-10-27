@@ -144,7 +144,6 @@ class QuestionSerializer(serializers.ModelSerializer):
             "image_height",
             "explanation",
             "type",
-            "shuffle_answers",
             "open_matching",
             "answers",
             "quiz",
@@ -205,7 +204,7 @@ class QuestionSerializer(serializers.ModelSerializer):
             instance.image_upload = validated_data["image_upload"]
 
         instance.explanation = validated_data.get("explanation", instance.explanation)
-        for field in ("type", "shuffle_answers", "open_matching", "is_ai_generated", "is_markdown_enabled"):
+        for field in ("type", "open_matching", "is_ai_generated", "is_markdown_enabled"):
             if field in validated_data:
                 setattr(instance, field, validated_data[field])
         instance.save()
@@ -522,7 +521,6 @@ class QuizSerializer(serializers.ModelSerializer):
             "image_upload",
             "explanation",
             "type",
-            "shuffle_answers",
             "open_matching",
             "is_markdown_enabled",
             "is_ai_generated",

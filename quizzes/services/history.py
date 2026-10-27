@@ -49,7 +49,6 @@ QUESTION_FIELDS = (
     "text",
     "explanation",
     "type",
-    "shuffle_answers",
     "open_matching",
     "is_markdown_enabled",
     "is_ai_generated",

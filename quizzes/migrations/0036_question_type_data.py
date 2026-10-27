@@ -79,7 +79,6 @@ def convert_snapshots(apps, db, *, reverse):
                     if kind == "true_false":
                         answers = sorted(question["answers"], key=lambda a: (a["order"], a["id"]))
                         question["tf_answer"] = correct_first(answers, None, question["id"])
-                    question.pop("shuffle_answers", None)
                     question.pop("open_matching", None)
                 else:
                     kind = question.pop("question_type")
@@ -89,7 +88,6 @@ def convert_snapshots(apps, db, *, reverse):
                     question["type"] = {1: "open", 2: "true_false"}.get(
                         kind, "multiple_choice" if multiple else "single_choice"
                     )
-                    question["shuffle_answers"] = kind != 2
                     question["open_matching"] = "exact"
                     if kind == 2:
                         answers = sorted(question["answers"], key=lambda a: (a["order"], a["id"]))
@@ -108,7 +106,7 @@ def forwards(apps, schema_editor):
         page.filter(question_type=0, multiple=True).update(type="multiple_choice")
         page.filter(question_type=0, multiple=False).update(type="single_choice")
         page.filter(question_type=1).update(type="open")
-        page.filter(question_type=2).update(type="true_false", shuffle_answers=False)
+        page.filter(question_type=2).update(type="true_false")
     for question in questions.filter(question_type=2).iterator(chunk_size=1000):
         with transaction.atomic(using=db):
             answers = list(

@@ -355,7 +355,6 @@ class QuizVersionTestCase(QuizHistoryTestCase):
                     **_question("Fiszka", 2),
                     "type": "open",
                     "open_matching": "similar",
-                    "shuffle_answers": False,
                     "answers": [_answer("Tak", True)],
                 },
             ]
@@ -371,7 +370,6 @@ class QuizVersionTestCase(QuizHistoryTestCase):
         restored = Question.objects.get(id=quiz["questions"][1]["id"])
         self.assertEqual(restored.type, "open")
         self.assertEqual(restored.open_matching, "similar")
-        self.assertFalse(restored.shuffle_answers)
         self.assertTrue(restored.is_ai_generated)
 
     def test_only_editors_see_and_restore_history(self):

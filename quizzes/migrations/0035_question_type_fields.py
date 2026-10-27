@@ -15,11 +15,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="question",
-            name="shuffle_answers",
-            field=models.BooleanField(default=True),
-        ),
-        migrations.AddField(
-            model_name="question",
             name="type",
             field=models.CharField(
                 choices=[

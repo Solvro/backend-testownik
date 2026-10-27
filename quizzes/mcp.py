@@ -122,21 +122,18 @@ def _normalize_question_spec(spec):
         "answers": answers,
     }
 
-    for optional_field in ("image_url", "image_upload", "is_markdown_enabled", "shuffle_answers", "open_matching"):
+    for optional_field in ("image_url", "image_upload", "is_markdown_enabled", "open_matching"):
         if optional_field in spec:
             data[optional_field] = spec[optional_field]
     return data
 
 
-def _normalize_question_update(
-    *, text=None, explanation=None, answers=None, type=None, shuffle_answers=None, open_matching=None
-):
+def _normalize_question_update(*, text=None, explanation=None, answers=None, type=None, open_matching=None):
     data = {}
     for field, value in (
         ("text", text),
         ("explanation", explanation),
         ("type", type),
-        ("shuffle_answers", shuffle_answers),
         ("open_matching", open_matching),
     ):
         if value is not None:
@@ -270,9 +267,11 @@ class QuizTools(AnnotatedMCPToolset):
             is marked correct or incorrect with is_correct.
           - type: single_choice, multiple_choice, true_false, or open. If omitted,
             single_choice is used for exactly one correct answer, otherwise multiple_choice.
-          - shuffle_answers (bool): optional; always false for true_false
           - open_matching: exact (default) or similar
           - explanation (str): optional
+
+        Clients shuffle single_choice and multiple_choice answers; true_false and
+        open answers keep their order.
 
         The quiz and all its questions are flagged is_ai_generated=true so the UI
         can label them. Prefer passing questions here over many add_question calls.
@@ -324,7 +323,6 @@ class QuizTools(AnnotatedMCPToolset):
         text: str,
         answers: list[dict] | None = None,
         type: Literal["single_choice", "multiple_choice", "true_false", "open"] | None = None,
-        shuffle_answers: bool | None = None,
         open_matching: Literal["exact", "similar"] | None = None,
         explanation: str = "",
     ) -> dict:
@@ -347,7 +345,6 @@ class QuizTools(AnnotatedMCPToolset):
             "text": text,
             "answers": answers,
             "type": type,
-            **({"shuffle_answers": shuffle_answers} if shuffle_answers is not None else {}),
             **({"open_matching": open_matching} if open_matching is not None else {}),
             "explanation": explanation,
         }
@@ -366,7 +363,7 @@ class QuizTools(AnnotatedMCPToolset):
         is_ai_generated=true.
 
         `questions`: a list of question objects with the same shape as
-        add_question (text, answers, type, shuffle_answers, open_matching, explanation). This is the
+        add_question (text, answers, type, open_matching, explanation). This is the
         preferred way to add more than one question — it is atomic, so if
         any question is invalid nothing is saved and the error names the
         offending index."""
@@ -396,7 +393,6 @@ class QuizTools(AnnotatedMCPToolset):
         explanation: str | None = None,
         answers: list[dict] | None = None,
         type: Literal["single_choice", "multiple_choice", "true_false", "open"] | None = None,
-        shuffle_answers: bool | None = None,
         open_matching: Literal["exact", "similar"] | None = None,
     ) -> dict:
         """Update a question's type, settings, text, explanation, or answers.
@@ -417,7 +413,6 @@ class QuizTools(AnnotatedMCPToolset):
                 explanation=explanation,
                 answers=answers,
                 type=type,
-                shuffle_answers=shuffle_answers,
                 open_matching=open_matching,
             )
         except _QuestionError as exc:
@@ -444,7 +439,7 @@ class QuizTools(AnnotatedMCPToolset):
         """Batch-edit questions in one atomic call.
 
         Each update object must include question_id and may include text,
-        explanation, answers, type, shuffle_answers, or open_matching. Passing `answers`
+        explanation, answers, type, or open_matching. Passing `answers`
         replaces all existing answers for that question. Each answer must be a
         {text, is_correct} object. Omitted type keeps the current type.
         """
@@ -474,7 +469,6 @@ class QuizTools(AnnotatedMCPToolset):
                             explanation=update.get("explanation"),
                             answers=update.get("answers"),
                             type=update.get("type"),
-                            shuffle_answers=update.get("shuffle_answers"),
                             open_matching=update.get("open_matching"),
                         )
                     except _QuestionError as exc:

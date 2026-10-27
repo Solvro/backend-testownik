@@ -101,7 +101,12 @@ class QuestionTypeMigrationTestCase(TransactionTestCase):
                 for i in range(3)
             ]
 
+            old_fields = {field.name for field in Question._meta.fields}
             expanded = self.migrate(self.expanded)
+            self.assertEqual(
+                {field.name for field in expanded.get_model("quizzes", "Question")._meta.fields},
+                old_fields | {"type", "open_matching"},
+            )
             self.assertEqual(
                 expanded.get_model("quizzes", "Question").objects.get(pk=multiple.pk).type, "single_choice"
             )
@@ -118,13 +123,15 @@ class QuestionTypeMigrationTestCase(TransactionTestCase):
             Question = new.get_model("quizzes", "Question")
             Version = new.get_model("quizzes", "QuizVersion")
             self.assertEqual(Question.objects.get(pk=single.pk).type, "single_choice")
-            self.assertNotIn("is_flashcard", {f.name for f in Question._meta.fields})
+            self.assertEqual(
+                {field.name for field in Question._meta.fields},
+                (old_fields - {"is_flashcard", "multiple", "question_type", "tf_answer"}) | {"type", "open_matching"},
+            )
             self.assertEqual(Question.objects.get(pk=multiple.pk).type, "multiple_choice")
             self.assertEqual(Question.objects.get(pk=opened.pk).type, "open")
             expected_first = (True, False, True, True, False, False, True, False)
             for index, (q, first) in enumerate(zip(tf, expected_first)):
                 live = Question.objects.get(pk=q.pk)
-                self.assertFalse(live.shuffle_answers)
                 self.assertEqual(list(live.answers.values_list("order", "is_correct")), [(1, first), (2, not first)])
                 labels = ["Tak!", "Nie!"] if index == 3 else ["Label", "Label"] if index == 6 else ["Prawda", "Fałsz"]
                 self.assertEqual(list(live.answers.values_list("text", flat=True)), labels)
@@ -138,6 +145,11 @@ class QuestionTypeMigrationTestCase(TransactionTestCase):
                 self.assertFalse(by_id[str(tf[1].pk)]["answers"][0]["is_correct"])
                 self.assertTrue(by_id[missing["id"]]["answers"][0]["is_correct"])
                 for q in saved["questions"]:
+                    self.assertEqual(
+                        set(q),
+                        (set(snapshot["questions"][0]) - {"multiple", "question_type", "is_flashcard"})
+                        | {"type", "open_matching"},
+                    )
                     self.assertNotIn("multiple", q)
                     self.assertNotIn("is_flashcard", q)
                     self.assertNotIn("tf_answer", q)
