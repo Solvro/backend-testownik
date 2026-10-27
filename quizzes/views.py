@@ -893,7 +893,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             return Response({"error": "question_id is required"}, status=400)
 
         selected_answers = serializer.validated_data["selected_answers"]
-        next_question_id = request.data.get("next_question", UNSET)
+        next_question_id = serializer.validated_data.get("next_question", UNSET)
         try:
             result = record_quiz_answer(
                 request.user,
@@ -901,7 +901,7 @@ class QuizViewSet(viewsets.ModelViewSet):
                 question_id,
                 selected_answers,
                 self_assessment=serializer.validated_data.get("self_assessment", UNSET),
-                study_time=request.data.get("study_time") if "study_time" in request.data else None,
+                study_time=serializer.validated_data.get("study_time"),
                 next_question_id=next_question_id,
             )
         except QuizOperationError as exc:

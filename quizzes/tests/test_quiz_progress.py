@@ -277,7 +277,8 @@ class RecordAnswerTestCase(APITestCase):
         response = self.client.post(url, data, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["error"], "study_time must be a numeric value")
+        self.assertIn("study_time", response.data)
+        self.assertFalse(self.q1.answer_records.exists())
 
     def test_record_answer_invalid_next_question_uuid(self):
         """Test that invalid next_question UUID format returns 400."""
@@ -290,7 +291,8 @@ class RecordAnswerTestCase(APITestCase):
         response = self.client.post(url, data, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["error"], "next_question must be a valid question in this quiz")
+        self.assertIn("next_question", response.data)
+        self.assertFalse(self.q1.answer_records.exists())
 
     def test_record_answer_next_question_not_in_quiz(self):
         """Test that next_question from another quiz returns 400."""

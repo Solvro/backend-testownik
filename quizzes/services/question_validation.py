@@ -1,8 +1,26 @@
 """Question invariants shared by REST, nested quiz writes, and MCP."""
 
+from uuid import UUID
+
 from rest_framework.exceptions import ValidationError
 
 from quizzes.models import QuestionType
+
+
+def validate_unique_ids(rows, *, field="id", error_field="questions"):
+    seen = set()
+    for row in rows:
+        row_id = row.get(field)
+        if row_id is None:
+            continue
+        try:
+            row_id = str(UUID(str(row_id)))
+        except ValueError:
+            row_id = str(row_id).lower()
+        if row_id in seen:
+            label = "odpowiedzi" if error_field == "answers" else "pytania"
+            raise ValidationError({error_field: f"Identyfikator {label} nie może się powtarzać w jednym żądaniu."})
+        seen.add(row_id)
 
 
 def validate_question(data, instance=None):
@@ -11,6 +29,8 @@ def validate_question(data, instance=None):
         raise ValidationError({"type": "Nieprawidłowy typ pytania."})
     existing = {answer.id: answer for answer in instance.answers.all()} if instance else {}
     answers = data.get("answers", list(existing.values()))
+    if "answers" in data:
+        validate_unique_ids(answers, error_field="answers")
 
     def value(answer, field, default=None):
         if not isinstance(answer, dict):

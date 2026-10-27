@@ -18,7 +18,7 @@ from quizzes.models import (
     SharedQuiz,
 )
 from quizzes.services.history import decode_snapshot
-from quizzes.services.question_validation import validate_question
+from quizzes.services.question_validation import validate_question, validate_unique_ids
 from uploads.models import UploadedImage
 from users.models import StudyGroup, User, UserSettings
 from users.serializers import (
@@ -111,6 +111,12 @@ class AnswerSerializer(serializers.ModelSerializer):
         return obj.image_url
 
 
+class QuestionListSerializer(serializers.ListSerializer):
+    def validate(self, data):
+        validate_unique_ids(data)
+        return data
+
+
 class QuestionSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(required=False)
     order = serializers.IntegerField(required=False)
@@ -125,6 +131,7 @@ class QuestionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Question
+        list_serializer_class = QuestionListSerializer
 
         fields = [
             "id",
@@ -922,6 +929,8 @@ class RecordAnswerSerializer(serializers.Serializer):
     question_id = serializers.UUIDField()
     selected_answers = serializers.ListField(allow_empty=True)
     self_assessment = serializers.BooleanField(required=False)
+    study_time = serializers.IntegerField(required=False, min_value=0)
+    next_question = serializers.UUIDField(required=False, allow_null=True)
 
     def validate(self, data):
         if "self_assessment" in data and data["selected_answers"]:

@@ -2,11 +2,13 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from django.forms.models import inlineformset_factory
 from django.test import SimpleTestCase
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from quizzes.admin import AnswerInlineFormSet, QuestionForm
 from quizzes.mcp import QuizTools, StudyTools
 from quizzes.models import Answer, OpenMatching, Question, QuestionType, Quiz
 from quizzes.services.grading import allowance, matches_open, normalize, osa_distance
@@ -527,6 +529,207 @@ class QuestionTypesTestCase(APITestCase):
         self.assertNotIn("error", result)
         self.multiple_question.refresh_from_db()
         self.assertEqual(self.multiple_question.type, "multiple_choice")
+
+    def test_duplicate_answer_ids_rejected_before_writes(self):
+        tools = QuizTools(request=SimpleNamespace(user=self.user, auth=SimpleNamespace(scope="quizzes:write")))
+        answers = [
+            {"id": str(self.correct_answer.id), "order": i + 1, "is_correct": True, "text": "New"} for i in range(2)
+        ]
+        payload = {"type": "multiple_choice", "answers": answers}
+        response = self.client.patch(reverse("question-detail", args=[self.closed_question.id]), payload, format="json")
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn("nie może się powtarzać", str(response.data))
+        response = self.client.patch(
+            reverse("quiz-detail", args=[self.quiz.id]),
+            {"questions": [{"id": str(self.closed_question.id), **payload}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn("error", tools.edit_question(str(self.closed_question.id), **payload))
+        self.assertIn("error", tools.add_question(str(self.quiz.id), "Duplicate", **payload))
+        self.closed_question.refresh_from_db()
+        self.correct_answer.refresh_from_db()
+        self.assertEqual(self.closed_question.type, "single_choice")
+        self.assertEqual(self.correct_answer.text, "Warszawa")
+        self.assertEqual(self.quiz.questions.count(), 4)
+
+    def test_duplicate_question_ids_rejected_in_bulk_and_mcp(self):
+        question = {
+            "id": str(self.closed_question.id),
+            "text": "New",
+            "order": 1,
+            "answers": [{"order": 1, "text": "Yes", "is_correct": True}],
+        }
+        for url, payload in (
+            (reverse("quiz-detail", args=[self.quiz.id]), {"questions": [question, question]}),
+            (reverse("question-bulk-create"), {"quiz": str(self.quiz.id), "questions": [question, question]}),
+        ):
+            response = (
+                self.client.patch(url, payload, format="json")
+                if "quiz" not in payload
+                else self.client.post(url, payload, format="json")
+            )
+            self.assertEqual(response.status_code, 400, response.data)
+            self.assertIn("nie może się powtarzać", str(response.data))
+        tools = QuizTools(request=SimpleNamespace(user=self.user, auth=SimpleNamespace(scope="quizzes:write")))
+        self.assertIn(
+            "error",
+            tools.edit_questions(
+                [
+                    {"question_id": str(self.closed_question.id), "text": "New"},
+                    {"question_id": self.closed_question.id.hex.upper(), "text": "Other"},
+                ]
+            ),
+        )
+        self.assertIn("error", tools.add_questions(str(self.quiz.id), [question, question]))
+        self.assertIn("error", tools.create_quiz("Duplicate", questions=[question, question]))
+        self.assertFalse(Quiz.objects.filter(title="Duplicate").exists())
+        self.closed_question.refresh_from_db()
+        self.assertEqual(self.closed_question.text, "Stolica Polski?")
+        self.assertEqual(self.quiz.questions.count(), 4)
+
+    def test_type_changes_validate_final_answers(self):
+        tools = QuizTools(request=SimpleNamespace(user=self.user, auth=SimpleNamespace(scope="quizzes:write")))
+        url = reverse("question-detail", args=[self.multiple_question.id])
+        response = self.client.patch(url, {"type": "single_choice"}, format="json")
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn("error", tools.edit_question(str(self.multiple_question.id), type="single_choice"))
+        self.assertIn(
+            "error", tools.edit_questions([{"question_id": str(self.multiple_question.id), "type": "single_choice"}])
+        )
+        response = self.client.patch(
+            reverse("quiz-detail", args=[self.quiz.id]),
+            {"questions": [{"id": str(self.multiple_question.id), "type": "single_choice"}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.data)
+        # The replacement set, not all old answers, decides whether the new type is valid.
+        response = self.client.patch(
+            url, {"type": "single_choice", "answers": [{"id": str(self.multiple_correct_1.id)}]}, format="json"
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(self.multiple_question.answers.count(), 1)
+        response = self.client.patch(
+            reverse("question-detail", args=[self.closed_question.id]),
+            {"answers": [{"id": str(self.correct_answer.id), "is_correct": False}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.data)
+
+    def test_record_answer_session_fields_validate_before_persistence(self):
+        for extra in ({"study_time": -1}, {"study_time": 1.5}, {"next_question": "invalid"}):
+            with self.subTest(extra=extra):
+                response = self.client.post(
+                    self.url,
+                    {"question_id": str(self.closed_question.id), "selected_answers": [], **extra},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 400, response.data)
+                self.assertFalse(self.closed_question.answer_records.exists())
+        response = self.client.post(
+            self.url,
+            {
+                "question_id": str(self.closed_question.id),
+                "selected_answers": [],
+                "study_time": 7,
+                "next_question": str(self.open_question.id),
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        session = self.quiz.sessions.get(user=self.user)
+        self.assertEqual(session.study_time.total_seconds(), 7)
+        self.assertEqual(session.current_question_id, self.open_question.id)
+        response = self.client.post(
+            self.url,
+            {
+                "question_id": str(self.closed_question.id),
+                "selected_answers": [],
+                "next_question": None,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        session.refresh_from_db()
+        self.assertIsNone(session.current_question_id)
+
+    def answer_formset(self, question, answers, deleted=()):
+        factory = inlineformset_factory(
+            Question,
+            Answer,
+            formset=AnswerInlineFormSet,
+            fields=("order", "text", "is_correct", "image_url", "image_upload"),
+            extra=0,
+        )
+        data = {
+            "answers-TOTAL_FORMS": len(answers),
+            "answers-INITIAL_FORMS": question.answers.count(),
+            "answers-MIN_NUM_FORMS": 0,
+            "answers-MAX_NUM_FORMS": 1000,
+        }
+        for i, answer in enumerate(answers):
+            data.update({f"answers-{i}-{key}": value for key, value in answer.items()})
+            if i in deleted:
+                data[f"answers-{i}-DELETE"] = "on"
+        return factory(data, instance=question, prefix="answers")
+
+    def test_admin_validates_final_non_deleted_answers(self):
+        cases = [
+            (
+                self.open_question,
+                [{"order": 1, "text": "Yes", "is_correct": True, "image_url": "https://example.com/a.png"}],
+            ),
+            (self.tf_question, [{"order": i + 1, "text": "Label", "is_correct": i == 0} for i in range(3)]),
+            (self.closed_question, [{"order": i + 1, "text": "Label", "is_correct": True} for i in range(2)]),
+        ]
+        for question, answers in cases:
+            # Use new rows while keeping the initial management count consistent.
+            question.answers.all().delete()
+            formset = self.answer_formset(question, answers)
+            self.assertFalse(formset.is_valid(), formset.errors)
+            self.assertTrue(formset.non_form_errors())
+        formset = self.answer_formset(self.closed_question, cases[2][1], deleted=(1,))
+        self.assertTrue(formset.is_valid(), (formset.errors, formset.non_form_errors()))
+        image = UploadedImage.objects.create(
+            image="uploads/test.png", original_filename="test.png", content_type="image/png", file_size=1
+        )
+        formset = self.answer_formset(
+            self.open_question, [{"order": 1, "text": "Yes", "is_correct": True, "image_upload": image.pk}]
+        )
+        self.assertFalse(formset.is_valid())
+        self.assertTrue(formset.non_form_errors())
+
+    def test_admin_type_change_uses_incoming_answer_set(self):
+        data = {
+            "quiz": str(self.quiz.id),
+            "order": 2,
+            "text": "New",
+            "type": "true_false",
+            "open_matching": "exact",
+            "answers-TOTAL_FORMS": "3",
+        }
+        form = QuestionForm(data=data, instance=self.multiple_question)
+        self.assertTrue(form.is_valid(), form.errors)
+        answers = [
+            {"id": str(a.id), "order": i + 1, "text": a.text, "is_correct": i == 0}
+            for i, a in enumerate(self.multiple_question.answers.all())
+        ]
+        formset = self.answer_formset(form.instance, answers, deleted=(2,))
+        self.assertTrue(formset.is_valid(), (formset.errors, formset.non_form_errors()))
+
+    def test_question_form_validates_type_against_stored_answers(self):
+        form = QuestionForm(
+            data={
+                "quiz": str(self.quiz.id),
+                "order": 2,
+                "text": "New",
+                "type": "single_choice",
+                "open_matching": "exact",
+            },
+            instance=self.multiple_question,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("jednokrotnego wyboru", str(form.non_field_errors()))
 
 
 class GradingVectorsTestCase(SimpleTestCase):

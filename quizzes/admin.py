@@ -1,11 +1,15 @@
 import re
 
+from django import forms
 from django.conf import settings
 from django.contrib import admin
+from django.core.exceptions import ValidationError
 from django.db.models import Count
+from django.forms.models import BaseInlineFormSet
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.html import format_html
+from rest_framework.exceptions import ValidationError as APIValidationError
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
 from unfold.decorators import action
 from unfold.enums import ActionVariant
@@ -19,16 +23,65 @@ from .models import (
     QuizSession,
     SharedQuiz,
 )
+from .services.question_validation import validate_question
+
+
+def validate_admin_question(data, instance):
+    try:
+        return validate_question(data, instance if instance.pk else None)
+    except APIValidationError as exc:
+        raise ValidationError([str(message) for message in exc.detail.values()]) from exc
+
+
+class QuestionForm(forms.ModelForm):
+    class Meta:
+        model = Question
+        fields = [
+            "quiz",
+            "order",
+            "text",
+            "image_url",
+            "image_upload",
+            "explanation",
+            "type",
+            "shuffle_answers",
+            "open_matching",
+            "is_ai_generated",
+            "is_markdown_enabled",
+        ]
+
+    def clean(self):
+        data = super().clean()
+        # The question change page validates the final inline answers below.
+        # A question-only form (including the quiz inline) checks stored answers.
+        if "answers-TOTAL_FORMS" not in self.data and "type" in data:
+            validate_admin_question(data, self.instance)
+        return data
+
+
+class AnswerInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+        answers = [
+            {**form.cleaned_data, "id": form.instance.pk}
+            for form in self.forms
+            if form.cleaned_data and not form.cleaned_data.get("DELETE")
+        ]
+        validate_admin_question({"type": self.instance.type, "answers": answers}, self.instance)
 
 
 class AnswerInline(TabularInline):
     model = Answer
+    formset = AnswerInlineFormSet
     extra = 1
     autocomplete_fields = ["image_upload"]
 
 
 class QuestionInline(StackedInline):
     model = Question
+    form = QuestionForm
     extra = 0
     show_change_link = True
     autocomplete_fields = ["image_upload"]
@@ -36,6 +89,7 @@ class QuestionInline(StackedInline):
 
 @admin.register(Question)
 class QuestionAdmin(ModelAdmin):
+    form = QuestionForm
     list_display = ["quiz", "order", "text", "type", "is_ai_generated"]
     list_filter = ["type", "is_ai_generated"]
     search_fields = ["text", "quiz__title"]

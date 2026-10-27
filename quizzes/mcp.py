@@ -30,6 +30,7 @@ from quizzes.services.operations import (
     reset_readable_session,
     searchable_quizzes_queryset,
 )
+from quizzes.services.question_validation import validate_unique_ids
 from testownik_core.mcp_auth import require_scope as _require_scope
 from testownik_core.mcp_tools import AnnotatedMCPToolset, tool_annotations
 
@@ -184,6 +185,8 @@ def _format_question_error(prefix, exc):
 
 
 def _normalize_indexed_question_specs(questions):
+    if all(isinstance(spec, dict) for spec in questions or []):
+        validate_unique_ids(questions or [])
     normalized = []
     for index, spec in enumerate(questions or []):
         try:
@@ -453,6 +456,7 @@ class QuizTools(AnnotatedMCPToolset):
 
         serializers = []
         try:
+            validate_unique_ids(updates, field="question_id")
             with transaction.atomic():
                 for index, update in enumerate(updates):
                     question_id = update.get("question_id")

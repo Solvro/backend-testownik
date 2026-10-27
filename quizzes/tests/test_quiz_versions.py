@@ -99,28 +99,36 @@ class ClientIdTestCase(QuizHistoryTestCase):
         self.assertEqual(second["questions"][1]["answers"][0]["id"], new_answer_id)
         self.assertEqual(Question.objects.filter(quiz_id=quiz["id"]).count(), 2)
 
-    def test_ids_used_elsewhere_or_repeated_are_replaced(self):
+    def test_ids_used_elsewhere_are_replaced(self):
         other = Quiz.objects.create(title="Cudzy", creator=self.other_user, folder=self.other_user.root_folder)
         foreign = Question.objects.create(quiz=other, order=1, text="Cudze pytanie")
         foreign_answer = Answer.objects.create(question=foreign, order=1, text="Cudza", is_correct=True)
-        repeated = str(uuid.uuid4())
 
         quiz = self.create_quiz(
             [
                 _question("Przejęte?", 1, str(foreign.id), [_answer("x", True, 1, str(foreign_answer.id))]),
-                _question("Pierwsze", 2, repeated),
-                _question("Powtórzone", 3, repeated),
             ]
         )
 
         ids = [question["id"] for question in quiz["questions"]]
         self.assertNotEqual(ids[0], str(foreign.id))
         self.assertNotEqual(quiz["questions"][0]["answers"][0]["id"], str(foreign_answer.id))
-        self.assertEqual(ids[1], repeated)
-        self.assertNotEqual(ids[2], repeated)
         foreign.refresh_from_db()
         self.assertEqual(foreign.quiz, other)
         self.assertEqual(foreign.text, "Cudze pytanie")
+
+    def test_repeated_client_ids_are_rejected_before_creating_quiz(self):
+        repeated = str(uuid.uuid4())
+        for questions in (
+            [_question("First", 1, repeated), _question("Repeated", 2, repeated)],
+            [_question("Answers", answers=[_answer("A", True, 1, repeated), _answer("B", False, 2, repeated)])],
+        ):
+            response = self.client.post(
+                reverse("quiz-list"), {"title": "Duplicate", "questions": questions}, format="json"
+            )
+            self.assertEqual(response.status_code, 400, response.data)
+            self.assertIn("nie może się powtarzać", str(response.data))
+            self.assertFalse(Quiz.objects.filter(title="Duplicate").exists())
 
     def test_an_answer_moved_between_questions_keeps_its_id(self):
         quiz = self.create_quiz([_question("Pierwsze", 1), _question("Drugie", 2)])
