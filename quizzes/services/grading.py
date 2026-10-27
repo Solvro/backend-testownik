@@ -16,7 +16,7 @@ def normalize(text: str) -> str:
 
 def simplify(text: str) -> str:
     text = unicodedata.normalize("NFKD", normalize(text).replace("ł", "l"))
-    text = "".join(c for c in text if not unicodedata.combining(c))
+    text = "".join(c for c in text if not unicodedata.category(c).startswith("M"))
     text = "".join(c for c in text if c.isalnum() or c == " ")
     return re.sub(r"\s+", " ", text).strip()
 
