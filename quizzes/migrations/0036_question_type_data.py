@@ -64,13 +64,17 @@ def convert_snapshots(apps, db, *, reverse):
         decoded = [(version, json.loads(zlib.decompress(bytes(version.snapshot)))) for version in page]
         live_tf = {}
         if not reverse:
-            ids = [q["id"] for _, snapshot in decoded for q in snapshot["questions"] if q["question_type"] == 2]
+            ids = [q["id"] for _, snapshot in decoded for q in snapshot["questions"] if q.get("question_type") == 2]
             live_tf = {
                 str(pk): value
                 for pk, value in Question.objects.using(db).filter(pk__in=ids).values_list("pk", "tf_answer")
             }
         for version, snapshot in decoded:
             for question in snapshot["questions"]:
+                # Batches commit one by one (atomic=False), so a retried run
+                # skips snapshots an interrupted one already converted.
+                if ("type" if reverse else "question_type") not in question:
+                    continue
                 if reverse:
                     kind = question.pop("type")
                     question["question_type"] = {"open": 1, "true_false": 2}.get(kind, 0)

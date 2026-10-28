@@ -546,6 +546,49 @@ class QuestionTypesTestCase(APITestCase):
                 self.assertFalse(response.data["was_correct"])
                 self.assertFalse(tools.submit_answer(str(self.quiz.id), str(question.id), [])["was_correct"])
 
+    def mcp_tools(self):
+        request = SimpleNamespace(user=self.user, auth=SimpleNamespace(scope="quizzes:write study:write"))
+        return QuizTools(request=request), StudyTools(request=request)
+
+    def test_tf_both_answers_are_wrong(self):
+        response = self.client.post(
+            self.url,
+            {
+                "question_id": str(self.tf_question.id),
+                "selected_answers": [str(self.tf_true.id), str(self.tf_false.id)],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.data["was_correct"])
+
+    def test_tf_rejects_boolean_answers(self):
+        """True/false answers are answer rows, so booleans are not answer IDs."""
+        response = self.client.post(
+            self.url,
+            {
+                "question_id": str(self.tf_question.id),
+                "selected_answers": [False],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_mcp_conversion_to_open_checks_kept_answer_images(self):
+        quizzes, _ = self.mcp_tools()
+        self.correct_answer.image_url = "https://example.com/warszawa.png"
+        self.correct_answer.save()
+        answers = [{"id": str(self.correct_answer.id), "text": "Warszawa", "is_correct": True}]
+        self.assertIn("error", quizzes.edit_question(str(self.closed_question.id), type="open", answers=answers))
+        self.assertIn(
+            "error",
+            quizzes.edit_questions([{"question_id": str(self.closed_question.id), "type": "open", "answers": answers}]),
+        )
+        self.closed_question.refresh_from_db()
+        self.assertEqual(self.closed_question.type, QuestionType.SINGLE_CHOICE)
+
     def test_duplicate_answer_ids_rejected_before_writes(self):
         tools = QuizTools(request=SimpleNamespace(user=self.user, auth=SimpleNamespace(scope="quizzes:write")))
         answers = [

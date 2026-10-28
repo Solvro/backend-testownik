@@ -172,3 +172,59 @@ class QuestionTypeMigrationTestCase(TransactionTestCase):
             self.assertEqual(new.get_model("quizzes", "Answer").objects.count(), 16)
         finally:
             self.migrate(self.current)
+
+    def test_interrupted_snapshot_conversion_resumes_in_both_directions(self):
+        user = User.objects.create(email="resume@example.com", student_number="resume")
+        old = self.migrate(self.previous)
+        try:
+            Quiz = old.get_model("quizzes", "Quiz")
+            Question = old.get_model("quizzes", "Question")
+            Answer = old.get_model("quizzes", "Answer")
+            Version = old.get_model("quizzes", "QuizVersion")
+            quiz = Quiz.objects.create(title="Resume", creator_id=user.id, folder_id=user.root_folder_id)
+            multiple = Question.objects.create(quiz=quiz, order=1, question_type=0, multiple=True)
+            tf = Question.objects.create(quiz=quiz, order=2, question_type=2, tf_answer=False)
+            Answer.objects.create(question=multiple, order=1, text="A", is_correct=True)
+            snapshot = zlib.compress(json.dumps(self.old_snapshot(quiz)).encode())
+            versions = [
+                Version.objects.create(quiz=quiz, version=i + 1, source="create", title="Resume", snapshot=snapshot)
+                for i in range(3)
+            ]
+            module = import_module("quizzes.migrations.0036_question_type_data")
+            original = module.batches
+
+            def failing_after_first_version_batch(queryset, size):
+                pages = original(queryset, size)
+                if queryset.model._meta.model_name != "quizversion":
+                    yield from pages
+                    return
+                yield next(pages)
+                raise RuntimeError("interrupted")
+
+            def decoded(version):
+                return json.loads(zlib.decompress(bytes(Version.objects.get(pk=version.pk).snapshot)))
+
+            for target, kind_field in ((self.current, "type"), (self.previous, "question_type")):
+                with (
+                    patch.object(module, "VERSION_BATCH_SIZE", 1),
+                    patch.object(module, "batches", failing_after_first_version_batch),
+                    self.assertRaises(RuntimeError),
+                ):
+                    self.migrate(target)
+                # The first batch committed before the failure; the retry must skip it.
+                converted = [kind_field in decoded(version)["questions"][0] for version in versions]
+                self.assertEqual(converted.count(True), 1)
+                apps = self.migrate(target)
+                Version = apps.get_model("quizzes", "QuizVersion")
+                for version in versions:
+                    questions = {q["id"]: q for q in decoded(version)["questions"]}
+                    if kind_field == "type":
+                        self.assertEqual(questions[str(multiple.pk)]["type"], "multiple_choice")
+                        self.assertEqual(questions[str(tf.pk)]["type"], "true_false")
+                        self.assertEqual([a["is_correct"] for a in questions[str(tf.pk)]["answers"]], [False, True])
+                    else:
+                        self.assertTrue(questions[str(multiple.pk)]["multiple"])
+                        self.assertEqual(questions[str(tf.pk)]["question_type"], 2)
+                        self.assertFalse(questions[str(tf.pk)]["tf_answer"])
+        finally:
+            self.migrate(self.current)

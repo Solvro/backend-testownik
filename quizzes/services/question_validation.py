@@ -27,7 +27,8 @@ def validate_question(data, instance=None):
     question_type = data.get("type", instance.type if instance else QuestionType.SINGLE_CHOICE)
     if question_type not in QuestionType.values:
         raise ValidationError({"type": "Nieprawidłowy typ pytania."})
-    existing = {answer.id: answer for answer in instance.answers.all()} if instance else {}
+    # Keyed by string: REST sends UUIDs, MCP and admin may send strings.
+    existing = {str(answer.id): answer for answer in instance.answers.all()} if instance else {}
     answers = data.get("answers", list(existing.values()))
     if "answers" in data:
         validate_unique_ids(answers, error_field="answers")
@@ -37,7 +38,7 @@ def validate_question(data, instance=None):
             return getattr(answer, field, default)
         if field in answer:
             return answer[field]
-        return getattr(existing.get(answer.get("id")), field, default)
+        return getattr(existing.get(str(answer.get("id"))), field, default)
 
     correct_count = sum(bool(value(answer, "is_correct", False)) for answer in answers)
     error = None
