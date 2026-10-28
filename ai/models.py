@@ -298,3 +298,28 @@ class AIUsageDailyAggregate(models.Model):
 
     def __str__(self):
         return f"{self.user_id}:{self.date}:{self.scope}:{self.model_id}"
+
+
+class AIRequest(models.Model):
+    class Status(models.TextChoices):
+        PROCESSING = "processing"
+        COMPLETED = "completed"
+        FAILED = "failed"
+
+    request_id = models.CharField(max_length=255, unique=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    scope = models.CharField(max_length=100)
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PROCESSING,
+    )
+
+    result = models.JSONField(null=True, blank=True)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user_id}:{self.request_id}:{self.scope}:{self.status}"

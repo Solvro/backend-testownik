@@ -484,3 +484,10 @@ class AdminStatsSerializer(serializers.Serializer):
     top_users = AdminStatsTopUserSerializer(many=True)
     daily = AdminStatsDailySerializer(many=True)
     limits_enabled = serializers.BooleanField()
+
+
+class GenerateQuizFromPDFSerializer(serializers.Serializer):
+    pdf_file = serializers.FileField(required=True, allow_empty_file=False)
+    question_count = serializers.IntegerField(min_value=1, max_value=100, default=10)
+    difficulty = serializers.ChoiceField(choices=("easy", "medium", "hard"), default="medium")
+    request_id = serializers.CharField(max_length=100)
