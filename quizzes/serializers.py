@@ -135,12 +135,11 @@ class QuestionSerializer(serializers.ModelSerializer):
             "image_width",
             "image_height",
             "explanation",
-            "multiple",
+            "type",
+            "open_matching",
             "answers",
             "quiz",
-            "question_type",
             "is_ai_generated",
-            "is_flashcard",
             "is_markdown_enabled",
         ]
 
@@ -188,7 +187,8 @@ class QuestionSerializer(serializers.ModelSerializer):
             instance.image_upload = validated_data["image_upload"]
 
         instance.explanation = validated_data.get("explanation", instance.explanation)
-        instance.multiple = validated_data.get("multiple", instance.multiple)
+        instance.type = validated_data.get("type", instance.type)
+        instance.open_matching = validated_data.get("open_matching", instance.open_matching)
         instance.save()
 
         if answers_data is not None:
@@ -502,11 +502,10 @@ class QuizSerializer(serializers.ModelSerializer):
             "image_url",
             "image_upload",
             "explanation",
-            "multiple",
-            "question_type",
+            "type",
+            "open_matching",
             "is_markdown_enabled",
             "is_ai_generated",
-            "is_flashcard",
         ]
 
         for q_data in questions_data:

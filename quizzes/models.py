@@ -178,10 +178,16 @@ class Quiz(models.Model):
         )
 
 
-class QuestionType(models.IntegerChoices):
-    CLOSED = 0, "Zamknięte"
-    OPEN = 1, "Otwarte"
-    TRUE_FALSE = 2, "Prawda/Fałsz"
+class QuestionType(models.TextChoices):
+    SINGLE_CHOICE = "single_choice", "Jednokrotny wybór"
+    MULTIPLE_CHOICE = "multiple_choice", "Wielokrotny wybór"
+    TRUE_FALSE = "true_false", "Prawda/Fałsz"
+    OPEN = "open", "Otwarte"
+
+
+class OpenMatching(models.TextChoices):
+    EXACT = "exact", "Dokładne"
+    SIMILAR = "similar", "Podobne"
 
 
 class Question(models.Model):
@@ -198,15 +204,10 @@ class Question(models.Model):
         related_name="questions",
     )
     explanation = models.TextField(blank=True)
-    multiple = models.BooleanField(default=False)
-    question_type = models.IntegerField(
-        choices=QuestionType.choices,
-        default=QuestionType.CLOSED,
-    )
-    tf_answer = models.BooleanField(null=True, blank=True)  # true/false answer
+    type = models.CharField(max_length=20, choices=QuestionType.choices, default=QuestionType.SINGLE_CHOICE)
+    open_matching = models.CharField(max_length=10, choices=OpenMatching.choices, default=OpenMatching.EXACT)
 
     is_ai_generated = models.BooleanField(default=False)
-    is_flashcard = models.BooleanField(default=False)
     is_markdown_enabled = models.BooleanField(
         default=True, help_text="Określa, czy tekst pytania ma wspierać formatowanie Markdown"
     )
@@ -329,7 +330,7 @@ class AnswerRecord(models.Model):
     answered_at = models.DateTimeField(auto_now_add=True, db_index=True)
     selected_answers = models.JSONField(
         default=list
-    )  # List of Answer UUIDs for Closed questions, free-form text for OPEN, booelan values for TRUE_FALSE
+    )  # Answer UUIDs for choice types (true/false included), one string for open
     was_correct = models.BooleanField()
 
     class Meta:

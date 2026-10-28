@@ -29,7 +29,7 @@ class QuestionCRUDTestCase(APITestCase):
             folder=self.user.root_folder,
         )
 
-        self.question = Question.objects.create(quiz=self.quiz, order=1, text="Original Question", multiple=False)
+        self.question = Question.objects.create(quiz=self.quiz, order=1, text="Original Question")
 
         self.answer_1 = Answer.objects.create(
             question=self.question, order=1, text="Original Answer 1", is_correct=True
@@ -53,7 +53,7 @@ class QuestionCRUDTestCase(APITestCase):
             "quiz": self.quiz.id,
             "order": 2,
             "text": "New complicated question?",
-            "multiple": True,
+            "type": "multiple_choice",
             "answers": [
                 {"order": 1, "text": "Yes", "is_correct": True},
                 {"order": 2, "text": "No", "is_correct": False},
@@ -69,7 +69,13 @@ class QuestionCRUDTestCase(APITestCase):
         self.assertEqual(new_q.answers.count(), 3)
 
     def test_create_question_without_answers(self):
-        data = {"quiz": self.quiz.id, "order": 3, "text": "Question with no answers", "multiple": False, "answers": []}
+        data = {
+            "quiz": self.quiz.id,
+            "order": 3,
+            "text": "Question with no answers",
+            "type": "single_choice",
+            "answers": [],
+        }
         response = self.client.post(self.list_url, data, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -87,7 +93,7 @@ class QuestionCRUDTestCase(APITestCase):
             "quiz": deleted_quiz.id,
             "order": 1,
             "text": "Should not be created",
-            "multiple": False,
+            "type": "single_choice",
             "answers": [],
         }
         response = self.client.post(self.list_url, data, format="json")
@@ -105,7 +111,7 @@ class QuestionCRUDTestCase(APITestCase):
                 {
                     "order": 1,
                     "text": "Should not be created",
-                    "multiple": False,
+                    "type": "single_choice",
                     "answers": [],
                 }
             ],

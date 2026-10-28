@@ -949,7 +949,8 @@ class QuizViewSet(viewsets.ModelViewSet):
                     image_url=q.image_url,
                     image_upload_id=q.image_upload_id,
                     explanation=q.explanation,
-                    multiple=q.multiple,
+                    type=q.type,
+                    open_matching=q.open_matching,
                 )
             )
 
