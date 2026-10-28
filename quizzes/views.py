@@ -866,6 +866,17 @@ class QuizViewSet(viewsets.ModelViewSet):
         data = get_quiz_hourly_stats(quiz, user=user)
         return Response(data)
 
+    @extend_schema(
+        request=RecordAnswerSerializer,
+        responses={201: AnswerRecordSerializer},
+        description=(
+            "Record selected answer UUIDs for choice types or one text string for open questions. "
+            "An empty list selects nothing, which is correct only for a choice question without a correct "
+            "answer. skipped=true records the question as wrong and requires selected_answers=[]. Optional "
+            "self_assessment grades any question directly and requires selected_answers=[]. study_time and "
+            "next_question update the session as usual."
+        ),
+    )
     @action(
         detail=True,
         methods=["post"],
@@ -884,14 +895,16 @@ class QuizViewSet(viewsets.ModelViewSet):
             return Response({"error": "question_id is required"}, status=400)
 
         selected_answers = serializer.validated_data["selected_answers"]
-        next_question_id = request.data.get("next_question", UNSET)
+        next_question_id = serializer.validated_data.get("next_question", UNSET)
         try:
             result = record_quiz_answer(
                 request.user,
                 quiz.id,
                 question_id,
                 selected_answers,
-                study_time=request.data.get("study_time") if "study_time" in request.data else None,
+                self_assessment=serializer.validated_data.get("self_assessment", UNSET),
+                skipped=serializer.validated_data.get("skipped", False),
+                study_time=serializer.validated_data.get("study_time"),
                 next_question_id=next_question_id,
             )
         except QuizOperationError as exc:

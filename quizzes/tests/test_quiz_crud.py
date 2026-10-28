@@ -10,7 +10,7 @@ from oauth2_provider.models import AbstractApplication, AccessToken, get_applica
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quizzes.models import Answer, Folder, FolderType, Question, QuestionType, Quiz
+from quizzes.models import Answer, Folder, FolderType, Question, Quiz
 from users.models import User
 
 
@@ -229,7 +229,16 @@ class QuizCRUDTestCase(APITestCase):
         question = Question.objects.create(quiz=quiz, order=1, text="Old Text")
 
         url = reverse("quiz-detail", kwargs={"pk": quiz.id})
-        data = {"questions": [{"id": str(question.id), "order": 1, "text": "Updated Text", "answers": []}]}
+        data = {
+            "questions": [
+                {
+                    "id": str(question.id),
+                    "order": 1,
+                    "text": "Updated Text",
+                    "answers": [{"order": 1, "text": "Tak", "is_correct": True}],
+                }
+            ]
+        }
         response = self.client.patch(url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -470,8 +479,8 @@ class QuizQuestionAnswerTestCase(APITestCase):
         self.assertTrue(a.is_correct)
 
     def test_change_question_type(self):
-        """Test changing a question from single to multiple choice."""
-        q = Question.objects.create(quiz=self.quiz, order=1, text="Q1", type=QuestionType.SINGLE_CHOICE)
+        """Test changing a question's type."""
+        q = Question.objects.create(quiz=self.quiz, order=1, text="Q1", type="single_choice")
         a = Answer.objects.create(question=q, order=1, text="A1", is_correct=True)
 
         url = reverse("quiz-detail", kwargs={"pk": self.quiz.id})
@@ -490,7 +499,7 @@ class QuizQuestionAnswerTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         q.refresh_from_db()
-        self.assertEqual(q.type, QuestionType.MULTIPLE_CHOICE)
+        self.assertEqual(q.type, "multiple_choice")
 
     # --- ADD/REMOVE ANSWERS ---
     def test_add_answer_to_existing_question(self):
@@ -546,7 +555,16 @@ class QuizQuestionAnswerTestCase(APITestCase):
         q2 = Question.objects.create(quiz=self.quiz, order=2, text="Q2")
 
         url = reverse("quiz-detail", kwargs={"pk": self.quiz.id})
-        data = {"questions": [{"id": str(q1.id), "order": 1, "text": "Q1", "answers": []}]}
+        data = {
+            "questions": [
+                {
+                    "id": str(q1.id),
+                    "order": 1,
+                    "text": "Q1",
+                    "answers": [{"order": 1, "text": "Tak", "is_correct": True}],
+                }
+            ]
+        }
         response = self.client.patch(url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -583,7 +601,16 @@ class QuizQuestionAnswerTestCase(APITestCase):
         q = Question.objects.create(quiz=self.quiz, order=1, text="Old Text")
 
         url = reverse("quiz-detail", kwargs={"pk": self.quiz.id})
-        data = {"questions": [{"id": str(q.id), "order": 1, "text": "New Text", "answers": []}]}
+        data = {
+            "questions": [
+                {
+                    "id": str(q.id),
+                    "order": 1,
+                    "text": "New Text",
+                    "answers": [{"order": 1, "text": "Tak", "is_correct": True}],
+                }
+            ]
+        }
         response = self.client.patch(url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -598,8 +625,18 @@ class QuizQuestionAnswerTestCase(APITestCase):
         url = reverse("quiz-detail", kwargs={"pk": self.quiz.id})
         data = {
             "questions": [
-                {"id": str(q2.id), "order": 1, "text": "Q2", "answers": []},
-                {"id": str(q1.id), "order": 2, "text": "Q1", "answers": []},
+                {
+                    "id": str(q2.id),
+                    "order": 1,
+                    "text": "Q2",
+                    "answers": [{"order": 1, "text": "Tak", "is_correct": True}],
+                },
+                {
+                    "id": str(q1.id),
+                    "order": 2,
+                    "text": "Q1",
+                    "answers": [{"order": 1, "text": "Tak", "is_correct": True}],
+                },
             ]
         }
         response = self.client.patch(url, data, format="json")
