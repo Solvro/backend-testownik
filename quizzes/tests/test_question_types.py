@@ -540,11 +540,37 @@ class QuestionTypesTestCase(APITestCase):
         for question in (self.closed_question, self.multiple_question, self.open_question, self.tf_question):
             with self.subTest(type=question.type):
                 response = self.client.post(
-                    self.url, {"question_id": str(question.id), "selected_answers": []}, format="json"
+                    self.url,
+                    {"question_id": str(question.id), "selected_answers": [], "skipped": True},
+                    format="json",
                 )
                 self.assertEqual(response.status_code, 201, response.data)
                 self.assertFalse(response.data["was_correct"])
-                self.assertFalse(tools.submit_answer(str(self.quiz.id), str(question.id), [])["was_correct"])
+                self.assertFalse(tools.submit_answer(str(self.quiz.id), str(question.id), [], skip=True)["was_correct"])
+
+    def test_selecting_nothing_is_graded_like_any_selection(self):
+        tools = StudyTools(request=SimpleNamespace(user=self.user, auth=SimpleNamespace(scope="study:write")))
+        self.multiple_question.answers.update(is_correct=False)
+        expected = {self.closed_question: False, self.multiple_question: True, self.open_question: False}
+        for question, correct in {**expected, self.tf_question: False}.items():
+            with self.subTest(type=question.type):
+                response = self.client.post(
+                    self.url, {"question_id": str(question.id), "selected_answers": []}, format="json"
+                )
+                self.assertEqual(response.status_code, 201, response.data)
+                self.assertEqual(response.data["was_correct"], correct)
+                self.assertEqual(tools.submit_answer(str(self.quiz.id), str(question.id), [])["was_correct"], correct)
+
+    def test_skip_requires_an_empty_selection_without_self_assessment(self):
+        for extra in (
+            {"selected_answers": [str(self.correct_answer.id)]},
+            {"selected_answers": [], "self_assessment": True},
+        ):
+            with self.subTest(extra=extra):
+                response = self.client.post(
+                    self.url, {"question_id": str(self.closed_question.id), "skipped": True, **extra}, format="json"
+                )
+                self.assertEqual(response.status_code, 400, response.data)
 
     def mcp_tools(self):
         request = SimpleNamespace(user=self.user, auth=SimpleNamespace(scope="quizzes:write study:write"))
@@ -588,6 +614,18 @@ class QuestionTypesTestCase(APITestCase):
         )
         self.closed_question.refresh_from_db()
         self.assertEqual(self.closed_question.type, QuestionType.SINGLE_CHOICE)
+
+    def test_mcp_multiple_choice_may_have_no_correct_answer(self):
+        """Selecting nothing is then the correct answer."""
+        quizzes, study = self.mcp_tools()
+        answers = [{"text": "Zła", "is_correct": False}, {"text": "Też zła", "is_correct": False}]
+        created = quizzes.add_question(str(self.quiz.id), "Żadna", answers=answers, type="multiple_choice")
+        self.assertNotIn("error", created)
+        question = Question.objects.get(id=created["id"])
+        self.assertEqual(question.type, QuestionType.MULTIPLE_CHOICE)
+        self.assertTrue(study.submit_answer(str(self.quiz.id), str(question.id), [])["was_correct"])
+        wrong = [str(question.answers.first().id)]
+        self.assertFalse(study.submit_answer(str(self.quiz.id), str(question.id), wrong)["was_correct"])
 
     def test_duplicate_answer_ids_rejected_before_writes(self):
         tools = QuizTools(request=SimpleNamespace(user=self.user, auth=SimpleNamespace(scope="quizzes:write")))

@@ -225,6 +225,7 @@ def record_quiz_answer(
     selected_answers,
     *,
     self_assessment=UNSET,
+    skipped=False,
     study_time=None,
     next_question_id=UNSET,
     choose_random_next: bool = False,
@@ -238,7 +239,11 @@ def record_quiz_answer(
     except (Question.DoesNotExist, ValueError, TypeError, DjangoValidationError) as exc:
         raise QuizOperationError("Question not found in this quiz", status_code=404) from exc
 
-    if self_assessment is not UNSET:
+    if skipped:
+        if selected_answers != [] or self_assessment is not UNSET:
+            raise QuizOperationError("Pominięcie wymaga pustej listy odpowiedzi.", status_code=400)
+        was_correct, recorded_answers = False, []
+    elif self_assessment is not UNSET:
         if selected_answers != [] or type(self_assessment) is not bool:
             raise QuizOperationError("Samoocena wymaga pustej listy odpowiedzi i wartości logicznej.", status_code=400)
         was_correct, recorded_answers = self_assessment, []

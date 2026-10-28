@@ -574,10 +574,13 @@ class StudyTools(AnnotatedMCPToolset):
         quiz_id: str,
         question_id: str,
         selected_answers: list,
+        skip: bool = False,
     ) -> dict:
         """Submit an answer for a question in the current study session.
-        Pass answer UUIDs for choice types (including true_false), one text string
-        for open questions, or [] to skip.
+        Pass answer UUIDs for choice types (including true_false) or one text string
+        for open questions. [] selects nothing, which is correct only for a choice
+        question without a correct answer. Pass skip=true with [] to skip; a skip
+        counts as wrong.
         Returns whether the answer was correct and the updated session state."""
         _require_scope(self.request, "study:write")
         try:
@@ -586,6 +589,7 @@ class StudyTools(AnnotatedMCPToolset):
                 quiz_id,
                 question_id,
                 selected_answers,
+                skipped=skip,
                 choose_random_next=True,
             )
         except QuizOperationError as exc:

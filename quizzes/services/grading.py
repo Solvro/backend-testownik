@@ -66,10 +66,10 @@ def matches_open(typed: str, accepted: list[str], mode: str) -> bool:
 def grade(question, selected) -> bool:
     if not isinstance(selected, list):
         raise GradingError("Odpowiedzi muszą być listą.")
-    if selected == []:
-        return False
     answers = list(question.answers.all())
     if question.type == QuestionType.OPEN:
+        if selected == []:
+            return False
         if len(selected) != 1 or not isinstance(selected[0], str):
             raise GradingError("Pytanie otwarte wymaga jednej odpowiedzi tekstowej.")
         return matches_open(selected[0], [a.text for a in answers if a.is_correct], question.open_matching)

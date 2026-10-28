@@ -871,8 +871,10 @@ class QuizViewSet(viewsets.ModelViewSet):
         responses={201: AnswerRecordSerializer},
         description=(
             "Record selected answer UUIDs for choice types or one text string for open questions. "
-            "An empty list skips the question. Optional self_assessment grades any question directly "
-            "and requires selected_answers=[]. study_time and next_question update the session as usual."
+            "An empty list selects nothing, which is correct only for a choice question without a correct "
+            "answer. skipped=true records the question as wrong and requires selected_answers=[]. Optional "
+            "self_assessment grades any question directly and requires selected_answers=[]. study_time and "
+            "next_question update the session as usual."
         ),
     )
     @action(
@@ -901,6 +903,7 @@ class QuizViewSet(viewsets.ModelViewSet):
                 question_id,
                 selected_answers,
                 self_assessment=serializer.validated_data.get("self_assessment", UNSET),
+                skipped=serializer.validated_data.get("skipped", False),
                 study_time=serializer.validated_data.get("study_time"),
                 next_question_id=next_question_id,
             )

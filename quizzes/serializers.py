@@ -927,12 +927,18 @@ class RecordAnswerSerializer(serializers.Serializer):
     question_id = serializers.UUIDField()
     selected_answers = serializers.ListField(allow_empty=True)
     self_assessment = serializers.BooleanField(required=False)
+    skipped = serializers.BooleanField(required=False)
     study_time = serializers.IntegerField(required=False, min_value=0)
     next_question = serializers.UUIDField(required=False, allow_null=True)
 
     def validate(self, data):
         if "self_assessment" in data and data["selected_answers"]:
             raise serializers.ValidationError({"selected_answers": "Samoocena wymaga pustej listy odpowiedzi."})
+        if data.get("skipped"):
+            if data["selected_answers"]:
+                raise serializers.ValidationError({"selected_answers": "Pominięcie wymaga pustej listy odpowiedzi."})
+            if "self_assessment" in data:
+                raise serializers.ValidationError({"skipped": "Pominięcie wyklucza samoocenę."})
         return data
 
 
