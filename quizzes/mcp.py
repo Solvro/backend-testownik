@@ -110,6 +110,12 @@ def _validate_type(data, question=None):
     except ValidationError as exc:
         messages = [str(message) for messages in exc.detail.values() for message in messages]
         raise _QuestionError(" ".join(messages)) from exc
+    # The editor lets authors keep a multiple-choice question without a correct
+    # answer as a reminder; content written by an agent must be answerable.
+    kind = data.get("type", question.type if question else QuestionType.SINGLE_CHOICE)
+    answers = data["answers"] if "answers" in data else list(question.answers.all()) if question else []
+    if kind == QuestionType.MULTIPLE_CHOICE and _correct_answer_count(answers) == 0:
+        raise _QuestionError("Multiple choice questions require at least one correct answer.")
 
 
 def _correct_answer_count(answers):

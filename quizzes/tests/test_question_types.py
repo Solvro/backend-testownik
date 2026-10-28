@@ -430,3 +430,26 @@ class QuestionTypesTestCase(APITestCase):
         self.assertNotIn("error", result)
         self.multiple_question.refresh_from_db()
         self.assertEqual(self.multiple_question.type, QuestionType.OPEN)
+
+    def test_mcp_conversion_to_open_checks_kept_answer_images(self):
+        quizzes, _ = self.mcp_tools()
+        self.correct_answer.image_url = "https://example.com/warszawa.png"
+        self.correct_answer.save()
+        answers = [{"id": str(self.correct_answer.id), "text": "Warszawa", "is_correct": True}]
+        self.assertIn("error", quizzes.edit_question(str(self.closed_question.id), type="open", answers=answers))
+        self.assertIn(
+            "error",
+            quizzes.edit_questions([{"question_id": str(self.closed_question.id), "type": "open", "answers": answers}]),
+        )
+        self.closed_question.refresh_from_db()
+        self.assertEqual(self.closed_question.type, QuestionType.SINGLE_CHOICE)
+
+    def test_mcp_multiple_choice_needs_a_correct_answer(self):
+        quizzes, _ = self.mcp_tools()
+        wrong = [{"text": "Zła", "is_correct": False}]
+        self.assertIn("error", quizzes.add_question(str(self.quiz.id), "Brak", answers=wrong, type="multiple_choice"))
+        self.assertIn("error", quizzes.add_question(str(self.quiz.id), "Brak", answers=wrong))
+        self.assertIn("error", quizzes.edit_question(str(self.multiple_question.id), answers=wrong))
+        self.multiple_question.answers.update(is_correct=False)
+        self.assertIn("error", quizzes.edit_question(str(self.multiple_question.id), type="multiple_choice"))
+        self.assertEqual(self.quiz.questions.count(), 4)
