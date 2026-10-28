@@ -444,12 +444,14 @@ class QuestionTypesTestCase(APITestCase):
         self.closed_question.refresh_from_db()
         self.assertEqual(self.closed_question.type, QuestionType.SINGLE_CHOICE)
 
-    def test_mcp_multiple_choice_needs_a_correct_answer(self):
-        quizzes, _ = self.mcp_tools()
-        wrong = [{"text": "Zła", "is_correct": False}]
-        self.assertIn("error", quizzes.add_question(str(self.quiz.id), "Brak", answers=wrong, type="multiple_choice"))
-        self.assertIn("error", quizzes.add_question(str(self.quiz.id), "Brak", answers=wrong))
-        self.assertIn("error", quizzes.edit_question(str(self.multiple_question.id), answers=wrong))
-        self.multiple_question.answers.update(is_correct=False)
-        self.assertIn("error", quizzes.edit_question(str(self.multiple_question.id), type="multiple_choice"))
-        self.assertEqual(self.quiz.questions.count(), 4)
+    def test_mcp_multiple_choice_may_have_no_correct_answer(self):
+        """Selecting nothing is then the correct answer."""
+        quizzes, study = self.mcp_tools()
+        answers = [{"text": "Zła", "is_correct": False}, {"text": "Też zła", "is_correct": False}]
+        created = quizzes.add_question(str(self.quiz.id), "Żadna", answers=answers, type="multiple_choice")
+        self.assertNotIn("error", created)
+        question = Question.objects.get(id=created["id"])
+        self.assertEqual(question.type, QuestionType.MULTIPLE_CHOICE)
+        self.assertTrue(study.submit_answer(str(self.quiz.id), str(question.id), [])["was_correct"])
+        wrong = [str(question.answers.first().id)]
+        self.assertFalse(study.submit_answer(str(self.quiz.id), str(question.id), wrong)["was_correct"])
