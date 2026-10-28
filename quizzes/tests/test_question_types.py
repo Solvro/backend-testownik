@@ -1,8 +1,11 @@
+from types import SimpleNamespace
+
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quizzes.models import Answer, Question, QuestionType, Quiz
+from quizzes.mcp import QuizTools, StudyTools
+from quizzes.models import Answer, OpenMatching, Question, QuestionType, Quiz
 from users.models import User
 
 
@@ -306,3 +309,124 @@ class QuestionTypesTestCase(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_open_skip_is_incorrect(self):
+        response = self.client.post(
+            self.url,
+            {"question_id": str(self.open_question.id), "selected_answers": []},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.data["was_correct"])
+
+    def test_open_accepts_any_accepted_answer(self):
+        Answer.objects.create(question=self.open_question, order=2, text="Stolica", is_correct=True)
+        response = self.client.post(
+            self.url,
+            {"question_id": str(self.open_question.id), "selected_answers": ["stolica"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.data["was_correct"])
+
+    # -------------------------
+    # MCP
+    # -------------------------
+
+    def mcp_tools(self):
+        request = SimpleNamespace(user=self.user, auth=SimpleNamespace(scope="quizzes:write study:write"))
+        return QuizTools(request=request), StudyTools(request=request)
+
+    def test_mcp_creates_edits_and_answers_every_type(self):
+        quizzes, study = self.mcp_tools()
+        cases = [
+            ("single_choice", [{"text": "A", "is_correct": True}, {"text": "B", "is_correct": False}], "A"),
+            ("multiple_choice", [{"text": "A", "is_correct": True}, {"text": "B", "is_correct": True}], None),
+            ("true_false", [{"text": "Prawda", "is_correct": False}, {"text": "Fałsz", "is_correct": True}], "Fałsz"),
+            ("open", [{"text": "Łódź", "is_correct": True}], None),
+        ]
+        for kind, answers, correct_text in cases:
+            with self.subTest(type=kind):
+                created = quizzes.add_question(str(self.quiz.id), "MCP", answers=answers, type=kind)
+                self.assertNotIn("error", created)
+                question = Question.objects.get(id=created["id"])
+                self.assertEqual(question.type, kind)
+                self.assertEqual(question.open_matching, OpenMatching.EXACT)
+                if kind == "open":
+                    right, wrong = [" łódź "], ["Kraków"]
+                elif kind == "multiple_choice":
+                    right = [str(answer.id) for answer in question.answers.all()]
+                    wrong = right[:1]
+                else:
+                    right = [str(question.answers.get(text=correct_text).id)]
+                    wrong = [str(question.answers.exclude(text=correct_text).get().id)]
+                self.assertTrue(study.submit_answer(str(self.quiz.id), str(question.id), right)["was_correct"])
+                self.assertFalse(study.submit_answer(str(self.quiz.id), str(question.id), wrong)["was_correct"])
+                self.assertNotIn("error", quizzes.edit_question(str(question.id), text="Zmienione"))
+                question.refresh_from_db()
+                self.assertEqual(question.type, kind)
+
+    def test_mcp_stores_open_matching(self):
+        quizzes, _ = self.mcp_tools()
+        created = quizzes.add_question(
+            str(self.quiz.id),
+            "MCP",
+            answers=[{"text": "Łódź", "is_correct": True}],
+            type="open",
+            open_matching="similar",
+        )
+        self.assertNotIn("error", created)
+        self.assertEqual(Question.objects.get(id=created["id"]).open_matching, OpenMatching.SIMILAR)
+
+    def test_mcp_infers_create_type_and_keeps_edit_type(self):
+        quizzes, _ = self.mcp_tools()
+        for answers, kind in [
+            ([{"text": "A", "is_correct": True}], "single_choice"),
+            ([{"text": "A", "is_correct": True}, {"text": "B", "is_correct": True}], "multiple_choice"),
+        ]:
+            result = quizzes.add_question(str(self.quiz.id), "Infer", answers=answers)
+            self.assertNotIn("error", result)
+            self.assertEqual(Question.objects.get(id=result["id"]).type, kind)
+        result = quizzes.edit_question(str(self.multiple_question.id), answers=[{"text": "A", "is_correct": True}])
+        self.assertNotIn("error", result)
+        self.multiple_question.refresh_from_db()
+        self.assertEqual(self.multiple_question.type, QuestionType.MULTIPLE_CHOICE)
+
+    def test_mcp_rejects_answers_that_do_not_fit_the_type(self):
+        quizzes, _ = self.mcp_tools()
+        correct = {"text": "A", "is_correct": True}
+        wrong = {"text": "B", "is_correct": False}
+        cases = [
+            ("true_false", [correct]),
+            ("true_false", [correct, {**correct, "text": "C"}]),
+            ("open", [correct, wrong]),
+            ("open", [{**correct, "image_url": "https://example.com/a.png"}]),
+            ("open", []),
+            ("single_choice", [correct, {**correct, "text": "C"}]),
+            ("single_choice", [wrong]),
+            ("multiple_choice", []),
+        ]
+        for kind, answers in cases:
+            with self.subTest(type=kind, answers=answers):
+                self.assertIn("error", quizzes.add_question(str(self.quiz.id), "Walidacja", answers=answers, type=kind))
+                self.assertIn(
+                    "error", quizzes.add_questions(str(self.quiz.id), [{"text": "W", "type": kind, "answers": answers}])
+                )
+        self.assertEqual(self.quiz.questions.count(), 4)
+
+    def test_mcp_type_changes_check_the_final_answers(self):
+        quizzes, _ = self.mcp_tools()
+        self.assertIn("error", quizzes.edit_question(str(self.multiple_question.id), type="single_choice"))
+        self.assertIn(
+            "error", quizzes.edit_questions([{"question_id": str(self.multiple_question.id), "type": "single_choice"}])
+        )
+        self.multiple_question.refresh_from_db()
+        self.assertEqual(self.multiple_question.type, QuestionType.MULTIPLE_CHOICE)
+        result = quizzes.edit_question(
+            str(self.multiple_question.id), type="open", answers=[{"text": "Warszawa", "is_correct": True}]
+        )
+        self.assertNotIn("error", result)
+        self.multiple_question.refresh_from_db()
+        self.assertEqual(self.multiple_question.type, QuestionType.OPEN)
