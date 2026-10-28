@@ -106,20 +106,25 @@ def _normalize_answers(answers):
     return normalized
 
 
+# MCP edits keep to the types its `multiple` flag can express.
+_CHOICE_TYPES = (QuestionType.SINGLE_CHOICE, QuestionType.MULTIPLE_CHOICE)
+
+
 def _correct_answer_count(answers):
     return sum(1 for answer in answers if (answer["is_correct"] if isinstance(answer, dict) else answer.is_correct))
 
 
 def _normalize_multiple(value, answers):
+    """The choice type for the `multiple` flag, inferred from the answers when omitted."""
     correct_count = _correct_answer_count(answers)
     inferred = correct_count > 1
     if value is None:
-        return inferred
-    if type(value) is not bool:
+        value = inferred
+    elif type(value) is not bool:
         raise _QuestionError("multiple must be a boolean.")
-    if not value and inferred:
+    elif not value and inferred:
         raise _QuestionError("multiple must be true when more than one answer is correct.")
-    return value
+    return QuestionType.MULTIPLE_CHOICE if value else QuestionType.SINGLE_CHOICE
 
 
 def _normalize_question_spec(spec):
@@ -129,8 +134,7 @@ def _normalize_question_spec(spec):
     answers = _normalize_answers(spec.get("answers") or [])
     data = {
         "text": spec.get("text", ""),
-        "question_type": QuestionType.CLOSED,
-        "multiple": _normalize_multiple(spec.get("multiple"), answers),
+        "type": _normalize_multiple(spec.get("multiple"), answers),
         "explanation": spec.get("explanation", "") or "",
         "is_ai_generated": True,
         "answers": answers,
@@ -151,9 +155,9 @@ def _normalize_question_update(*, text=None, explanation=None, answers=None, mul
     if answers is not None:
         normalized_answers = _normalize_answers(answers)
         data["answers"] = normalized_answers
-        data["multiple"] = _normalize_multiple(multiple, normalized_answers)
+        data["type"] = _normalize_multiple(multiple, normalized_answers)
     elif multiple is not None:
-        data["multiple"] = _normalize_multiple(multiple, current_answers or [])
+        data["type"] = _normalize_multiple(multiple, current_answers or [])
     return data
 
 
@@ -410,7 +414,7 @@ class QuizTools(AnnotatedMCPToolset):
         except QuizOperationError as exc:
             return _operation_error(exc)
 
-        if question.question_type != QuestionType.CLOSED:
+        if question.type not in _CHOICE_TYPES:
             return {"error": "MCP only supports editing normal questions."}
         try:
             data = _normalize_question_update(
@@ -468,7 +472,7 @@ class QuizTools(AnnotatedMCPToolset):
                     except QuizOperationError as exc:
                         return {"error": f"updates[{index}]: {exc.message}"}
 
-                    if question.question_type != QuestionType.CLOSED:
+                    if question.type not in _CHOICE_TYPES:
                         return {"error": f"updates[{index}]: MCP only supports editing normal questions."}
 
                     try:

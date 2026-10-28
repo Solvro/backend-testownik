@@ -19,7 +19,7 @@ class QuestionTypesTestCase(APITestCase):
 
         # Pytanie zamknięte
         self.closed_question = Question.objects.create(
-            quiz=self.quiz, order=1, text="Stolica Polski?", question_type=QuestionType.CLOSED
+            quiz=self.quiz, order=1, text="Stolica Polski?", type=QuestionType.SINGLE_CHOICE
         )
         self.correct_answer = Answer.objects.create(
             question=self.closed_question, order=1, text="Warszawa", is_correct=True
@@ -30,7 +30,7 @@ class QuestionTypesTestCase(APITestCase):
 
         # Pytanie zamknięte wielokrotnego wyboru
         self.multiple_question = Question.objects.create(
-            quiz=self.quiz, order=2, text="Które miasta są w Polsce?", question_type=QuestionType.CLOSED, multiple=True
+            quiz=self.quiz, order=2, text="Które miasta są w Polsce?", type=QuestionType.MULTIPLE_CHOICE
         )
         self.multiple_correct_1 = Answer.objects.create(
             question=self.multiple_question, order=1, text="Warszawa", is_correct=True
@@ -44,14 +44,16 @@ class QuestionTypesTestCase(APITestCase):
 
         # Pytanie otwarte
         self.open_question = Question.objects.create(
-            quiz=self.quiz, order=3, text="Podaj stolicę Polski", question_type=QuestionType.OPEN
+            quiz=self.quiz, order=3, text="Podaj stolicę Polski", type=QuestionType.OPEN
         )
         Answer.objects.create(question=self.open_question, order=1, text="warszawa", is_correct=True)
 
         # Pytanie prawda/fałsz
         self.tf_question = Question.objects.create(
-            quiz=self.quiz, order=4, text="Ziemia jest płaska", question_type=QuestionType.TRUE_FALSE, tf_answer=False
+            quiz=self.quiz, order=4, text="Ziemia jest płaska", type=QuestionType.TRUE_FALSE
         )
+        self.tf_true = Answer.objects.create(question=self.tf_question, order=1, text="Prawda", is_correct=False)
+        self.tf_false = Answer.objects.create(question=self.tf_question, order=2, text="Fałsz", is_correct=True)
 
         self.url = reverse("quiz-record-answer", kwargs={"pk": self.quiz.id})
 
@@ -235,7 +237,7 @@ class QuestionTypesTestCase(APITestCase):
 
     def test_open_question_no_correct_answer(self):
         question = Question.objects.create(
-            quiz=self.quiz, order=5, text="Pytanie bez odpowiedzi", question_type=QuestionType.OPEN
+            quiz=self.quiz, order=5, text="Pytanie bez odpowiedzi", type=QuestionType.OPEN
         )
 
         response = self.client.post(
@@ -258,7 +260,7 @@ class QuestionTypesTestCase(APITestCase):
             self.url,
             {
                 "question_id": str(self.tf_question.id),
-                "selected_answers": [False],
+                "selected_answers": [str(self.tf_false.id)],
             },
             format="json",
         )
@@ -271,7 +273,7 @@ class QuestionTypesTestCase(APITestCase):
             self.url,
             {
                 "question_id": str(self.tf_question.id),
-                "selected_answers": [True],
+                "selected_answers": [str(self.tf_true.id)],
             },
             format="json",
         )
@@ -279,35 +281,28 @@ class QuestionTypesTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertFalse(response.data["was_correct"])
 
-    def test_tf_invalid_multiple_answers(self):
+    def test_tf_both_answers_are_wrong(self):
         response = self.client.post(
             self.url,
             {
                 "question_id": str(self.tf_question.id),
-                "selected_answers": [True, False],
+                "selected_answers": [str(self.tf_true.id), str(self.tf_false.id)],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.data["was_correct"])
+
+    def test_tf_rejects_boolean_answers(self):
+        """True/false answers are answer rows, so booleans are not answer IDs."""
+        response = self.client.post(
+            self.url,
+            {
+                "question_id": str(self.tf_question.id),
+                "selected_answers": [False],
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_tf_missing_tf_answer_on_question(self):
-        question = Question.objects.create(
-            quiz=self.quiz, order=6, text="Pytanie bez tf_answer", question_type=QuestionType.TRUE_FALSE, tf_answer=None
-        )
-
-        response = self.client.post(
-            self.url,
-            {
-                "question_id": str(question.id),
-                "selected_answers": [True],
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    def test_tf_no_answers_in_database(self):
-        """TRUE_FALSE nie powinno tworzyć rekordów Answer."""
-        answer_count = Answer.objects.filter(question=self.tf_question).count()
-        self.assertEqual(answer_count, 0)
