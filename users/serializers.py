@@ -10,7 +10,12 @@ from rest_framework_simplejwt.serializers import (
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from ai.models import AIModel
-from users.account_levels import MAX_DURATION_DAYS, MAX_DURATION_MONTHS, get_account_level_state
+from users.account_levels import (
+    MAX_DURATION_DAYS,
+    MAX_DURATION_MONTHS,
+    get_account_level_state,
+    get_effective_account_level,
+)
 from users.models import AccountLevel, AccountLevelGrant, StudyGroup, Term, User, UserSettings
 
 
@@ -33,7 +38,7 @@ class UserTokenObtainPairSerializer(TokenObtainPairSerializer):
         token["is_superuser"] = user.is_superuser
         token["is_banned"] = user.is_banned
         token["account_type"] = user.account_type
-        token["account_level"] = user.account_level
+        token["account_level"] = get_effective_account_level(user).value
 
         return token
 
@@ -167,9 +172,15 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class PublicUserSerializer(serializers.ModelSerializer):
+    account_level = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = ["id", "full_name", "student_number", "photo", "account_type", "account_level"]
+
+    @extend_schema_field(serializers.CharField())
+    def get_account_level(self, obj: User) -> str:
+        return get_effective_account_level(obj).value
 
 
 class UserSettingsSerializer(serializers.ModelSerializer):
@@ -208,10 +219,12 @@ class UserSettingsSerializer(serializers.ModelSerializer):
         if value is None:
             return None
         request = self.context.get("request")
-        if (
-            request is None
-            or not AIModel.objects.available_for_account_level(request.user.account_level).filter(pk=value.pk).exists()
-        ):
+        user = getattr(request, "user", None)
+        if not getattr(user, "is_authenticated", False):
+            raise serializers.ValidationError("Select an active model available for your account.")
+
+        effective_level = get_effective_account_level(user)
+        if not AIModel.objects.available_for_account_level(effective_level).filter(pk=value.pk).exists():
             raise serializers.ValidationError("Select an active model available for your account.")
         return value
 
@@ -219,9 +232,10 @@ class UserSettingsSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         selected_model = validated_data.get("default_ai_model")
         if selected_model is not None:
+            effective_level = get_effective_account_level(self.context["request"].user)
             selected_model = (
                 AIModel.objects.select_for_update()
-                .available_for_account_level(self.context["request"].user.account_level)
+                .available_for_account_level(effective_level)
                 .filter(pk=selected_model.pk)
                 .first()
             )
