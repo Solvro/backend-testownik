@@ -1,6 +1,6 @@
 from django.test import override_settings
 from django.urls import reverse
-from oauth2_provider.models import AbstractApplication, get_application_model
+from oauth2_provider.models import AbstractApplication, AccessToken, get_application_model
 from rest_framework.test import APITestCase
 
 from oauth_integrations.models import OAuthApplicationMetadata
@@ -103,3 +103,33 @@ class OAuthAuthorizationAPITests(APITestCase):
         self.assertTrue(response.data["redirect_url"].startswith(f"{AUTHORIZATION_PARAMS['redirect_uri']}?"))
         self.assertIn("error=access_denied", response.data["redirect_url"])
         self.assertIn("state=test-state", response.data["redirect_url"])
+
+    def test_implicit_grant_is_rejected(self):
+        implicit_application = get_application_model().objects.create(
+            name="Implicit Client",
+            client_id="implicit-client",
+            client_type=AbstractApplication.CLIENT_PUBLIC,
+            authorization_grant_type=AbstractApplication.GRANT_IMPLICIT,
+            redirect_uris=AUTHORIZATION_PARAMS["redirect_uri"],
+        )
+        authorization_params = {
+            **self.authorization_params,
+            "client_id": implicit_application.client_id,
+            "response_type": "token",
+        }
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            reverse("oauth_authorize_request"),
+            {
+                "authorization_params": authorization_params,
+                "scopes": ["quizzes:read", "user:read"],
+                "allow": True,
+            },
+            format="json",
+        )
+
+        self.assertIn("redirect_url", response.data)
+        self.assertIn("error=", response.data["redirect_url"])
+        self.assertNotIn("access_token=", response.data["redirect_url"])
+        self.assertFalse(AccessToken.objects.filter(application=implicit_application).exists())
