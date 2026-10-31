@@ -13,6 +13,7 @@ from django.db.models.functions import TruncDate
 from django.utils import timezone
 
 from quizzes.services.operations import QuizOperationError, get_readable_quiz
+from users.account_levels import get_effective_account_level
 from users.models import AccountLevel, AccountType, UserSettings
 
 from .models import (
@@ -56,7 +57,7 @@ def available_models_for_account_level(account_level):
 
 
 def available_models_for_user(user):
-    return available_models_for_account_level(user.account_level)
+    return available_models_for_account_level(get_effective_account_level(user))
 
 
 def active_fallback_model_id(settings):
@@ -70,7 +71,7 @@ def get_limits(user, settings=None) -> EffectiveAILimits:
     settings = settings or AIUsageSettings.load()
     matrix = AIAccountLimit.objects.filter(
         account_type=user.account_type or AccountType.EMAIL,
-        account_level=user.account_level or AccountLevel.BASIC,
+        account_level=get_effective_account_level(user) or AccountLevel.BASIC,
     ).first()
     override = AIUserLimitOverride.objects.filter(user=user).first()
     return resolve_effective_limits(user, settings, matrix, override)

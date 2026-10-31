@@ -5,6 +5,7 @@ from django.db.models import CharField, Count, F, Max, Min, Q, Sum, Value
 from django.db.models.functions import Concat
 from django.utils import timezone
 
+from users.account_levels import get_effective_account_level
 from users.models import AccountLevel, AccountType, User
 
 from .models import (
@@ -117,7 +118,7 @@ def get_admin_users(*, query="", overrides_only=False, limit=100):
             limit_rows.get(
                 (
                     user.account_type or AccountType.EMAIL,
-                    user.account_level or AccountLevel.BASIC,
+                    get_effective_account_level(user) or AccountLevel.BASIC,
                 )
             ),
             overrides.get(user.id),
@@ -196,7 +197,7 @@ def get_admin_users(*, query="", overrides_only=False, limit=100):
         if fallback_resets_at is not None and fallback_resets_at <= now:
             fallback_resets_at = None
         active_models = active_models_by_level.get(
-            user.account_level or AccountLevel.BASIC,
+            get_effective_account_level(user) or AccountLevel.BASIC,
             active_models_by_level[AccountLevel.BASIC],
         )
         rows.append(
@@ -205,7 +206,7 @@ def get_admin_users(*, query="", overrides_only=False, limit=100):
                 "email": user.email,
                 "name": user.get_full_name(),
                 "account_type": user.account_type,
-                "account_level": user.account_level,
+                "account_level": get_effective_account_level(user),
                 "has_override": user.id in overrides,
                 "usage": {
                     "session": _usage_window(
