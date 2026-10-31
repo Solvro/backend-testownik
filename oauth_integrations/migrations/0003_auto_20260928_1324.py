@@ -2,6 +2,8 @@
 from django.db import migrations
 from django.utils import timezone
 
+from oauth_integrations.migration_operations import AlterOAuthApplicationClientIdLength
+
 
 def migrate_cimd_applications(apps, schema_editor):
     OAuthClientMetadata = apps.get_model("oauth_integrations", "OAuthClientMetadata")
@@ -30,8 +32,10 @@ def migrate_cimd_applications(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("oauth_integrations", "0002_oauthapplicationmetadata"),
+        ("oauth2_provider", "0022_refreshtoken_token_family_index"),
     ]
 
     operations = [
+        AlterOAuthApplicationClientIdLength(),
         migrations.RunPython(migrate_cimd_applications, migrations.RunPython.noop),
     ]
