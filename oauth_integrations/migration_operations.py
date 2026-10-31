@@ -1,10 +1,11 @@
 from django.db import router
+from django.db.migrations.exceptions import IrreversibleError
 from django.db.migrations.operations.base import Operation
 
 
 class AlterOAuthApplicationClientIdLength(Operation):
     reduces_to_sql = True
-    reversible = True
+    reversible = False
 
     def state_forwards(self, app_label, state):
         field = state.models[("oauth2_provider", "application")].fields["client_id"].clone()
@@ -26,7 +27,9 @@ class AlterOAuthApplicationClientIdLength(Operation):
             schema_editor.alter_field(old_model, old_field, new_field)
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state):
-        pass
+        raise IrreversibleError(
+            "Cannot safely shrink Application.client_id back to 255 characters without losing data."
+        )
 
     def describe(self):
         return "Expand OAuth application client ID length"

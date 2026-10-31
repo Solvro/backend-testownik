@@ -37,5 +37,5 @@ class Migration(migrations.Migration):
 
     operations = [
         AlterOAuthApplicationClientIdLength(),
-        migrations.RunPython(migrate_cimd_applications, migrations.RunPython.noop),
+        migrations.RunPython(migrate_cimd_applications),
     ]
