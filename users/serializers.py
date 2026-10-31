@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import InvalidToken
 from rest_framework_simplejwt.serializers import (
@@ -8,7 +9,8 @@ from rest_framework_simplejwt.serializers import (
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from ai.models import AIModel
-from users.models import StudyGroup, Term, User, UserSettings
+from users.account_levels import MAX_DURATION_DAYS, MAX_DURATION_MONTHS
+from users.models import AccountLevel, AccountLevelGrant, StudyGroup, Term, User, UserSettings
 
 
 class UserTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -208,3 +210,67 @@ class StudyGroupSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudyGroup
         fields = ["id", "name", "term"]
+
+
+class TimezoneAwareDateTimeField(serializers.DateTimeField):
+    def enforce_timezone(self, value):
+        if timezone.is_naive(value):
+            raise serializers.ValidationError("Datetime must include a timezone.")
+        return super().enforce_timezone(value)
+
+
+class AccountLevelGrantSerializer(serializers.ModelSerializer):
+    """
+    Serializes a single account level grant for the admin panel list and detail views.
+    """
+
+    created_by_email = serializers.EmailField(source="created_by.email", read_only=True)
+
+    class Meta:
+        model = AccountLevelGrant
+        fields = [
+            "id",
+            "level",
+            "source",
+            "source_ref",
+            "reason",
+            "starts_at",
+            "expires_at",
+            "created_at",
+            "created_by",
+            "created_by_email",
+        ]
+        read_only_fields = fields
+
+
+class AccountLevelGrantCreateSerializer(serializers.Serializer):
+    """
+    Validates input for creating a new account level grant via the admin API.
+    """
+
+    level = serializers.ChoiceField(
+        choices=[
+            (AccountLevel.SILVER, AccountLevel.SILVER.label),
+            (AccountLevel.GOLD, AccountLevel.GOLD.label),
+        ]
+    )
+    indefinite = serializers.BooleanField(default=False, required=False)
+    duration_months = serializers.IntegerField(
+        min_value=1, max_value=MAX_DURATION_MONTHS, required=False, allow_null=True
+    )
+    duration_days = serializers.IntegerField(min_value=1, max_value=MAX_DURATION_DAYS, required=False, allow_null=True)
+    expires_at = TimezoneAwareDateTimeField(required=False, allow_null=True)
+    reason = serializers.CharField(max_length=500, required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        time_modes = [
+            attrs.get("indefinite", False),
+            attrs.get("duration_months") is not None,
+            attrs.get("duration_days") is not None,
+            attrs.get("expires_at") is not None,
+        ]
+        if sum(time_modes) != 1:
+            raise serializers.ValidationError(
+                "Exactly one expiry mode must be specified: indefinite, duration_months, duration_days, or expires_at."
+            )
+        return attrs
