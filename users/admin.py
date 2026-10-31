@@ -29,6 +29,7 @@ from unfold.admin import ModelAdmin, StackedInline
 
 from oauth_integrations.models import OAuthApplicationMetadata
 
+from .account_levels import get_effective_account_level
 from .models import AccountLevelGrant, CourseClassType, EmailLoginToken, StudyGroup, Term, User, UserSettings
 
 
@@ -48,7 +49,7 @@ class UserAdmin(ModelAdmin):
         "student_number",
         "email",
         "account_type",
-        "account_level",
+        "effective_account_level",
         "is_banned",
         "is_staff",
         "is_superuser",
@@ -117,6 +118,10 @@ class UserAdmin(ModelAdmin):
 
     def has_add_permission(self, request, obj=None):
         return False
+
+    @admin.display(description="Account level")
+    def effective_account_level(self, obj: User) -> str:
+        return get_effective_account_level(obj).value
 
     @admin.action(description="Ban selected users")
     def ban_users(self, request, queryset):
