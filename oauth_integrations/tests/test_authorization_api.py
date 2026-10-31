@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -95,6 +97,47 @@ class OAuthAuthorizationAPITests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["client_uri"], "https://example.com")
         self.assertEqual(response.data["logo_uri"], "https://example.com/logo.png")
+
+    @patch("oauth2_provider.cimd.SafeMetadataFetcher.fetch")
+    def test_end_to_end_fresh_cimd_authorization_flow(self, mock_fetch):
+        client_id = "https://example.com/fresh-e2e.json"
+        mock_fetch.return_value = (
+            {
+                "client_id": client_id,
+                "client_name": "Fresh E2E Client",
+                "redirect_uris": [AUTHORIZATION_PARAMS["redirect_uri"]],
+                "grant_types": ["authorization_code"],
+                "response_types": ["code"],
+            },
+            3600,
+        )
+        authorization_params = {**self.authorization_params, "client_id": client_id}
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(reverse("oauth_authorize_request"), authorization_params)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["client_name"], "Fresh E2E Client")
+        self.assertTrue(
+            OAuthClientMetadata.objects.filter(
+                client_id_url=client_id,
+                client_name="Fresh E2E Client",
+            ).exists()
+        )
+
+        response = self.client.post(
+            reverse("oauth_authorize_request"),
+            {
+                "authorization_params": authorization_params,
+                "scopes": ["quizzes:read"],
+                "allow": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("code=", response.data["redirect_url"])
+        mock_fetch.assert_called_once_with(client_id)
 
     def test_authorization_request_approval_returns_redirect_url(self):
         self.client.force_authenticate(user=self.user)
