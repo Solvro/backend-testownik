@@ -16,7 +16,7 @@ from rest_framework.test import APITestCase
 
 from uploads.models import UploadedImage
 from uploads.utils import validate_image_source_url
-from users.models import User
+from users.models import AccountLevel, User
 from users.serializers import UserSerializer
 
 PHOTO_TEST_STORAGE = {"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}}
@@ -156,6 +156,8 @@ class UserPhotoUploadEndpointTests(APITestCase):
             first_name="Upload",
             last_name="Test",
         )
+        self.user.account_level = AccountLevel.GOLD
+        self.user.save(update_fields=["account_level"])
         self.client.force_authenticate(user=self.user)
         self.url = reverse("api_user_photo")
 
@@ -223,6 +225,13 @@ class UserPhotoUploadEndpointTests(APITestCase):
     def test_guest_cannot_upload_or_reset(self):
         self.user.account_type = "guest"
         self.user.save(update_fields=["account_type"])
+        self.assertEqual(self.client.post(self.url, {"photo": _create_test_image_file()}).status_code, 403)
+        self.assertEqual(self.client.delete(self.url).status_code, 403)
+
+    def test_non_gold_user_cannot_upload_or_delete_custom_photo(self):
+        self.user.account_level = AccountLevel.BASIC
+        self.user.save(update_fields=["account_level"])
+
         self.assertEqual(self.client.post(self.url, {"photo": _create_test_image_file()}).status_code, 403)
         self.assertEqual(self.client.delete(self.url).status_code, 403)
 
