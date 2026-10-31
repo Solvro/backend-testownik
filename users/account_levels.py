@@ -61,6 +61,9 @@ def get_account_level_state(user: User, *, at: datetime | None = None) -> Accoun
         raise ValidationError({"at": "at must include a timezone."})
 
     permanent_level = AccountLevel(user.account_level)
+    if user._state.adding:
+        return AccountLevelState(permanent_level, permanent_level, None, None)
+
     active_grants = list(
         user.account_level_grants.filter(starts_at__lte=at).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=at))
     )
