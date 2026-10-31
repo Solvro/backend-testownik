@@ -10,6 +10,8 @@ class OAuthClientMetadata(models.Model):
         on_delete=models.CASCADE,
         related_name="cimd_metadata",
         swappable=False,
+        null=True,
+        blank=True,
     )
     client_id_url = models.URLField(max_length=2048, unique=True)
     client_name = models.CharField(max_length=255)

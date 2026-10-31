@@ -2,11 +2,11 @@ from unittest.mock import patch
 
 from django.test import override_settings
 from django.urls import reverse
-from oauth2_provider.models import AbstractApplication, get_application_model
+from django.utils import timezone
+from oauth2_provider.models import AbstractApplication, AccessToken, get_application_model
 from rest_framework.test import APITestCase
 
-from oauth_integrations.models import OAuthApplicationMetadata
-from oauth_integrations.oauth_cimd import CIMDError
+from oauth_integrations.models import OAuthApplicationMetadata, OAuthClientMetadata
 from users.models import User
 
 AUTHORIZATION_PARAMS = {
@@ -71,25 +71,73 @@ class OAuthAuthorizationAPITests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["logo_uri"], "https://example.com/logo.png")
 
-    def test_authorization_request_hides_cimd_preflight_error_details(self):
-        self.client.force_authenticate(user=self.user)
-        params = {
-            **self.authorization_params,
-            "client_id": "https://client.example/.well-known/oauth-client",
-        }
-
-        with patch(
-            "oauth_integrations.views.get_or_create_cimd_application",
-            side_effect=CIMDError("resolved internal host 10.0.0.5"),
-        ):
-            response = self.client.get(reverse("oauth_authorize_request"), params)
-
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(
-            response.data["error"],
-            "Unable to validate client metadata for the provided client_id.",
+    def test_authorization_request_returns_native_cimd_display_metadata(self):
+        client_id = "https://example.com/client.json"
+        application = get_application_model().objects.create(
+            name="Native MCP Client",
+            client_id=client_id,
+            client_type=AbstractApplication.CLIENT_PUBLIC,
+            authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris=AUTHORIZATION_PARAMS["redirect_uri"],
         )
-        self.assertNotIn("10.0.0.5", response.data["error"])
+        OAuthClientMetadata.objects.create(
+            application=None,
+            client_id_url=client_id,
+            client_name=application.name,
+            client_uri="https://example.com",
+            logo_uri="https://example.com/logo.png",
+            redirect_uris=[AUTHORIZATION_PARAMS["redirect_uri"]],
+            fetched_at=timezone.now(),
+        )
+        authorization_params = {**self.authorization_params, "client_id": client_id}
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(reverse("oauth_authorize_request"), authorization_params)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["client_uri"], "https://example.com")
+        self.assertEqual(response.data["logo_uri"], "https://example.com/logo.png")
+
+    @patch("oauth2_provider.cimd.SafeMetadataFetcher.fetch")
+    def test_end_to_end_fresh_cimd_authorization_flow(self, mock_fetch):
+        client_id = "https://example.com/fresh-e2e.json"
+        mock_fetch.return_value = (
+            {
+                "client_id": client_id,
+                "client_name": "Fresh E2E Client",
+                "redirect_uris": [AUTHORIZATION_PARAMS["redirect_uri"]],
+                "grant_types": ["authorization_code"],
+                "response_types": ["code"],
+            },
+            3600,
+        )
+        authorization_params = {**self.authorization_params, "client_id": client_id}
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(reverse("oauth_authorize_request"), authorization_params)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["client_name"], "Fresh E2E Client")
+        self.assertTrue(
+            OAuthClientMetadata.objects.filter(
+                client_id_url=client_id,
+                client_name="Fresh E2E Client",
+            ).exists()
+        )
+
+        response = self.client.post(
+            reverse("oauth_authorize_request"),
+            {
+                "authorization_params": authorization_params,
+                "scopes": ["quizzes:read"],
+                "allow": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("code=", response.data["redirect_url"])
+        mock_fetch.assert_called_once_with(client_id)
 
     def test_authorization_request_approval_returns_redirect_url(self):
         self.client.force_authenticate(user=self.user)
@@ -126,3 +174,33 @@ class OAuthAuthorizationAPITests(APITestCase):
         self.assertTrue(response.data["redirect_url"].startswith(f"{AUTHORIZATION_PARAMS['redirect_uri']}?"))
         self.assertIn("error=access_denied", response.data["redirect_url"])
         self.assertIn("state=test-state", response.data["redirect_url"])
+
+    def test_implicit_grant_is_rejected(self):
+        implicit_application = get_application_model().objects.create(
+            name="Implicit Client",
+            client_id="implicit-client",
+            client_type=AbstractApplication.CLIENT_PUBLIC,
+            authorization_grant_type=AbstractApplication.GRANT_IMPLICIT,
+            redirect_uris=AUTHORIZATION_PARAMS["redirect_uri"],
+        )
+        authorization_params = {
+            **self.authorization_params,
+            "client_id": implicit_application.client_id,
+            "response_type": "token",
+        }
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            reverse("oauth_authorize_request"),
+            {
+                "authorization_params": authorization_params,
+                "scopes": ["quizzes:read", "user:read"],
+                "allow": True,
+            },
+            format="json",
+        )
+
+        self.assertIn("redirect_url", response.data)
+        self.assertIn("error=", response.data["redirect_url"])
+        self.assertNotIn("access_token=", response.data["redirect_url"])
+        self.assertFalse(AccessToken.objects.filter(application=implicit_application).exists())
