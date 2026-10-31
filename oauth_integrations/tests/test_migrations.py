@@ -28,7 +28,6 @@ class CIMDApplicationMigrationTests(TestCase):
             cache_expires_at=expires_at,
         )
         migration = import_module("oauth_integrations.migrations.0003_auto_20260928_1324")
-        migration = import_module("oauth_integrations.migrations.0003_auto_20260928_1324")
         migration.migrate_cimd_applications(apps, None)
 
         application.refresh_from_db()
@@ -51,7 +50,6 @@ class CIMDApplicationMigrationTests(TestCase):
             redirect_uris=["https://example.com/callback"],
             fetched_at=timezone.now() - timedelta(days=2),
         )
-        migration = import_module("oauth_integrations.migrations.0003_auto_20260928_1324")
         migration = import_module("oauth_integrations.migrations.0003_auto_20260928_1324")
         migration.migrate_cimd_applications(apps, None)
 
