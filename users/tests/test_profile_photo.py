@@ -1,6 +1,7 @@
 """Tests for profile photo feature: model property, upload/delete endpoint, SSRF validation."""
 
 import io
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.conf import settings
@@ -10,14 +11,15 @@ from django.core.management import call_command
 from django.db import transaction
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from PIL import Image as PILImage
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from uploads.models import UploadedImage
 from uploads.utils import validate_image_source_url
-from users.models import User
-from users.serializers import UserSerializer
+from users.models import AccountLevel, AccountLevelGrant, AccountLevelGrantSource, User
+from users.serializers import UserSerializer, UserTokenObtainPairSerializer
 
 PHOTO_TEST_STORAGE = {"default": {"BACKEND": "django.core.files.storage.InMemoryStorage"}}
 
@@ -156,6 +158,8 @@ class UserPhotoUploadEndpointTests(APITestCase):
             first_name="Upload",
             last_name="Test",
         )
+        self.user.account_level = AccountLevel.GOLD
+        self.user.save(update_fields=["account_level"])
         self.client.force_authenticate(user=self.user)
         self.url = reverse("api_user_photo")
 
@@ -225,6 +229,41 @@ class UserPhotoUploadEndpointTests(APITestCase):
         self.user.save(update_fields=["account_type"])
         self.assertEqual(self.client.post(self.url, {"photo": _create_test_image_file()}).status_code, 403)
         self.assertEqual(self.client.delete(self.url).status_code, 403)
+
+    def test_non_gold_user_cannot_upload_or_delete_custom_photo(self):
+        self.user.account_level = AccountLevel.BASIC
+        self.user.save(update_fields=["account_level"])
+
+        self.assertEqual(self.client.post(self.url, {"photo": _create_test_image_file()}).status_code, 403)
+        self.assertEqual(self.client.delete(self.url).status_code, 403)
+
+    def test_temporary_gold_access_expires_for_an_already_authenticated_user(self):
+        self.user.account_level = AccountLevel.BASIC
+        self.user.save(update_fields=["account_level"])
+        grant = AccountLevelGrant.objects.create(
+            user=self.user,
+            level=AccountLevel.GOLD,
+            source=AccountLevelGrantSource.ADMIN,
+            starts_at=timezone.now() - timedelta(minutes=1),
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+        access_token = UserTokenObtainPairSerializer.get_token(self.user).access_token
+        self.client.force_authenticate(user=None)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
+
+        upload_response = self.client.post(self.url, {"photo": _create_test_image_file()}, format="multipart")
+
+        self.assertEqual(upload_response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        custom_photo_id = self.user.custom_photo_image_id
+
+        grant.expires_at = timezone.now() - timedelta(seconds=1)
+        grant.save(update_fields=["expires_at"])
+        upload_after_expiry = self.client.post(self.url, {"photo": _create_test_image_file()}, format="multipart")
+        self.assertEqual(upload_after_expiry.status_code, 403)
+        self.assertEqual(self.client.delete(self.url).status_code, 403)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.custom_photo_image_id, custom_photo_id)
 
     def test_reset_clears_legacy_photo_and_does_not_resurrect_in_backfill(self):
         self.user.overriden_photo_url = "https://api.dicebear.com/9.x/micah/svg?seed=legacy"

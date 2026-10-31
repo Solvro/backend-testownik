@@ -23,6 +23,7 @@ from ai.services import (
     SESSION_WINDOW,
     AIUsageAccessDenied,
     _reset_at,
+    available_models_for_user,
     check_quota,
     get_limits,
     get_usage_summary,
@@ -30,7 +31,7 @@ from ai.services import (
     reset_all_limits,
 )
 from quizzes.models import Quiz
-from users.models import AccountLevel, AccountType, User, UserSettings
+from users.models import AccountLevel, AccountLevelGrant, AccountLevelGrantSource, AccountType, User, UserSettings
 
 
 class AIUsageServicesTests(TestCase):
@@ -50,6 +51,43 @@ class AIUsageServicesTests(TestCase):
         limits = get_limits(self.user)
         self.assertIsNone(limits.credits_session)
         self.assertEqual(limits.credits_weekly, 900)
+
+    def test_temporary_level_updates_ai_limits_and_model_access_at_expiry(self):
+        AIAccountLimit.objects.update_or_create(
+            account_type=AccountType.EMAIL,
+            account_level=AccountLevel.BASIC,
+            defaults={"credits_session": 100, "credits_weekly": 500},
+        )
+        AIAccountLimit.objects.update_or_create(
+            account_type=AccountType.EMAIL,
+            account_level=AccountLevel.SILVER,
+            defaults={"credits_session": 200, "credits_weekly": 1000},
+        )
+        silver_model = AIModel.objects.create(
+            model="temporary-silver-model",
+            label="Temporary Silver model",
+            provider="openai",
+            minimum_account_level=AccountLevel.SILVER,
+            input_weight=1,
+            output_weight=1,
+            cache_read_weight=0,
+        )
+        grant = AccountLevelGrant.objects.create(
+            user=self.user,
+            level=AccountLevel.SILVER,
+            source=AccountLevelGrantSource.ADMIN,
+            starts_at=timezone.now() - timedelta(minutes=1),
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+
+        self.assertEqual(get_limits(self.user).credits_session, 200)
+        self.assertIn(silver_model, available_models_for_user(self.user))
+
+        grant.expires_at = timezone.now() - timedelta(seconds=1)
+        grant.save(update_fields=["expires_at"])
+
+        self.assertEqual(get_limits(self.user).credits_session, 100)
+        self.assertNotIn(silver_model, available_models_for_user(self.user))
 
     def test_null_override_disables_both_windows(self):
         AIUserLimitOverride.objects.create(user=self.user)
