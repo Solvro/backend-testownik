@@ -87,6 +87,12 @@ class UserAccountLevelGrantViewSet(mixins.ListModelMixin, mixins.CreateModelMixi
 
     @extend_schema(
         summary="Grant account level to user",
+        description=(
+            "Create an independent Silver or Gold grant starting immediately. Specify exactly one of "
+            "`indefinite`, `duration_months`, `duration_days`, or `expires_at`. Month durations use calendar "
+            "months in the configured time zone with end-of-month clamping. Datetimes must include a time zone "
+            "and are stored in UTC; a grant is inactive at its exact `expires_at` instant."
+        ),
         request=AccountLevelGrantCreateSerializer,
         responses={201: AccountLevelGrantSerializer},
     )

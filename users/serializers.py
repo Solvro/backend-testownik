@@ -303,12 +303,33 @@ class AccountLevelGrantCreateSerializer(serializers.Serializer):
             (AccountLevel.GOLD, AccountLevel.GOLD.label),
         ]
     )
-    indefinite = serializers.BooleanField(default=False, required=False)
-    duration_months = serializers.IntegerField(
-        min_value=1, max_value=MAX_DURATION_MONTHS, required=False, allow_null=True
+    indefinite = serializers.BooleanField(
+        default=False,
+        required=False,
+        help_text="Grant the level without an expiration date.",
     )
-    duration_days = serializers.IntegerField(min_value=1, max_value=MAX_DURATION_DAYS, required=False, allow_null=True)
-    expires_at = TimezoneAwareDateTimeField(required=False, allow_null=True)
+    duration_months = serializers.IntegerField(
+        min_value=1,
+        max_value=MAX_DURATION_MONTHS,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Duration in calendar months in the configured time zone; dates at the end of a month are "
+            "clamped to the last day of the target month."
+        ),
+    )
+    duration_days = serializers.IntegerField(
+        min_value=1,
+        max_value=MAX_DURATION_DAYS,
+        required=False,
+        allow_null=True,
+        help_text="Duration in 24-hour days from the grant start.",
+    )
+    expires_at = TimezoneAwareDateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="Timezone-aware ISO 8601 expiration instant; the grant is inactive at this exact instant.",
+    )
     reason = serializers.CharField(max_length=500, required=False, allow_blank=True)
 
     def validate(self, attrs):
