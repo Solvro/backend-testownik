@@ -1,9 +1,10 @@
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 from oauth2_provider.models import AbstractApplication, AccessToken, get_application_model
 from rest_framework.test import APITestCase
 
-from oauth_integrations.models import OAuthApplicationMetadata
+from oauth_integrations.models import OAuthApplicationMetadata, OAuthClientMetadata
 from users.models import User
 
 AUTHORIZATION_PARAMS = {
@@ -66,6 +67,33 @@ class OAuthAuthorizationAPITests(APITestCase):
         response = self.client.get(reverse("oauth_authorize_request"), self.authorization_params)
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["logo_uri"], "https://example.com/logo.png")
+
+    def test_authorization_request_returns_native_cimd_display_metadata(self):
+        client_id = "https://example.com/client.json"
+        application = get_application_model().objects.create(
+            name="Native MCP Client",
+            client_id=client_id,
+            client_type=AbstractApplication.CLIENT_PUBLIC,
+            authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris=AUTHORIZATION_PARAMS["redirect_uri"],
+        )
+        OAuthClientMetadata.objects.create(
+            application=None,
+            client_id_url=client_id,
+            client_name=application.name,
+            client_uri="https://example.com",
+            logo_uri="https://example.com/logo.png",
+            redirect_uris=[AUTHORIZATION_PARAMS["redirect_uri"]],
+            fetched_at=timezone.now(),
+        )
+        authorization_params = {**self.authorization_params, "client_id": client_id}
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(reverse("oauth_authorize_request"), authorization_params)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["client_uri"], "https://example.com")
         self.assertEqual(response.data["logo_uri"], "https://example.com/logo.png")
 
     def test_authorization_request_approval_returns_redirect_url(self):

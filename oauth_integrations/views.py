@@ -1,6 +1,7 @@
 import logging
 
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.http import Http404, QueryDict
 from django.urls import reverse
 from oauth2_provider.exceptions import OAuthToolkitError
@@ -16,6 +17,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from oauth_integrations.models import OAuthClientMetadata
 from oauth_integrations.serializers import AuthorizationDecisionSerializer, AuthorizedAppSerializer
 
 logger = logging.getLogger(__name__)
@@ -63,7 +65,25 @@ def _log_oauth_toolkit_error(message, error, *, client_id="", redirect_uri=""):
     )
 
 
+def _application_client_metadata(application):
+    try:
+        return application.cimd_metadata
+    except ObjectDoesNotExist:
+        return OAuthClientMetadata.objects.filter(client_id_url=application.client_id).first()
+
+
+def _application_client_uri(application):
+    cimd_metadata = _application_client_metadata(application)
+    if cimd_metadata is not None:
+        return cimd_metadata.client_uri
+    return getattr(application, "client_uri", "")
+
+
 def _application_logo_uri(application):
+    cimd_metadata = _application_client_metadata(application)
+    if cimd_metadata is not None:
+        return cimd_metadata.logo_uri
+
     logo = getattr(application, "logo_uri", "")
     if logo:
         return logo
@@ -146,8 +166,8 @@ class AuthorizationRequestAPIView(OAuthLibMixin, APIView):
             {
                 "client_id": application.client_id,
                 "client_name": application.name,
-                "client_uri": getattr(application, "client_uri", ""),
-                "logo_uri": _application_logo_uri(application),  # noqa: F821
+                "client_uri": _application_client_uri(application),
+                "logo_uri": _application_logo_uri(application),
                 "redirect_uri": credentials["redirect_uri"],
                 "scopes": [{"value": scope, "description": all_scopes[scope]} for scope in scopes],
             }
@@ -278,7 +298,7 @@ class AuthorizedAppsViewSet(mixins.ListModelMixin, mixins.DestroyModelMixin, vie
                     "client_id": app.client_id,
                     "oauth_application_id": app.client_id,
                     "client_name": app.name,
-                    "client_uri": getattr(app, "client_uri", ""),
+                    "client_uri": _application_client_uri(app),
                     "logo_uri": _application_logo_uri(app),
                     "created": token.created,
                     "scopes": token.scope,
