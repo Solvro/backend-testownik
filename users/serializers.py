@@ -1,5 +1,6 @@
 from django.db import transaction
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import InvalidToken
 from rest_framework_simplejwt.serializers import (
@@ -9,7 +10,7 @@ from rest_framework_simplejwt.serializers import (
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from ai.models import AIModel
-from users.account_levels import MAX_DURATION_DAYS, MAX_DURATION_MONTHS
+from users.account_levels import MAX_DURATION_DAYS, MAX_DURATION_MONTHS, get_account_level_state
 from users.models import AccountLevel, AccountLevelGrant, StudyGroup, Term, User, UserSettings
 
 
@@ -102,9 +103,18 @@ class CurrentUserDefault:
         return user
 
 
+class AccountLevelDetailsSerializer(serializers.Serializer):
+    effective_level = serializers.ChoiceField(choices=AccountLevel.choices)
+    permanent_level = serializers.ChoiceField(choices=AccountLevel.choices)
+    expires_at = serializers.DateTimeField(allow_null=True)
+    next_level = serializers.ChoiceField(choices=AccountLevel.choices, allow_null=True)
+
+
 class UserSerializer(serializers.ModelSerializer):
     has_custom_photo = serializers.SerializerMethodField()
     default_photo = serializers.URLField(read_only=True, allow_null=True)
+    account_level_details = serializers.SerializerMethodField()
+    account_level = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -125,7 +135,32 @@ class UserSerializer(serializers.ModelSerializer):
             "hide_profile",
             "account_type",
             "account_level",
+            "account_level_details",
         ]
+
+    @extend_schema_field(serializers.CharField())
+    def get_account_level(self, obj: User) -> str:
+        return self._get_account_level_state(obj).effective_level.value
+
+    @extend_schema_field(AccountLevelDetailsSerializer)
+    def get_account_level_details(self, obj: User) -> dict:
+        state = self._get_account_level_state(obj)
+        return AccountLevelDetailsSerializer(
+            {
+                "effective_level": state.effective_level,
+                "permanent_level": state.permanent_level,
+                "expires_at": state.expires_at,
+                "next_level": state.next_level,
+            }
+        ).data
+
+    def _get_account_level_state(self, obj: User):
+        state = getattr(self, "_account_level_state", None)
+        if state is None or self._account_level_state_user_id != obj.pk:
+            state = get_account_level_state(obj)
+            self._account_level_state = state
+            self._account_level_state_user_id = obj.pk
+        return state
 
     def get_has_custom_photo(self, obj):
         return obj.custom_photo_image_id is not None or bool(obj.overriden_photo_url)
