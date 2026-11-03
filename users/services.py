@@ -17,6 +17,8 @@ def migrate_guest_to_user(guest_id: str, target_user: User) -> bool:
     - Quizzes (creator)
     - Quiz sessions (where target doesn't already have one for that quiz)
     - Folders (owner)
+    - Authorship of quiz versions, comments, and reported question issues,
+      which would otherwise be lost when the guest is deleted
 
     Only works when the source account is of type GUEST.
     Returns True on success, False on any failure.
@@ -44,9 +46,14 @@ def migrate_guest_to_user(guest_id: str, target_user: User) -> bool:
 
     try:
         with transaction.atomic():
-            from quizzes.models import Folder, FolderType, Quiz, QuizSession
+            from quizzes.models import Comment, Folder, FolderType, QuestionIssue, Quiz, QuizSession, QuizVersion
 
             Quiz.objects.filter(creator=guest).update(creator=target_user)
+            # These point at the user with SET_NULL; deleting the guest would
+            # leave them without an author.
+            QuizVersion.objects.filter(author=guest).update(author=target_user)
+            Comment.objects.filter(author=guest).update(author=target_user)
+            QuestionIssue.objects.filter(user=guest).update(user=target_user)
 
             guest_active_sessions = {s.quiz_id: s for s in QuizSession.objects.filter(user=guest, is_active=True)}
             target_active_sessions = {

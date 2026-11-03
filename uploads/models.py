@@ -58,6 +58,7 @@ class UploadedImage(models.Model):
             and not self.answers.exists()
             and not self.user_photos.exists()
             and not self.user_custom_photos.exists()
+            and not self.quiz_versions.exists()
         )
 
     def delete(self, *args, **kwargs):

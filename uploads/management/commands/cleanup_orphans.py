@@ -49,6 +49,7 @@ class Command(BaseCommand):
             answers__isnull=True,
             user_photos__isnull=True,
             user_custom_photos__isnull=True,
+            quiz_versions__isnull=True,
         ).distinct()
 
         orphan_count = orphans.count()

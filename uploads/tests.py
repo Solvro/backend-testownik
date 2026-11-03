@@ -9,7 +9,7 @@ from PIL import Image
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quizzes.models import Question, Quiz
+from quizzes.models import Question, Quiz, QuizVersion, QuizVersionSource
 from uploads.models import UploadedImage
 from users.models import User
 
@@ -308,6 +308,27 @@ class UploadFlowTests(APITestCase):
 
         # 3. Verify it still exists
         self.assertTrue(UploadedImage.objects.filter(id=image_id).exists())
+
+    def test_cleanup_keeps_images_used_by_quiz_versions(self):
+        """An image only an older quiz version refers to stays restorable."""
+        img = create_image_file()
+        response = self.client.post(self.upload_url, {"image": img}, format="multipart")
+        uploaded_img = UploadedImage.objects.get(id=response.data["id"])
+        uploaded_img.uploaded_at = timezone.now() - timedelta(hours=48)
+        uploaded_img.save()
+
+        quiz = Quiz.objects.create(title="Q", creator=self.user, folder=self.user.root_folder)
+        version = QuizVersion.objects.create(
+            quiz=quiz, version=1, source=QuizVersionSource.EDITOR, title="Q", snapshot=b""
+        )
+        version.uploads.add(uploaded_img)
+
+        call_command("cleanup_orphans", stdout=StringIO())
+        self.assertTrue(UploadedImage.objects.filter(id=uploaded_img.id).exists())
+
+        version.delete()
+        call_command("cleanup_orphans", stdout=StringIO())
+        self.assertFalse(UploadedImage.objects.filter(id=uploaded_img.id).exists())
 
     def test_cleanup_dry_run(self):
         """Test that cleanup --dry-run doesn't delete anything."""
