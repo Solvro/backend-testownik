@@ -17,10 +17,12 @@ class UserTools(AnnotatedMCPToolset):
             "full_name": user.full_name,
         }
 
-    @tool_annotations(title="Get my settings", read_only=True, destructive=False, idempotent=True)
+    @tool_annotations(title="Get my settings", read_only=False, destructive=False, idempotent=True)
     def get_my_settings(self) -> dict:
         """Return the current user's quiz and notification settings, including
-        reoccurrence config, AI preferences, and notification toggles."""
+        reoccurrence config, AI preferences, and notification toggles.
+        Create and save default settings if this account has none yet.
+        """
         _require_scope(self.request, "user:read")
         user = self.request.user
         settings, _ = UserSettings.objects.get_or_create(user=user)
