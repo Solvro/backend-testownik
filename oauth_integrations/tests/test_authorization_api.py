@@ -81,7 +81,7 @@ class OAuthAuthorizationAPITests(APITestCase):
             redirect_uris=AUTHORIZATION_PARAMS["redirect_uri"],
         )
         OAuthClientMetadata.objects.create(
-            application=None,
+            application=application,
             client_id_url=client_id,
             client_name=application.name,
             client_uri="https://example.com",

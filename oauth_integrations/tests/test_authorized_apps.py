@@ -111,7 +111,7 @@ class AuthorizedAppsViewSetTests(APITestCase):
             redirect_uris="https://example.com/callback",
         )
         OAuthClientMetadata.objects.create(
-            application=None,
+            application=application,
             client_id_url=client_id,
             client_name=application.name,
             client_uri="https://example.com",

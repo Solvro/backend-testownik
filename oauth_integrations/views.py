@@ -17,7 +17,6 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from oauth_integrations.models import OAuthClientMetadata
 from oauth_integrations.serializers import AuthorizationDecisionSerializer, AuthorizedAppSerializer
 
 logger = logging.getLogger(__name__)
@@ -69,7 +68,7 @@ def _application_client_metadata(application):
     try:
         return application.cimd_metadata
     except ObjectDoesNotExist:
-        return OAuthClientMetadata.objects.filter(client_id_url=application.client_id).first()
+        return None
 
 
 def _application_client_uri(application):
