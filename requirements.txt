@@ -18,7 +18,7 @@ django-filter==26.1
 django-constance>=4.3.5
 Authlib==1.8.0
 nh3==0.3.7
-Pillow==12.3.0
+Pillow==13.0.0
 django-storages[s3]==1.14.6
 django-unfold==0.110.1
 django-mcp-server==0.5.7
