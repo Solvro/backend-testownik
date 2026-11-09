@@ -8,7 +8,7 @@ from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.core.validators import MinValueValidator
 from django.db import models
-from django.db.models import BooleanField
+from django.db.models import BooleanField, F, Q
 from django.utils.timezone import now
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -26,6 +26,12 @@ class AccountLevel(models.TextChoices):
     BASIC = "basic", "Basic"
     SILVER = "silver", "Silver"
     GOLD = "gold", "Gold"
+
+
+class AccountLevelGrantSource(models.TextChoices):
+    ADMIN = "admin", "Admin"
+    REWARD = "reward", "Reward"
+    GIVEAWAY = "giveaway", "Giveaway"
 
 
 SEX_TO_GENDER = {
@@ -358,3 +364,58 @@ class EmailLoginToken(models.Model):
     def add_retry(self):
         self.retry_count += 1
         self.save()
+
+
+class AccountLevelGrant(models.Model):
+    """
+    A Silver/Gold level granted to a user on top of their permanent `User.account_level`.
+
+    A grant is active while `starts_at <= now < expires_at`; `expires_at = NULL` means it never expires.
+    The effective level of a user is the highest of the permanent level and all active grants.
+    Grants never change `User.account_level` and never replace each other.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="account_level_grants")
+    level = models.CharField(
+        max_length=10,
+        choices=AccountLevel.choices,
+        help_text="Granted level. Only silver and gold are allowed.",
+    )
+    source = models.CharField(max_length=20, choices=AccountLevelGrantSource.choices)
+    source_ref = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="Reference to the source of the grant.",
+    )
+    reason = models.CharField(max_length=500, blank=True)
+    starts_at = models.DateTimeField(default=now)
+    expires_at = models.DateTimeField(null=True, blank=True, help_text="Empty means the grant never expires.")
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="created_account_level_grants"
+    )
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [models.Index(fields=["user", "expires_at"], name="account_grant_user_expires_idx")]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(level__in=[AccountLevel.SILVER, AccountLevel.GOLD]),
+                name="account_grant_level_not_basic",
+            ),
+            models.CheckConstraint(
+                condition=Q(expires_at__isnull=True) | Q(expires_at__gt=F("starts_at")),
+                name="account_grant_expires_after_start",
+            ),
+            models.UniqueConstraint(
+                fields=["source", "source_ref"],
+                condition=Q(source_ref__isnull=False) & ~Q(source_ref=""),
+                name="account_grant_unique_source_ref",
+            ),
+        ]
+        permissions = [("manage_account_levels", "Can manage account levels")]
+
+    def __str__(self):
+        return f"{self.level} for {self.user_id} until {self.expires_at.isoformat() if self.expires_at else 'never'}"
