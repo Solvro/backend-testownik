@@ -14,7 +14,7 @@ whitenoise==6.12.0
 asgiref==3.12.1
 django-ratelimit==4.1.0
 drf-spectacular==0.30.0
-django-filter==26.1
+django-filter==26.2
 django-constance>=4.3.5
 Authlib==1.8.0
 nh3==0.3.7
