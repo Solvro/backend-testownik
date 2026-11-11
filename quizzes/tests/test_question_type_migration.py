@@ -59,7 +59,7 @@ class QuestionTypeMigrationTestCase(TransactionTestCase):
         }
 
     def test_forward_reverse_and_forward(self):
-        user = User.objects.create(email="migration@example.com", student_number="migration")
+        user = User.objects.create(email="migration@example.com", student_number="123456")
         old = self.migrate(self.previous)
         try:
             Quiz = old.get_model("quizzes", "Quiz")
