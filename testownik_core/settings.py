@@ -363,8 +363,10 @@ OAUTH2_PROVIDER = {
     "REFRESH_TOKEN_EXPIRE_SECONDS": 2592000,
     "ROTATE_REFRESH_TOKEN": True,
     "PKCE_REQUIRED": True,
+    "COMPLIANT_BCP_RFC9700_IMPLICIT_GRANT": True,
     "ALLOWED_REDIRECT_URI_SCHEMES": ["https", "http"],
-    "OAUTH2_VALIDATOR_CLASS": "oauth_integrations.oauth_cimd.CIMDOAuth2Validator",
+    "CIMD_ENABLED": True,
+    "CIMD_METADATA_FETCHER": "oauth_integrations.cimd_metadata_fetcher.PersistingCIMDMetadataFetcher",
 }
 
 # MCP Server (django-mcp-server)
