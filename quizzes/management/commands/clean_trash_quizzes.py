@@ -16,4 +16,6 @@ class Command(BaseCommand):
 
         quizzes_to_delete = Quiz.objects.filter(folder__folder_type=FolderType.TRASH, deleted_at__lt=cutoff_date)
 
-        quizzes_to_delete.delete()
+        _, deleted_per_model = quizzes_to_delete.delete()
+        deleted = deleted_per_model.get(Quiz._meta.label, 0)
+        self.stdout.write(self.style.SUCCESS(f"Deleted {deleted} quiz(zes) from trash older than {ttl_days} days."))

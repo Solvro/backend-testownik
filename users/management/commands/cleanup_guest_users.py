@@ -3,7 +3,7 @@ from datetime import timedelta
 
 from django.core.management.base import BaseCommand, CommandError, DjangoHelpFormatter
 from django.db import transaction
-from django.db.models import Count, F, Max
+from django.db.models import Count, F, Max, OuterRef, Subquery
 from django.db.models.functions import Coalesce, Greatest
 from django.utils import timezone
 
@@ -59,11 +59,18 @@ Examples:
             .annotate(
                 last_session=Max("quiz_sessions__updated_at"),
                 last_quiz=Max("created_quizzes__updated_at"),
+                # Other users' sessions on the guest's quizzes count as activity too.
+                last_quiz_use=Subquery(
+                    QuizSession.objects.filter(quiz__creator=OuterRef("pk"))
+                    .order_by("-updated_at")
+                    .values("updated_at")[:1]
+                ),
             )
             .annotate(
                 last_activity=Greatest(
                     Coalesce("last_session", F("updated_at")),
                     Coalesce("last_quiz", F("updated_at")),
+                    Coalesce("last_quiz_use", F("updated_at")),
                     F("updated_at"),
                 )
             )
@@ -101,12 +108,16 @@ Examples:
                         count=Count("id"),
                         last_activity=Max("updated_at"),
                     )
+                    quiz_use = QuizSession.objects.filter(quiz__creator=guest).aggregate(
+                        last_activity=Max("updated_at"),
+                    )
                     last_activity = max(
                         activity
                         for activity in (
                             guest.updated_at,
                             session_stats["last_activity"],
                             quiz_stats["last_activity"],
+                            quiz_use["last_activity"],
                         )
                         if activity is not None
                     )

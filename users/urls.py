@@ -12,6 +12,7 @@ urlpatterns = [
     path("login-link/", views.LoginLinkView.as_view(), name="login_link"),
     path("login-otp/", views.LoginOtpView.as_view(), name="login_otp"),
     path("user/", views.CurrentUserView.as_view(), name="api_current_user"),
+    path("user/photo/", views.UserPhotoView.as_view(), name="api_user_photo"),
     path(
         "settings/",
         views.SettingsViewSet.as_view(

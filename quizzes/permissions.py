@@ -97,6 +97,11 @@ class IsQuizCreator(permissions.BasePermission):
         return obj.folder.owner == request.user
 
 
+def not_guest_owned_q(prefix: str = "") -> Q:
+    """Exclude guest-owned quizzes: they are private to the guest whatever their visibility."""
+    return ~Q(**{f"{prefix}folder__owner__account_type": AccountType.GUEST})
+
+
 def accessible_quizzes_q(user) -> Q:
     """
     Q object matching rows whose related ``quiz`` is readable by ``user``.
@@ -111,7 +116,9 @@ def accessible_quizzes_q(user) -> Q:
         ~Q(folder__folder_type=FolderType.TRASH),
         visibility__gte=1,
     ).values_list("id", flat=True)
-    readable_filter = Q(quiz__folder__owner=user) | Q(quiz_id__in=shared_quiz_ids) | Q(quiz__visibility__gte=2)
+    readable_filter = Q(quiz__folder__owner=user) | (
+        not_guest_owned_q("quiz__") & (Q(quiz_id__in=shared_quiz_ids) | Q(quiz__visibility__gte=2))
+    )
     return ~Q(quiz__folder__folder_type=FolderType.TRASH) & readable_filter
 
 
@@ -130,6 +137,9 @@ def user_has_quiz_read_access(user, quiz) -> bool:
 
     if quiz.folder.owner == user:
         return True
+    # Guest quizzes are private to the guest whatever their visibility.
+    if quiz.folder.owner.account_type == AccountType.GUEST:
+        return False
     if quiz.visibility >= 2 and (user.is_authenticated or quiz.allow_anonymous):
         return True
     if _is_effectively_authenticated(user) and quiz.sharedquiz_set.filter(user=user).exists():

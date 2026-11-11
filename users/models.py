@@ -1,7 +1,9 @@
 import secrets
 import uuid
 from datetime import date, timedelta
+from urllib.parse import urlparse
 
+from django.conf import settings
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.core.validators import MinValueValidator
@@ -61,6 +63,13 @@ class CustomUserManager(BaseUserManager):
         return self.create_user(email, password, **extra_fields)
 
 
+def _absolute_media_url(url: str) -> str:
+    # Local file storage returns "/media/..."; S3 already returns absolute URLs.
+    if not urlparse(url).netloc:
+        return f"{settings.BACKEND_URL}{url}"
+    return url
+
+
 class User(AbstractBaseUser, PermissionsMixin):
     objects = CustomUserManager()
 
@@ -87,8 +96,29 @@ class User(AbstractBaseUser, PermissionsMixin):
     sex = models.CharField(max_length=1, choices=[(x.value, x.name) for x in Sex], null=True, blank=True)
     student_status = models.IntegerField(choices=[(x.value, x.name) for x in StudentStatus], null=True, blank=True)
     staff_status = models.IntegerField(choices=[(x.value, x.name) for x in StaffStatus], null=True, blank=True)
+    photo_image = models.ForeignKey(
+        "uploads.UploadedImage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="user_photos",
+    )
+    custom_photo_image = models.ForeignKey(
+        "uploads.UploadedImage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="user_custom_photos",
+    )
+    # Provider (USOS/DiceBear) photo source, refreshed on every login. `photo` falls back
+    # to it until the image worker stores a copy in `photo_image`, so a fresh login token
+    # already carries a working avatar.
     photo_url = models.URLField(null=True, blank=True)
-    overriden_photo_url = models.URLField(null=True, blank=True)
+    # DEPRECATED transitional field. Source for the `backfill_user_photos` command,
+    # which migrates it into `custom_photo_image`. Drop in a contract migration once
+    # the backfill is verified complete. Until then, photo and has_custom_photo
+    # intentionally read it as a fallback; uploads and resets clear it.
+    overriden_photo_url = models.URLField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -168,7 +198,20 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def photo(self) -> str | None:
-        return self.overriden_photo_url or self.photo_url
+        # Preserve existing custom photos until the out-of-band backfill succeeds.
+        if not self.custom_photo_image_id and self.overriden_photo_url:
+            return self.overriden_photo_url
+        img = self.custom_photo_image or self.photo_image
+        if not img:
+            return self.photo_url or None
+        return _absolute_media_url(img.image.url)
+
+    @property
+    def default_photo(self) -> str | None:
+        """Provider photo shown after a reset; ignores the custom photo."""
+        if self.photo_image and self.photo_image.image:
+            return _absolute_media_url(self.photo_image.image.url)
+        return self.photo_url or None
 
     @property
     def gender(self) -> str | None:
