@@ -132,6 +132,8 @@ def user_has_quiz_read_access(user, quiz) -> bool:
         return True
     if quiz.visibility >= 2 and (user.is_authenticated or quiz.allow_anonymous):
         return True
+    if quiz.visibility < 1:
+        return False
     if _is_effectively_authenticated(user) and quiz.sharedquiz_set.filter(user=user).exists():
         return True
     return (
@@ -146,8 +148,8 @@ class IsQuizReadable(permissions.BasePermission):
     Allowed if:
     - User is the folder owner
     - Quiz is public or unlisted (visibility >= 2) and user is authenticated (or quiz allows anonymous)
-    - Quiz is shared with the user explicitly (requires non-guest account)
-    - Quiz is shared with a group the user belongs to (requires non-guest account)
+    - Visibility >= 1 and quiz is shared explicitly (requires non-guest account)
+    - Visibility >= 1 and quiz is shared with the user's group (requires non-guest account)
 
     Guest users are treated as unauthenticated for shared quiz access.
     """

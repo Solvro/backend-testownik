@@ -4,7 +4,7 @@ import uuid
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Avg, Count, Max, Prefetch, Q
+from django.db.models import Avg, Count, F, Max, Prefetch, Q
 from django.utils import timezone
 from django.utils.html import escape
 from django.utils.module_loading import import_string
@@ -15,10 +15,10 @@ from drf_spectacular.utils import (
     extend_schema,
     extend_schema_view,
 )
-from oauth2_provider.contrib.rest_framework import OAuth2Authentication
-from rest_framework import generics, mixins, permissions, status, viewsets
+from rest_framework import generics, mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import (
+    APIException,
     AuthenticationFailed,
     MethodNotAllowed,
     NotAuthenticated,
@@ -303,6 +303,15 @@ class SearchQuizzesView(APIView):
         return Response(result)
 
 
+class QuizVersionConflict(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_code = "quiz_version_conflict"
+    default_detail = {
+        "code": "quiz_version_conflict",
+        "detail": "The saved quiz changed. Reload it before saving your changes.",
+    }
+
+
 # This viewset will only return user's quizzes when listing,
 #   but will allow to view all quizzes when retrieving a single quiz.
 # This is by design, if the user wants to view shared quizzes,
@@ -327,10 +336,7 @@ class SearchQuizzesView(APIView):
 class QuizViewSet(viewsets.ModelViewSet):
     queryset = Quiz.objects.all()
     serializer_class = QuizSerializer
-    authentication_classes = [
-        OAuth2Authentication,
-        *resolve_default_authentication_classes(),
-    ]
+    authentication_classes = resolve_default_authentication_classes()
     permission_classes = [
         permissions.IsAuthenticatedOrReadOnly,
         HasOAuthQuizScopeForMethods,
@@ -496,8 +502,21 @@ class QuizViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(creator=self.request.user, folder=self.request.user.root_folder)
 
+    @transaction.atomic
     def perform_update(self, serializer):
-        serializer.save(version=serializer.instance.version + 1)
+        expected_version = serializer.validated_data.pop("expected_version", None)
+        current = Quiz.objects.filter(pk=serializer.instance.pk)
+        if expected_version is not None:
+            current = current.filter(version=expected_version)
+        # Claim the version before changing any nested questions. This UPDATE
+        # serializes writers on PostgreSQL and also works on SQLite, where
+        # select_for_update() alone cannot protect a stale read.
+        if current.update(version=F("version") + 1) != 1:
+            raise QuizVersionConflict()
+        # A writer may have committed after get_object(). Refresh unsupplied
+        # fields before save so a partial edit does not restore their old values.
+        serializer.instance.refresh_from_db()
+        serializer.save(version=serializer.instance.version)
 
     def perform_destroy(self, instance):
         if instance.folder.owner != self.request.user:
@@ -1022,38 +1041,36 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
         return context
 
 
+class ReportQuestionIssueInput(serializers.Serializer):
+    quiz_id = serializers.UUIDField()
+    question_id = serializers.UUIDField()
+    issue = serializers.CharField(trim_whitespace=True, allow_blank=False)
+
+
 class ReportQuestionIssueView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(
         summary="Report a quiz question issue",
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {
-                    "quiz_id": {"type": "string", "format": "uuid"},
-                    "question_id": {"type": "string"},
-                    "issue": {"type": "string"},
-                },
-                "required": ["quiz_id", "question_id", "issue"],
-            }
-        },
+        request=ReportQuestionIssueInput,
         responses={
             201: OpenApiResponse(description="Issue reported successfully"),
             400: OpenApiResponse(description="Missing or invalid data"),
             401: OpenApiResponse(description="Unauthorized"),
-            404: OpenApiResponse(description="Quiz not found"),
+            403: OpenApiResponse(description="Quiz is unavailable or not readable"),
+            404: OpenApiResponse(description="Quiz or question not found"),
             500: OpenApiResponse(description="Email sending failed"),
         },
     )
     def post(self, request):
-        data = request.data
-        if not data.get("quiz_id") or not data.get("question_id") or not data.get("issue"):
-            return Response({"error": "Missing data"}, status=400)
-
-        quiz = Quiz.objects.get(id=data.get("quiz_id"))
-        if not quiz:
-            return Response({"error": "Quiz not found"}, status=404)
+        submitted = ReportQuestionIssueInput(data=request.data)
+        if not submitted.is_valid():
+            return Response({"error": "Missing or invalid report data", "errors": submitted.errors}, status=400)
+        data = submitted.validated_data
+        try:
+            quiz = get_readable_quiz(request.user, data["quiz_id"])
+        except QuizOperationError as error:
+            return Response({"error": str(error)}, status=error.status_code)
 
         if request.user == quiz.creator:
             return Response(
@@ -1062,7 +1079,7 @@ class ReportQuestionIssueView(APIView):
             )
 
         try:
-            question = Question.objects.get(id=data.get("question_id"), quiz=quiz)
+            question = Question.objects.get(id=data["question_id"], quiz=quiz)
         except Question.DoesNotExist:
             return Response({"error": "Question not found"}, status=404)
 
@@ -1076,7 +1093,7 @@ class ReportQuestionIssueView(APIView):
             f"{escape(data.get('issue'))}"
         )
 
-        reply_to = [request.user.email]
+        reply_to = [request.user.email] if request.user.email else []
 
         try:
             send_notification(
@@ -1141,9 +1158,11 @@ class QuestionViewSet(
             )
         }
     )
+    @transaction.atomic
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
 
+        Quiz.objects.filter(pk=instance.quiz_id).update(version=F("version") + 1)
         affected_sessions = QuizSession.objects.filter(current_question=instance, is_active=True)
         new_question = None
 

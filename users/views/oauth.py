@@ -24,6 +24,12 @@ from usos_api.models import StaffStatus, StudentStatus
 from testownik_core.settings import oauth
 from uploads.image_sources import download_image_source
 from uploads.utils import validate_image_source_url
+from users.guest_migration import (
+    authorize_guest_migration,
+    bind_oauth_guest_migration,
+    consume_oauth_guest_migration,
+    validate_oauth_guest_migration,
+)
 from users.models import AccountType, StudyGroup, Term, User
 from users.tasks import sync_user_photo_task
 
@@ -73,7 +79,7 @@ _COMMON_LOGIN_PARAMETERS = [
         "guest_id",
         OpenApiTypes.STR,
         OpenApiParameter.QUERY,
-        description="Guest account ID to migrate to the authenticated user.",
+        description="Guest account ID to migrate. Requires this guest's access-token cookie or bearer.",
     ),
 ]
 
@@ -92,10 +98,13 @@ _COMMON_CALLBACK_PARAMETERS = [
         description="URL to redirect to after authorization. Defaults to index.",
     ),
     OpenApiParameter(
-        "guest_id",
+        "guest_migration",
         OpenApiTypes.STR,
         OpenApiParameter.QUERY,
-        description="Guest account ID to migrate to the authenticated user.",
+        description=(
+            "One-time guest migration flow issued by the login endpoint. "
+            "Bound to this browser session and guest."
+        ),
     ),
 ]
 
@@ -126,9 +135,13 @@ class SolvroLoginView(APIView):
         if error_response is not None:
             return error_response
 
+        guest_id = authorize_guest_migration(request, params.guest_id, allow_cookie=True)
+        callback_params = build_callback_params(params)
+        if guest_id:
+            callback_params["guest_migration"] = bind_oauth_guest_migration(request, guest_id)
         callback_url = add_query_params(
             request.build_absolute_uri("/api/authorize/"),
-            build_callback_params(params),
+            callback_params,
         )
 
         additional_params = {"prompt": "login"} if params.confirm_user else {}
@@ -165,7 +178,10 @@ class UsosLoginView(AsyncAPIView):
         if error_response is not None:
             return error_response
 
+        guest_id = await sync_to_async(authorize_guest_migration)(request, params.guest_id, allow_cookie=True)
         callback_params = build_callback_params(params)
+        if guest_id:
+            callback_params["guest_migration"] = await sync_to_async(bind_oauth_guest_migration)(request, guest_id)
         if "redirect" in callback_params:
             callback_params["redirect_b64"] = _encode_usos_redirect(callback_params.pop("redirect"))
         callback_url = build_oauth_callback_url(request, "/api/authorize/usos/", callback_params)
@@ -256,6 +272,7 @@ class SolvroAuthorizeView(APIView):
         tags=["Authentication"],
     )
     def get(self, request):
+        validate_oauth_guest_migration(request)
         try:
             token = oauth.create_client("solvro-auth").authorize_access_token(request)
         except Exception as e:
@@ -273,9 +290,9 @@ class SolvroAuthorizeView(APIView):
             logger.error("Failed to retrieve Solvro user profile: %s", str(e), exc_info=True)
             raise
 
+        guest_id = consume_oauth_guest_migration(request)
         redirect_url = resolve_callback_redirect_url(request)
         jwt = request.GET.get("jwt", "false") == "true"
-        guest_id = request.GET.get("guest_id", "")
 
         if not profile.get("email"):
             logger.error(
@@ -356,9 +373,9 @@ class UsosAuthorizeView(AsyncAPIView):
         tags=["Authentication"],
     )
     async def get(self, request):
+        guest_id = await sync_to_async(validate_oauth_guest_migration)(request)
         redirect_url = _resolve_usos_callback_redirect_url(request)
         jwt = request.GET.get("jwt", "false") == "true"
-        guest_id = request.GET.get("guest_id", "")
 
         async with USOSClient(
             "https://apps.usos.pwr.edu.pl/",
@@ -378,7 +395,7 @@ class UsosAuthorizeView(AsyncAPIView):
                     bool(verifier),
                     request.GET.get("retry"),
                 )
-                return _usos_retry_or_error(request, redirect_url, jwt, error="invalid_token")
+                return _usos_retry_or_error(request, redirect_url, jwt, error="invalid_token", guest_id=guest_id)
 
             try:
                 access_token, access_token_secret = await client.authorize(
@@ -394,8 +411,9 @@ class UsosAuthorizeView(AsyncAPIView):
                     request.GET.get("retry"),
                     exc_info=True,
                 )
-                return _usos_retry_or_error(request, redirect_url, jwt, error="authorization_failed")
+                return _usos_retry_or_error(request, redirect_url, jwt, error="authorization_failed", guest_id=guest_id)
 
+            guest_id = await sync_to_async(consume_oauth_guest_migration)(request)
             user, created = await update_user_data_from_usos(client, access_token, access_token_secret)
 
             if user.is_banned:
@@ -445,7 +463,7 @@ def _resolve_usos_callback_redirect_url(request):
     return get_safe_redirect_url(_decode_usos_redirect(encoded), request, default=index)
 
 
-def _usos_retry_or_error(request, redirect_url: str, jwt: bool, *, error: str):
+def _usos_retry_or_error(request, redirect_url: str, jwt: bool, *, error: str, guest_id: str = ""):
     """
     Handle a recoverable USOS failure: on first attempt, bounce back through /api/login/usos/
     with `retry=1`; if already retried, return the appropriate error response.
@@ -455,6 +473,10 @@ def _usos_retry_or_error(request, redirect_url: str, jwt: bool, *, error: str):
         params = request.GET.copy()
         if "redirect_b64" in params:
             params["redirect"] = _decode_usos_redirect(params.pop("redirect_b64")[-1])
+        params.pop("guest_migration", None)
+        params.pop("guest_id", None)
+        if guest_id:
+            params["guest_id"] = guest_id
         params["retry"] = "1"
         return redirect(add_query_params(login_url, dict(params)))
 

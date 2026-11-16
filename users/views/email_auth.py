@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.utils.decorators import method_decorator
 from django_ratelimit.decorators import ratelimit
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
@@ -6,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from users.auth_cookies import set_jwt_cookies
+from users.guest_migration import authorize_guest_migration
 from users.models import EmailLoginToken, User
 from users.serializers import UserTokenObtainPairSerializer
 from users.services import migrate_guest_to_user
@@ -31,16 +33,18 @@ def _login_success_response(user):
 
 
 def _finalize_token_login(email_login_token, guest_id=""):
-    user = email_login_token.user
-    email_login_token.delete()
-
-    if user.is_banned:
-        return _banned_user_response(user)
-
-    if guest_id:
-        migrate_guest_to_user(guest_id, user)
-
-    return _login_success_response(user)
+    with transaction.atomic():
+        # A token can be consumed only once, including concurrent upgrade attempts.
+        token = EmailLoginToken.objects.select_for_update().filter(pk=email_login_token.pk).first()
+        if not token or token.is_expired() or token.is_locked:
+            return Response({"error": "Invalid or expired login token"}, status=400)
+        user = token.user
+        if user.is_banned:
+            return _banned_user_response(user)
+        if guest_id and not migrate_guest_to_user(guest_id, user):
+            return Response({"error": "Guest migration failed. Your data and login token were retained."}, status=409)
+        token.delete()
+        return _login_success_response(user)
 
 
 class GenerateOtpView(APIView):
@@ -108,7 +112,10 @@ class LoginOtpView(APIView):
                 "properties": {
                     "email": {"type": "string", "format": "email"},
                     "otp": {"type": "string"},
-                    "guest_id": {"type": "string"},
+                    "guest_id": {
+                        "type": "string",
+                        "description": "Optional guest to migrate; requires its matching Authorization bearer token.",
+                    },
                 },
                 "required": ["email", "otp"],
             }
@@ -169,7 +176,7 @@ class LoginOtpView(APIView):
     def post(self, request):
         email = request.data.get("email")
         otp_code = request.data.get("otp")
-        guest_id = request.data.get("guest_id", "")
+        guest_id = authorize_guest_migration(request, request.data.get("guest_id", ""))
 
         if not email or not otp_code:
             return Response({"error": "Email and OTP code must be provided"}, status=400)
@@ -200,7 +207,10 @@ class LoginLinkView(APIView):
                 "type": "object",
                 "properties": {
                     "token": {"type": "string"},
-                    "guest_id": {"type": "string"},
+                    "guest_id": {
+                        "type": "string",
+                        "description": "Optional guest to migrate; requires its matching Authorization bearer token.",
+                    },
                 },
                 "required": ["token"],
             }
@@ -239,7 +249,7 @@ class LoginLinkView(APIView):
     )
     def post(self, request):
         token = request.data.get("token")
-        guest_id = request.data.get("guest_id", "")
+        guest_id = authorize_guest_migration(request, request.data.get("guest_id", ""))
         if not token:
             return Response({"error": "Token not provided"}, status=400)
 

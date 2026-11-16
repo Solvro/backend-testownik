@@ -11,7 +11,7 @@ class QuizShortcutTests(APITestCase):
         self.owner = User.objects.create_user(email="owner@example.com", password="password123")
         self.reader = User.objects.create_user(email="reader@example.com", password="password123")
         self.stranger = User.objects.create_user(email="stranger@example.com", password="password123")
-        self.quiz = Quiz.objects.create(title="Shared", creator=self.owner, folder=self.owner.root_folder, visibility=0)
+        self.quiz = Quiz.objects.create(title="Shared", creator=self.owner, folder=self.owner.root_folder, visibility=1)
         SharedQuiz.objects.create(quiz=self.quiz, user=self.reader)
         self.folder = Folder.objects.create(name="Study", owner=self.reader, parent=self.reader.root_folder)
         self.other = Folder.objects.create(name="Later", owner=self.reader, parent=self.reader.root_folder)

@@ -171,10 +171,12 @@ class Quiz(models.Model):
     def can_edit(self, user):
         if not getattr(user, "is_authenticated", False):
             return False
-        return (
-            self.folder.has_edit_permission(user)
-            or self.sharedquiz_set.filter(user=user, allow_edit=True).exists()
-            or self.sharedquiz_set.filter(study_group__in=user.study_groups.all(), allow_edit=True).exists()
+        return self.folder.has_edit_permission(user) or (
+            self.visibility >= 1
+            and (
+                self.sharedquiz_set.filter(user=user, allow_edit=True).exists()
+                or self.sharedquiz_set.filter(study_group__in=user.study_groups.all(), allow_edit=True).exists()
+            )
         )
 
 

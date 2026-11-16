@@ -7,6 +7,7 @@ from django.urls import reverse
 from rest_framework.test import APITestCase
 
 from users.models import User
+from users.serializers import UserTokenObtainPairSerializer
 from users.views.oauth import _decode_usos_redirect, _encode_usos_redirect
 
 
@@ -21,7 +22,9 @@ class SolvroOAuthTests(APITestCase):
         mock_auth_client.authorize_redirect.return_value = HttpResponseRedirect("http://auth.solvro.pl/login")
 
         redirect_param = "http://localhost:3000/quizzes?foo=bar"
-        guest_id = "test-guest-id"
+        guest = User.objects.create_guest_user()
+        guest_id = str(guest.pk)
+        self.client.cookies["access_token"] = str(UserTokenObtainPairSerializer.get_token(guest).access_token)
 
         url = reverse("login")
         self.client.get(
@@ -41,7 +44,8 @@ class SolvroOAuthTests(APITestCase):
 
         expected_encoded_redirect = urllib.parse.quote_plus(redirect_param)
         self.assertIn(f"redirect={expected_encoded_redirect}", callback_url)
-        self.assertIn(f"guest_id={guest_id}", callback_url)
+        self.assertNotIn("guest_id=", callback_url)
+        self.assertIn("guest_migration=", callback_url)
 
     @patch("users.views.oauth.oauth.create_client")
     def test_solvro_authorize_success(self, mock_create_client):

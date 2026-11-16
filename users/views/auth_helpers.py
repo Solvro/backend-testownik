@@ -7,7 +7,7 @@ from asgiref.sync import sync_to_async
 from django.contrib import messages
 from django.contrib.auth import alogin as async_auth_login
 from django.contrib.auth import login as auth_login
-from django.http import HttpResponseBadRequest, HttpResponseForbidden
+from django.http import HttpResponse, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import redirect, resolve_url
 from rest_framework.response import Response
 
@@ -54,8 +54,6 @@ def build_callback_params(params: OAuthLoginParams) -> dict:
     callback_params = {"jwt": str(params.jwt).lower()}
     if params.redirect_url:
         callback_params["redirect"] = params.redirect_url
-    if params.guest_id:
-        callback_params["guest_id"] = params.guest_id
     return callback_params
 
 
@@ -99,8 +97,8 @@ def handle_oauth_login_result(request, user, *, jwt: bool, redirect_url: str, gu
         )
         return redirect(safe_redirect_url)
 
-    if guest_id:
-        migrate_guest_to_user(guest_id, user)
+    if guest_id and not migrate_guest_to_user(guest_id, user):
+        return HttpResponse("Guest migration failed. Restart sign-in; your guest data was retained.", status=409)
 
     if jwt:
         response = redirect(remove_query_params(safe_redirect_url, ["error"]))
@@ -124,8 +122,8 @@ async def ahandle_oauth_login_result(request, user, *, jwt: bool, redirect_url: 
         )
         return redirect(safe_redirect_url)
 
-    if guest_id:
-        await sync_to_async(migrate_guest_to_user)(guest_id, user)
+    if guest_id and not await sync_to_async(migrate_guest_to_user)(guest_id, user):
+        return HttpResponse("Guest migration failed. Restart sign-in; your guest data was retained.", status=409)
 
     if jwt:
         response = redirect(remove_query_params(safe_redirect_url, ["error"]))

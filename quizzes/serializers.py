@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.db import models, transaction
+from django.db.models import Prefetch
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -17,6 +18,7 @@ from quizzes.models import (
     QuizShortcut,
     SharedQuiz,
 )
+from uploads.fields import AttachableImageField
 from uploads.models import UploadedImage
 from users.models import StudyGroup, User, UserSettings
 from users.serializers import (
@@ -31,9 +33,7 @@ class AnswerSerializer(serializers.ModelSerializer):
 
     image_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
     image = serializers.SerializerMethodField()
-    image_upload = serializers.PrimaryKeyRelatedField(
-        queryset=UploadedImage.objects.all(), required=False, allow_null=True
-    )
+    image_upload = AttachableImageField(queryset=UploadedImage.objects.all(), required=False, allow_null=True)
     image_width = serializers.IntegerField(source="image_upload.width", read_only=True, allow_null=True)
     image_height = serializers.IntegerField(source="image_upload.height", read_only=True, allow_null=True)
 
@@ -70,9 +70,7 @@ class QuestionSerializer(serializers.ModelSerializer):
 
     image_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
     image = serializers.SerializerMethodField()
-    image_upload = serializers.PrimaryKeyRelatedField(
-        queryset=UploadedImage.objects.all(), required=False, allow_null=True
-    )
+    image_upload = AttachableImageField(queryset=UploadedImage.objects.all(), required=False, allow_null=True)
     image_width = serializers.IntegerField(source="image_upload.width", read_only=True, allow_null=True)
     image_height = serializers.IntegerField(source="image_upload.height", read_only=True, allow_null=True)
 
@@ -115,6 +113,7 @@ class QuestionSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
+        Quiz.objects.filter(pk=validated_data["quiz"].pk).update(version=models.F("version") + 1)
         answers_data = validated_data.pop("answers")
         if "order" not in validated_data:
             quiz = validated_data["quiz"]
@@ -129,6 +128,11 @@ class QuestionSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        Quiz.objects.filter(pk=instance.quiz_id).update(version=models.F("version") + 1)
+        try:
+            instance.refresh_from_db()
+        except Question.DoesNotExist as exc:
+            raise serializers.ValidationError({"question": "This question was removed. Reload the quiz."}) from exc
         answers_data = validated_data.pop("answers", None)
 
         instance.order = validated_data.get("order", instance.order)
@@ -199,6 +203,7 @@ class BulkCreateQuestionsSerializer(serializers.Serializer):
     @transaction.atomic
     def create(self, validated_data):
         quiz = validated_data["quiz"]
+        Quiz.objects.filter(pk=quiz.pk).update(version=models.F("version") + 1)
         questions_data = validated_data["questions"]
         max_order = quiz.questions.aggregate(models.Max("order"))["order__max"] or 0
 
@@ -277,6 +282,7 @@ class QuizSessionSerializer(serializers.ModelSerializer):
 
 
 class QuizSerializer(serializers.ModelSerializer):
+    expected_version = serializers.IntegerField(required=False, min_value=1, max_value=2147483647, write_only=True)
     creator = PublicUserSerializer(read_only=True)
     can_edit = serializers.SerializerMethodField()
     questions = QuestionSerializer(many=True)
@@ -298,6 +304,7 @@ class QuizSerializer(serializers.ModelSerializer):
             "allow_anonymous",
             "is_ai_generated",
             "version",
+            "expected_version",
             "archived_at",
             "deleted_at",
             "questions",
@@ -308,6 +315,11 @@ class QuizSerializer(serializers.ModelSerializer):
             "has_external_images",
         ]
         read_only_fields = ["creator", "version", "archived_at", "deleted_at", "can_edit", "folder"]
+
+    def validate_expected_version(self, value):
+        if self.instance is None:
+            raise serializers.ValidationError("expected_version is only supported when updating a quiz.")
+        return value
 
     def get_can_edit(self, obj) -> bool:
         request = self.context.get("request")
@@ -338,7 +350,11 @@ class QuizSerializer(serializers.ModelSerializer):
             data["creator"] = None
 
         if user and user.is_authenticated:
-            includes = [item.strip() for item in request.query_params.get("include", "").split(",")] if request else []
+            includes = (
+                [item.strip() for item in request.query_params.get("include", "").split(",")]
+                if request and self.context.get("allow_includes", True)
+                else []
+            )
 
             if "user_settings" in includes and hasattr(user, "settings"):
                 user_settings, _ = UserSettings.objects.get_or_create(user=user)
@@ -383,7 +399,14 @@ class QuizSerializer(serializers.ModelSerializer):
         if questions_data is not None:
             self._sync_questions(instance, questions_data)
 
-        return Quiz.objects.prefetch_related("questions__answers").get(pk=instance.pk)
+        return Quiz.objects.prefetch_related(
+            Prefetch(
+                "questions",
+                queryset=Question.objects.select_related("image_upload").prefetch_related(
+                    Prefetch("answers", queryset=Answer.objects.select_related("image_upload"))
+                ),
+            )
+        ).get(pk=instance.pk)
 
     def _create_questions(self, quiz, questions_data):
         """Bulk create questions and their answers."""
@@ -392,20 +415,28 @@ class QuizSerializer(serializers.ModelSerializer):
 
         questions_to_create = []
         questions_answers_data = []
+        client_question_ids = []
+        id_map = self.context.get("created_id_map")
 
         for q_data in questions_data:
             answers_data = q_data.pop("answers", [])
-            q_data.pop("id", None)
+            q_data.pop("quiz", None)
+            client_question_ids.append(q_data.pop("id", None))
             questions_to_create.append(Question(quiz=quiz, **q_data))
             questions_answers_data.append(answers_data)
 
         created_questions = Question.objects.bulk_create(questions_to_create)
 
         all_answers = []
-        for question, answers_data in zip(created_questions, questions_answers_data):
+        for question, answers_data, client_id in zip(created_questions, questions_answers_data, client_question_ids):
+            if id_map is not None and client_id is not None:
+                id_map["questions"][str(client_id)] = str(question.pk)
             for a_data in answers_data:
-                a_data.pop("id", None)
-                all_answers.append(Answer(question=question, **a_data))
+                client_answer_id = a_data.pop("id", None)
+                answer = Answer(question=question, **a_data)
+                all_answers.append(answer)
+                if id_map is not None and client_answer_id is not None:
+                    id_map["answers"][str(client_answer_id)] = str(answer.pk)
 
         if all_answers:
             Answer.objects.bulk_create(all_answers)
@@ -421,7 +452,19 @@ class QuizSerializer(serializers.ModelSerializer):
 
     def _has_changes(self, obj, data, fields):
         """Check if any field values differ between object and data."""
-        return any(field in data and getattr(obj, field) != data[field] for field in fields)
+        for field in fields:
+            if field not in data:
+                continue
+            if field == "image_upload":
+                # Validation already resolved the upload. Comparing its primary
+                # key avoids fetching every existing image solely for equality.
+                current = obj.image_upload_id
+                incoming = data[field].pk if data[field] is not None else None
+            else:
+                current, incoming = getattr(obj, field), data[field]
+            if current != incoming:
+                return True
+        return False
 
     def _sync_questions(self, quiz, questions_data):
         """
@@ -443,6 +486,7 @@ class QuizSerializer(serializers.ModelSerializer):
 
         for q_data in questions_data:
             answers_data = q_data.pop("answers", [])
+            q_data.pop("quiz", None)
             question_id = q_data.pop("id", None)
 
             if question_id and question_id in existing_ids:
@@ -663,6 +707,10 @@ class SharedQuizSerializer(serializers.ModelSerializer):
         optional_fields = ["user_id", "study_group_id", "allow_edit"]
 
     def validate(self, attrs):
+        # Object permissions were checked against the existing quiz. A share
+        # must not be redirected to a quiz that was never authorized.
+        if self.instance and "quiz" in attrs and attrs["quiz"].pk != self.instance.quiz_id:
+            raise serializers.ValidationError({"quiz_id": "The quiz for an existing share cannot be changed."})
         user = attrs.get("user")
         study_group = attrs.get("study_group")
 

@@ -12,5 +12,5 @@ DJANGO_MCP_GLOBAL_SERVER_CONFIG = {
     "stateless": True,
 }
 DJANGO_MCP_AUTHENTICATION_CLASSES = [
-    "oauth2_provider.contrib.rest_framework.OAuth2Authentication",
+    "testownik_core.mcp_auth.MCPOAuthAuthentication",
 ]

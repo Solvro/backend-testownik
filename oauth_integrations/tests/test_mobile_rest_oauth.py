@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlparse
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import override_settings
 from django.utils import timezone
 from oauth2_provider.models import AccessToken, get_application_model
@@ -33,6 +34,22 @@ class MobileRestOAuthTests(APITestCase):
         )
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
         return token
+
+    def test_registration_rejects_existing_non_authorization_code_grant_without_changing_it(self):
+        self.application.authorization_grant_type = self.application.GRANT_PASSWORD
+        self.application.save(update_fields=["authorization_grant_type"])
+        with self.assertRaises(CommandError):
+            call_command("register_mobile_oauth", verbosity=0)
+        self.application.refresh_from_db()
+        self.assertEqual(self.application.authorization_grant_type, self.application.GRANT_PASSWORD)
+
+    def test_matching_mobile_registration_is_idempotent(self):
+        application_id = self.application.pk
+        call_command("register_mobile_oauth", verbosity=0)
+        self.application.refresh_from_db()
+        self.assertEqual(self.application.pk, application_id)
+        self.assertEqual(self.application.authorization_grant_type, self.application.GRANT_AUTHORIZATION_CODE)
+        self.assertEqual(get_application_model().objects.filter(client_id="testownik-mobile").count(), 1)
 
     def test_mobile_can_organize_owned_library_with_write_scope(self):
         from quizzes.models import Folder, Quiz

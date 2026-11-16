@@ -36,7 +36,8 @@ class FeedbackAddView(GenericAPIView):
                 description="Feedback submitted successfully",
             ),
             400: OpenApiResponse(description="Missing required fields or invalid input"),
-            500: OpenApiResponse(description="Internal server error or webhook failure"),
+            500: OpenApiResponse(description="Internal server error"),
+            503: OpenApiResponse(description="Feedback delivery temporarily unavailable"),
         },
     )
     def post(self, request):
@@ -50,18 +51,21 @@ class FeedbackAddView(GenericAPIView):
             payload = serializer.validated_data
             payload["secret"] = FEEDBACK_SECRET
 
-            response = requests.post(N8N_WEBHOOK, data=payload)
+            response = requests.post(N8N_WEBHOOK, data=payload, timeout=(5, 15))
 
             if response.ok:
                 return Response({"success": "Feedback sent successfully"})
             else:
                 logger.error(
-                    "Error while sending feedback form: %s, %s",
+                    "Error while sending feedback form: status=%s",
                     response.status_code,
-                    response.text,
                 )
                 return Response({"error": "Error while sending feedback form"}, status=500)
 
-        except Exception as e:
-            logger.exception("Unexpected error in feedback endpoint: %s", str(e))
+        except requests.RequestException:
+            # Request errors can contain a private webhook URL or echoed payload.
+            logger.warning("Feedback delivery temporarily unavailable.")
+            return Response({"detail": "Feedback delivery is unavailable. Please try again."}, status=503)
+        except Exception:
+            logger.error("Unexpected error in feedback endpoint.")
             return Response({"error": "Internal Server Error"}, status=500)

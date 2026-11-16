@@ -37,3 +37,24 @@ class AnswerReceipt(models.Model):
 
     def __str__(self):
         return f"{self.user_id}: {self.request_id}"
+
+
+class QuizCreateReceipt(models.Model):
+    """One durable create outcome, retained even if the created quiz is deleted."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    request_id = models.UUIDField()
+    payload_hash = models.CharField(max_length=64)
+    outcome = models.CharField(max_length=10, choices=[("created", "Created"), ("rejected", "Rejected")])
+    quiz = models.ForeignKey("quizzes.Quiz", null=True, on_delete=models.SET_NULL)
+    original_quiz_id = models.UUIDField(null=True)
+    created_version = models.PositiveIntegerField(null=True)
+    id_map = models.JSONField(default=dict)
+    validation_errors = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "request_id"], name="mobile_quiz_create_once")]
+
+    def __str__(self):
+        return f"{self.user_id}: {self.request_id}"

@@ -38,6 +38,7 @@ RESOURCE_VIEWS = {
         # The view itself also requires the first-party mobile client.
         "MobileAccountDeletionView": "user",
     },
+    "mobile_api.quiz_create": {"MobileQuizCreateView": "quizzes"},
 }
 
 

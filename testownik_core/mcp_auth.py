@@ -1,6 +1,19 @@
 """Shared authentication helpers for MCP toolsets."""
 
-from rest_framework.exceptions import PermissionDenied
+from oauth2_provider.contrib.rest_framework import OAuth2Authentication
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
+
+
+class MCPOAuthAuthentication(OAuth2Authentication):
+    """Keep OAuth token validation and reject unavailable account principals."""
+
+    def authenticate(self, request):
+        result = super().authenticate(request)
+        if result is not None:
+            user, _ = result
+            if user is None or not user.is_active or user.is_banned:
+                raise AuthenticationFailed("Account is unavailable.")
+        return result
 
 
 def require_scope(request, scope):

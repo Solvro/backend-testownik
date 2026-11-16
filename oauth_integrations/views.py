@@ -12,6 +12,7 @@ from oauth2_provider.models import (
 from oauth2_provider.scopes import get_scopes_backend
 from oauth2_provider.views.mixins import OAuthLibMixin
 from rest_framework import mixins, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -294,6 +295,13 @@ class AuthorizedAppsViewSet(mixins.ListModelMixin, mixins.DestroyModelMixin, vie
     serializer_class = AuthorizedAppSerializer
     lookup_url_kwarg = "client_id"
 
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        if isinstance(request.auth, AccessToken) and (
+            request.auth.application is None or request.auth.application.client_id != "testownik-mobile"
+        ):
+            raise PermissionDenied("Managing connected apps requires the Testownik app.")
+
     def get_queryset(self):
         tokens = AccessToken.objects.filter(user=self.request.user).select_related("application").order_by("-created")
         seen = set()
@@ -360,29 +368,34 @@ class AuthorizedAppsViewSet(mixins.ListModelMixin, mixins.DestroyModelMixin, vie
 
 
 class OAuthIdentityView(APIView):
-    """Resolve an AI-scoped bearer token for the first-party web AI service."""
+    """Resolve an AI principal; personal profile fields also require user:read."""
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         user = request.user
-        payload = {
-            key: getattr(user, key)
-            for key in (
-                "first_name",
-                "last_name",
-                "full_name",
-                "email",
-                "student_number",
-                "photo",
-                "is_staff",
-                "is_superuser",
-                "is_banned",
-                "account_type",
-                "account_level",
+        # The web AI gateway needs only the user id and account type before its
+        # separate internal quota check. AI consent does not grant profile access.
+        payload = {"user_id": str(user.pk), "account_type": user.account_type}
+        if not isinstance(request.auth, AccessToken) or request.auth.allow_scopes(["user:read"]):
+            payload.update(
+                {
+                    key: getattr(user, key)
+                    for key in (
+                        "first_name",
+                        "last_name",
+                        "full_name",
+                        "email",
+                        "student_number",
+                        "photo",
+                        "is_staff",
+                        "is_superuser",
+                        "is_banned",
+                        "account_level",
+                    )
+                }
             )
-        }
-        payload.update(user_id=str(user.pk), token_type="access", exp=0, iat=0, jti="oauth")
+        payload.update(token_type="access", exp=0, iat=0, jti="oauth")
         response = Response(payload)
         response["Cache-Control"] = "no-store"
         return response

@@ -16,7 +16,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from rest_framework.throttling import AnonRateThrottle
+from rest_framework.throttling import AnonRateThrottle, SimpleRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import TokenError
@@ -44,11 +44,17 @@ def token_response(user, status=200):
     return response
 
 
-class LoginThrottle(AnonRateThrottle):
+class LoginThrottle(SimpleRateThrottle):
+    scope = "mobile_login"
     rate = "10/min"
+
+    def get_cache_key(self, request, view):
+        # Changing from anonymous to a guest bearer must not reset the budget.
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
 
 
 class GuestThrottle(AnonRateThrottle):
+    scope = "mobile_guest"
     rate = "5/hour"
 
 
@@ -134,6 +140,8 @@ class MobileStartView(APIView):
     throttle_classes = [LoginThrottle]
 
     def post(self, request):
+        if request.auth is not None and request.auth.get("mobile_embed"):
+            raise PermissionDenied("Embedded sessions are read-only.")
         data = StartSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         # A guest UUID supplied by a caller is not proof of ownership.

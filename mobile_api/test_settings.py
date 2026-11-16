@@ -13,6 +13,11 @@ DATABASES = {
     }
 }
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+# An inherited developer .env must never send fixture uploads to a real bucket.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:8081",
     "http://localhost:8082",

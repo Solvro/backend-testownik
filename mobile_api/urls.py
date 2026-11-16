@@ -1,6 +1,7 @@
 from django.urls import path
 
 from . import views
+from .quiz_create import MobileQuizCreateView
 
 urlpatterns = [
     path("auth/otp/", views.MobileOTPView.as_view()),
@@ -13,5 +14,6 @@ urlpatterns = [
     path("auth/complete/", views.mobile_complete),
     path("auth/exchange/", views.MobileExchangeView.as_view()),
     path("quizzes/<uuid:quiz_id>/answer/", views.MobileAnswerView.as_view()),
+    path("quizzes/", MobileQuizCreateView.as_view()),
     path("account/deletion/", views.MobileAccountDeletionView.as_view()),
 ]

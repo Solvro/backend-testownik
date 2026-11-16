@@ -208,7 +208,10 @@ class GuestMigrationOnOTPLoginTestCase(APITestCase):
         """OTP login with valid guest_id migrates quizzes to the logged-in user when authenticated as guest."""
         token = EmailLoginToken.create_for_user(self.user)
 
-        self.client.force_authenticate(user=self.guest)
+        from users.serializers import UserTokenObtainPairSerializer
+
+        access = UserTokenObtainPairSerializer.get_token(self.guest).access_token
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
 
         response = self.client.post(
             reverse("login_otp"),
@@ -257,7 +260,10 @@ class GuestMigrationOnLinkLoginTestCase(APITestCase):
         """Link login with valid guest_id migrates quizzes to the logged-in user when authenticated as guest."""
         token = EmailLoginToken.create_for_user(self.user)
 
-        self.client.force_authenticate(user=self.guest)
+        from users.serializers import UserTokenObtainPairSerializer
+
+        access = UserTokenObtainPairSerializer.get_token(self.guest).access_token
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
 
         response = self.client.post(
             reverse("login_link"),

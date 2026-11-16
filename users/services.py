@@ -25,25 +25,13 @@ def migrate_guest_to_user(guest_id: str, target_user: User) -> bool:
         return False
 
     try:
-        guest = User.objects.get(id=guest_id)
-    except (User.DoesNotExist, ValidationError, ValueError):
-        logger.warning("Guest migration: guest user %s not found", guest_id)
-        return False
-
-    if guest.account_type != AccountType.GUEST:
-        logger.warning(
-            "Guest migration: refused — user %s is not a guest account (type: %s)",
-            guest_id,
-            guest.account_type,
-        )
-        return False
-
-    if guest.id == target_user.id:
-        logger.warning("Guest migration: source and target are the same user %s", guest_id)
-        return False
-
-    try:
         with transaction.atomic():
+            # Serialize competing upgrades before moving any ownership or folders.
+            guest = User.objects.select_for_update().get(id=guest_id)
+            if guest.account_type != AccountType.GUEST or guest.id == target_user.id:
+                logger.warning("Guest migration: invalid source account %s", guest_id)
+                return False
+
             from quizzes.models import Folder, FolderType, Quiz, QuizSession
 
             Quiz.objects.filter(creator=guest).update(creator=target_user)
@@ -93,10 +81,18 @@ def migrate_guest_to_user(guest_id: str, target_user: User) -> bool:
             else:
                 Folder.objects.filter(owner=guest).update(owner=target_user)
 
+            # Pending guest uploads can be referenced after the authenticated
+            # upgrade as well as by quizzes already transferred above.
+            from uploads.models import UploadedImage
+
+            UploadedImage.objects.filter(uploaded_by=guest).update(uploaded_by=target_user)
             guest.delete()
 
         return True
 
+    except (User.DoesNotExist, ValidationError, ValueError):
+        logger.warning("Guest migration: guest user %s not found", guest_id)
+        return False
     except Exception as e:
         logger.exception(
             "Guest migration: failed for guest %s → user %s: %s",

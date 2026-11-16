@@ -144,6 +144,8 @@ class CurrentUserView(GenericAPIView):
 
         allowed_fields_patch = {"hide_profile"}
         data = request.data
+        if not isinstance(data, dict):
+            return Response({"detail": "Expected an object."}, status=400)
 
         if request.user.account_type == AccountType.EMAIL:
             allowed_fields_patch |= {"first_name", "last_name", "sex"}
@@ -296,6 +298,7 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.Gen
                     last_name__icontains=search_terms[1],
                     student_number__icontains=search_terms[0],
                 )
+                filters &= Q(hide_profile=False)
             else:
                 return self.queryset.none()
             return self.queryset.filter(filters)
@@ -303,7 +306,7 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.Gen
             return self.queryset.none()
 
 
-class StudyGroupViewSet(viewsets.ModelViewSet):
+class StudyGroupViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = StudyGroup.objects.all()
     serializer_class = StudyGroupSerializer
     permission_classes = [permissions.IsAuthenticated]

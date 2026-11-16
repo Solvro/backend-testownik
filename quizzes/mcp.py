@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
+from django.db.models import F
 from rest_framework.exceptions import ValidationError
 
 from quizzes.models import (
@@ -492,11 +493,12 @@ class QuizTools(AnnotatedMCPToolset):
                         return {"error": {f"updates[{index}]": _plain_data(exc.detail)}}
                     serializers.append((question, serializer))
 
-                updated_ids = []
-                for question, serializer in serializers:
+                updated_ids = [str(question.id) for question, _ in serializers]
+                # Every content writer locks the quiz first. Use the same quiz
+                # order across batches so opposite input orders cannot deadlock.
+                for question, serializer in sorted(serializers, key=lambda pair: str(pair[0].quiz_id)):
                     if serializer is not None:
                         serializer.save()
-                    updated_ids.append(str(question.id))
         except ValidationError as exc:
             return _validation_error(exc.detail)
 
@@ -510,7 +512,9 @@ class QuizTools(AnnotatedMCPToolset):
             question = get_editable_question(self.request.user, question_id)
         except QuizOperationError as exc:
             return _operation_error(exc)
-        question.delete()
+        with transaction.atomic():
+            Quiz.objects.filter(pk=question.quiz_id).update(version=F("version") + 1)
+            question.delete()
         return {"status": "deleted"}
 
 
