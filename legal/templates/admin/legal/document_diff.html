@@ -1,0 +1,22 @@
+{% if legal_diff_none %}
+  <p>No other version of this document has been published, so there's nothing to compare it with.</p>
+{% elif legal_diff %}
+  <div class="ld-toolbar">
+    <span>Compared with <strong>{{ legal_diff_base }}</strong></span>
+    <span><span class="ld-stat-add">+{{ legal_diff.added }}</span> <span class="ld-stat-del">−{{ legal_diff.removed }}</span> lines</span>
+    {% if legal_diff_choices|length > 1 %}
+      <span>Compare with:
+        {% for choice in legal_diff_choices %}
+          <a href="?compare={{ choice.version }}" data-compare="{{ choice.version }}"{% if choice.pk == legal_diff_base.pk %} aria-current="true"{% endif %}>v{{ choice.version }}</a>
+        {% endfor %}
+      </span>
+    {% endif %}
+  </div>
+  {% if legal_diff.is_empty %}
+    <p>The text is unchanged.</p>
+  {% else %}
+    {{ legal_diff.html }}
+  {% endif %}
+{% else %}
+  <p>Choose a document type to compare this draft with its published versions.</p>
+{% endif %}
