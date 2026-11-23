@@ -226,7 +226,8 @@ class UserPhotoView(APIView):
         responses={200: UserSerializer},
     )
     def delete(self, request):
-        self._require_gold(request.user)
+        if request.user.account_type == AccountType.GUEST:
+            raise PermissionDenied("Guest users cannot update their profile.")
         # The old UploadedImage row + file is now orphaned — intentionally not deleted here.
         # Orphan cleanup is deferred to the `cleanup_orphans` management command.
         request.user.custom_photo_image = None
