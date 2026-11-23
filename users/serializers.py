@@ -327,3 +327,10 @@ class AccountLevelGrantCreateSerializer(serializers.Serializer):
         help_text="Timezone-aware ISO 8601 expiration instant; the grant is inactive at this exact instant.",
     )
     reason = serializers.CharField(max_length=500, required=False, allow_blank=True)
+    source_ref = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Optional client-generated reference for idempotent grant creation retries.",
+    )

@@ -91,7 +91,8 @@ class UserAccountLevelGrantViewSet(mixins.ListModelMixin, mixins.CreateModelMixi
             "Create an independent Silver or Gold grant starting immediately. Specify exactly one of "
             "`indefinite`, `duration_months`, `duration_days`, or `expires_at`. Month durations use calendar "
             "months in the configured time zone with end-of-month clamping. Datetimes must include a time zone "
-            "and are stored in UTC; a grant is inactive at its exact `expires_at` instant."
+            "and are stored in UTC; a grant is inactive at its exact `expires_at` instant. An optional "
+            "`source_ref` makes retries idempotent."
         ),
         request=AccountLevelGrantCreateSerializer,
         responses={201: AccountLevelGrantSerializer},
@@ -112,6 +113,7 @@ class UserAccountLevelGrantViewSet(mixins.ListModelMixin, mixins.CreateModelMixi
                 expires_at=serializer.validated_data.get("expires_at"),
                 created_by=request.user,
                 reason=serializer.validated_data.get("reason", ""),
+                source_ref=serializer.validated_data.get("source_ref"),
             )
         except DjangoValidationError as exc:
             raise DRFValidationError(getattr(exc, "message_dict", exc.messages)) from exc
