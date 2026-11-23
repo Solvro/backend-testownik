@@ -61,6 +61,89 @@ class AccountLevelStateTests(TestCase):
             ),
         )
 
+    def test_contiguous_same_level_grant_extends_the_current_level(self):
+        first_expiry = self.now + timedelta(days=10)
+        final_expiry = self.now + timedelta(days=30)
+        self._grant(AccountLevel.GOLD, expires_at=first_expiry)
+        self._grant(
+            AccountLevel.GOLD,
+            starts_at=first_expiry,
+            expires_at=final_expiry,
+        )
+
+        state = get_account_level_state(self.user, at=self.now)
+
+        self.assertEqual(state.effective_level, AccountLevel.GOLD)
+        self.assertEqual(state.expires_at, final_expiry)
+        self.assertEqual(state.next_level, AccountLevel.BASIC)
+
+    def test_gap_between_same_level_grants_is_reported_as_a_level_change(self):
+        first_expiry = self.now + timedelta(days=10)
+        self._grant(AccountLevel.SILVER, expires_at=first_expiry)
+        self._grant(
+            AccountLevel.SILVER,
+            starts_at=first_expiry + timedelta(days=5),
+            expires_at=self.now + timedelta(days=30),
+        )
+
+        state = get_account_level_state(self.user, at=self.now)
+
+        self.assertEqual(state.effective_level, AccountLevel.SILVER)
+        self.assertEqual(state.expires_at, first_expiry)
+        self.assertEqual(state.next_level, AccountLevel.BASIC)
+
+    def test_future_grant_does_not_make_the_current_level_appear_to_expire(self):
+        starts_at = self.now + timedelta(days=5)
+        expires_at = self.now + timedelta(days=20)
+        self._grant(AccountLevel.SILVER, starts_at=starts_at, expires_at=expires_at)
+
+        state = get_account_level_state(self.user, at=self.now)
+
+        self.assertEqual(state.effective_level, AccountLevel.BASIC)
+        self.assertIsNone(state.expires_at)
+        self.assertIsNone(state.next_level)
+
+    def test_future_higher_grant_does_not_change_current_level_expiry(self):
+        silver_expiry = self.now + timedelta(days=20)
+        gold_start = self.now + timedelta(days=5)
+        gold_expiry = self.now + timedelta(days=10)
+        self._grant(AccountLevel.SILVER, expires_at=silver_expiry)
+        self._grant(AccountLevel.GOLD, starts_at=gold_start, expires_at=gold_expiry)
+
+        state = get_account_level_state(self.user, at=self.now)
+
+        self.assertEqual(state.effective_level, AccountLevel.SILVER)
+        self.assertEqual(state.expires_at, silver_expiry)
+        self.assertEqual(state.next_level, AccountLevel.BASIC)
+
+    def test_future_grant_starting_at_expiry_is_active_at_the_transition(self):
+        first_expiry = self.now + timedelta(days=10)
+        final_expiry = self.now + timedelta(days=30)
+        self._grant(AccountLevel.GOLD, expires_at=first_expiry)
+        self._grant(AccountLevel.SILVER, starts_at=first_expiry, expires_at=final_expiry)
+
+        state = get_account_level_state(self.user, at=self.now)
+
+        self.assertEqual(state.effective_level, AccountLevel.GOLD)
+        self.assertEqual(state.expires_at, first_expiry)
+        self.assertEqual(state.next_level, AccountLevel.SILVER)
+
+    def test_current_level_continues_through_a_chained_future_grant(self):
+        first_expiry = self.now + timedelta(days=10)
+        final_expiry = self.now + timedelta(days=30)
+        self._grant(AccountLevel.GOLD, expires_at=first_expiry)
+        self._grant(
+            AccountLevel.GOLD,
+            starts_at=self.now + timedelta(days=5),
+            expires_at=final_expiry,
+        )
+
+        state = get_account_level_state(self.user, at=self.now)
+
+        self.assertEqual(state.effective_level, AccountLevel.GOLD)
+        self.assertEqual(state.expires_at, final_expiry)
+        self.assertEqual(state.next_level, AccountLevel.BASIC)
+
     def test_permanent_higher_level_has_no_expiry(self):
         self.user.account_level = AccountLevel.GOLD
         self.user.save(update_fields=["account_level"])

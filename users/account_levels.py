@@ -64,24 +64,16 @@ def get_account_level_state(user: User, *, at: datetime | None = None) -> Accoun
     if user._state.adding:
         return AccountLevelState(permanent_level, permanent_level, None, None)
 
-    active_grants = list(
-        user.account_level_grants.filter(starts_at__lte=at).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=at))
-    )
-    effective_level = _highest_level_at(permanent_level, active_grants, at)
+    grants = list(user.account_level_grants.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=at)))
+    effective_level = _highest_level_at(permanent_level, grants, at)
+    expiry_times = {grant.expires_at for grant in grants if grant.expires_at is not None}
 
-    has_indefinite_effective = LEVEL_ORDER[permanent_level] >= LEVEL_ORDER[effective_level] or any(
-        AccountLevel(grant.level) == effective_level and grant.expires_at is None for grant in active_grants
-    )
-    if has_indefinite_effective:
-        return AccountLevelState(effective_level, permanent_level, None, None)
+    for expires_at in sorted(expiry_times):
+        next_level = _highest_level_at(permanent_level, grants, expires_at)
+        if LEVEL_ORDER[next_level] < LEVEL_ORDER[effective_level]:
+            return AccountLevelState(effective_level, permanent_level, expires_at, next_level)
 
-    expires_at = max(
-        grant.expires_at
-        for grant in active_grants
-        if AccountLevel(grant.level) == effective_level and grant.expires_at is not None
-    )
-    next_level = _highest_level_at(permanent_level, active_grants, expires_at)
-    return AccountLevelState(effective_level, permanent_level, expires_at, next_level)
+    return AccountLevelState(effective_level, permanent_level, None, None)
 
 
 def get_effective_account_level(user: User, *, at: datetime | None = None) -> AccountLevel:
