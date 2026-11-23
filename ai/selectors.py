@@ -200,10 +200,7 @@ def get_admin_users(*, query="", overrides_only=False, limit=100):
         )
         if fallback_resets_at is not None and fallback_resets_at <= now:
             fallback_resets_at = None
-        active_models = active_models_by_level.get(
-            effective_levels[user.id],
-            active_models_by_level[AccountLevel.BASIC],
-        )
+        active_models = active_models_by_level[effective_levels[user.id]]
         rows.append(
             {
                 "id": user.id,

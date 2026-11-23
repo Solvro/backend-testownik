@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from quizzes.services.operations import QuizOperationError, get_readable_quiz
 from users.account_levels import get_effective_account_level
-from users.models import AccountLevel, AccountType, UserSettings
+from users.models import AccountType, UserSettings
 
 from .models import (
     AIAccountLimit,
@@ -71,7 +71,7 @@ def get_limits(user, settings=None) -> EffectiveAILimits:
     settings = settings or AIUsageSettings.load()
     matrix = AIAccountLimit.objects.filter(
         account_type=user.account_type or AccountType.EMAIL,
-        account_level=get_effective_account_level(user) or AccountLevel.BASIC,
+        account_level=get_effective_account_level(user),
     ).first()
     override = AIUserLimitOverride.objects.filter(user=user).first()
     return resolve_effective_limits(user, settings, matrix, override)

@@ -79,6 +79,17 @@ class AccountLevelGrantApiTests(APITestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(AccountLevelGrant.objects.exists())
 
+    def test_out_of_range_duration_is_rejected_by_grant_service(self):
+        response = self.client.post(
+            self.list_url,
+            {"level": AccountLevel.SILVER, "duration_days": 0},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("duration_days", response.data)
+        self.assertFalse(AccountLevelGrant.objects.exists())
+
     def test_detail_is_scoped_to_user(self):
         grant = AccountLevelGrant.objects.create(
             user=self.user,

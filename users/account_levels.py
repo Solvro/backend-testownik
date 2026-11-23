@@ -32,8 +32,6 @@ class AccountLevelState:
 def add_calendar_months(dt: datetime, months: int) -> datetime:
     if timezone.is_naive(dt):
         raise ValidationError({"starts_at": "starts_at must include a timezone."})
-    if isinstance(months, bool) or not isinstance(months, int) or months <= 0:
-        raise ValidationError({"duration_months": "Duration in months must be a positive integer."})
 
     local_dt = dt.astimezone(ZoneInfo(settings.TIME_ZONE))
     total_months = local_dt.month - 1 + months

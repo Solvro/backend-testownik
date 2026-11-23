@@ -309,21 +309,17 @@ class AccountLevelGrantCreateSerializer(serializers.Serializer):
         help_text="Grant the level without an expiration date.",
     )
     duration_months = serializers.IntegerField(
-        min_value=1,
-        max_value=MAX_DURATION_MONTHS,
         required=False,
         allow_null=True,
         help_text=(
             "Duration in calendar months in the configured time zone; dates at the end of a month are "
-            "clamped to the last day of the target month."
+            f"clamped to the last day of the target month (1-{MAX_DURATION_MONTHS} months)."
         ),
     )
     duration_days = serializers.IntegerField(
-        min_value=1,
-        max_value=MAX_DURATION_DAYS,
         required=False,
         allow_null=True,
-        help_text="Duration in 24-hour days from the grant start.",
+        help_text=f"Duration in 24-hour days from the grant start (1-{MAX_DURATION_DAYS} days).",
     )
     expires_at = TimezoneAwareDateTimeField(
         required=False,
@@ -331,16 +327,3 @@ class AccountLevelGrantCreateSerializer(serializers.Serializer):
         help_text="Timezone-aware ISO 8601 expiration instant; the grant is inactive at this exact instant.",
     )
     reason = serializers.CharField(max_length=500, required=False, allow_blank=True)
-
-    def validate(self, attrs):
-        time_modes = [
-            attrs.get("indefinite", False),
-            attrs.get("duration_months") is not None,
-            attrs.get("duration_days") is not None,
-            attrs.get("expires_at") is not None,
-        ]
-        if sum(time_modes) != 1:
-            raise serializers.ValidationError(
-                "Exactly one expiry mode must be specified: indefinite, duration_months, duration_days, or expires_at."
-            )
-        return attrs
