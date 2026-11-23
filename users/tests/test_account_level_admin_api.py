@@ -69,6 +69,22 @@ class AccountLevelGrantApiTests(APITestCase):
         self.assertEqual(len(list_response.data["results"]), 1)
         self.assertEqual(list_response.data["results"][0]["id"], str(grant.pk))
 
+    def test_create_retry_with_same_source_ref_returns_existing_grant(self):
+        payload = {
+            "level": AccountLevel.SILVER,
+            "duration_days": 30,
+            "reason": "Award",
+            "source_ref": "admin-request-123",
+        }
+
+        first_response = self.client.post(self.list_url, payload, format="json")
+        retry_response = self.client.post(self.list_url, payload, format="json")
+
+        self.assertEqual(first_response.status_code, 201)
+        self.assertEqual(retry_response.status_code, 201)
+        self.assertEqual(retry_response.data["id"], first_response.data["id"])
+        self.assertEqual(AccountLevelGrant.objects.count(), 1)
+
     def test_expired_deadline_returns_validation_error(self):
         response = self.client.post(
             self.list_url,
