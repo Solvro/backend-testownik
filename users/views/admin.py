@@ -58,12 +58,8 @@ class AccountLevelAdminPermissionsView(APIView):
         responses={200: {"type": "object", "properties": {"can_manage_account_levels": {"type": "boolean"}}}},
     )
     def get(self, request):
-        return Response(
-            {
-                "can_manage_account_levels": request.user.has_perm("users.manage_account_levels")
-                or request.user.is_superuser
-            }
-        )
+        can_manage = CanManageAccountLevels().has_permission(request, self)
+        return Response({"can_manage_account_levels": can_manage})
 
 
 class UserAccountLevelGrantViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
