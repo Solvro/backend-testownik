@@ -197,6 +197,13 @@ def _get_existing_grant(
     level: AccountLevel,
     source: AccountLevelGrantSource,
     source_ref: str | None,
+    *,
+    indefinite: bool,
+    duration_months: int | None,
+    duration_days: int | None,
+    expires_at: datetime | None,
+    starts_at: datetime | None,
+    reason: str,
 ) -> AccountLevelGrant | None:
     if source_ref is None:
         return None
@@ -207,6 +214,21 @@ def _get_existing_grant(
             raise ValidationError({"source_ref": "This source_ref is already used for another user."})
         if existing.level != level:
             raise ValidationError({"source_ref": "This source_ref is already used with a different level."})
+        normalized_start = starts_at.astimezone(UTC) if starts_at is not None else None
+        if normalized_start is not None and existing.starts_at != normalized_start:
+            raise ValidationError({"source_ref": "This source_ref is already used with a different starts_at."})
+
+        expected_expiry = _calculate_expiry(
+            starts_at=normalized_start if normalized_start is not None else existing.starts_at,
+            indefinite=indefinite,
+            duration_months=duration_months,
+            duration_days=duration_days,
+            expires_at=expires_at,
+        )
+        if existing.expires_at != expected_expiry:
+            raise ValidationError({"source_ref": "This source_ref is already used with a different expiry."})
+        if existing.reason != reason.strip():
+            raise ValidationError({"source_ref": "This source_ref is already used with a different reason."})
     return existing
 
 
@@ -244,6 +266,20 @@ def grant_account_level(
     if timezone.is_naive(effective_start):
         raise ValidationError({"starts_at": "starts_at must include a timezone."})
     effective_start = effective_start.astimezone(UTC)
+
+    normalized_ref = (source_ref or "").strip() or None
+    idempotency_options = {
+        "indefinite": indefinite,
+        "duration_months": duration_months,
+        "duration_days": duration_days,
+        "expires_at": expires_at,
+        "starts_at": starts_at,
+        "reason": reason,
+    }
+    existing = _get_existing_grant(user, grant_level, grant_source, normalized_ref, **idempotency_options)
+    if existing is not None:
+        return existing
+
     computed_expiry = _calculate_expiry(
         starts_at=effective_start,
         indefinite=indefinite,
@@ -251,11 +287,6 @@ def grant_account_level(
         duration_days=duration_days,
         expires_at=expires_at,
     )
-
-    normalized_ref = (source_ref or "").strip() or None
-    existing = _get_existing_grant(user, grant_level, grant_source, normalized_ref)
-    if existing is not None:
-        return existing
 
     try:
         with transaction.atomic():
@@ -270,7 +301,7 @@ def grant_account_level(
                 created_by=created_by,
             )
     except IntegrityError:
-        existing = _get_existing_grant(user, grant_level, grant_source, normalized_ref)
+        existing = _get_existing_grant(user, grant_level, grant_source, normalized_ref, **idempotency_options)
         if existing is not None:
             return existing
         raise

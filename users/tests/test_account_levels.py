@@ -292,6 +292,78 @@ class AccountLevelGrantServiceTests(TestCase):
                 source_ref="reward-1",
             )
 
+    def test_same_source_reference_rejects_different_expiry_details(self):
+        start = timezone.now()
+        grant = grant_account_level(
+            self.user,
+            AccountLevel.SILVER,
+            AccountLevelGrantSource.REWARD,
+            duration_days=30,
+            starts_at=start,
+            source_ref="reward-expiry",
+        )
+
+        with self.assertRaises(ValidationError) as error:
+            grant_account_level(
+                self.user,
+                AccountLevel.SILVER,
+                AccountLevelGrantSource.REWARD,
+                duration_days=31,
+                starts_at=start,
+                source_ref="reward-expiry",
+            )
+
+        self.assertIn("source_ref", error.exception.message_dict)
+        self.assertEqual(AccountLevelGrant.objects.count(), 1)
+        self.assertEqual(grant.expires_at - grant.starts_at, timedelta(days=30))
+
+    def test_duration_retry_uses_original_start_and_still_matches_after_expiry(self):
+        start = timezone.now() - timedelta(days=3)
+        grant = grant_account_level(
+            self.user,
+            AccountLevel.SILVER,
+            AccountLevelGrantSource.REWARD,
+            duration_days=1,
+            starts_at=start,
+            source_ref="expired-reward",
+        )
+
+        repeated = grant_account_level(
+            self.user,
+            AccountLevel.SILVER,
+            AccountLevelGrantSource.REWARD,
+            duration_days=1,
+            source_ref="expired-reward",
+        )
+
+        self.assertEqual(repeated.pk, grant.pk)
+        self.assertEqual(AccountLevelGrant.objects.count(), 1)
+
+    def test_same_source_reference_rejects_different_explicit_expiry(self):
+        start = timezone.now()
+        expires_at = start + timedelta(days=30)
+        grant_account_level(
+            self.user,
+            AccountLevel.SILVER,
+            AccountLevelGrantSource.REWARD,
+            expires_at=expires_at,
+            starts_at=start,
+            source_ref="reward-deadline",
+        )
+
+        with self.assertRaises(ValidationError) as error:
+            grant_account_level(
+                self.user,
+                AccountLevel.SILVER,
+                AccountLevelGrantSource.REWARD,
+                expires_at=expires_at + timedelta(days=1),
+                starts_at=start,
+                source_ref="reward-deadline",
+            )
+
+        self.assertIn("source_ref", error.exception.message_dict)
+        self.assertEqual(AccountLevelGrant.objects.count(), 1)
+
     def test_guest_and_basic_grants_are_rejected(self):
         guest = User.objects.create(account_type=AccountType.GUEST)
         with self.assertRaises(ValidationError):
