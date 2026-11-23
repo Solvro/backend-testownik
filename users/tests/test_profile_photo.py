@@ -230,12 +230,12 @@ class UserPhotoUploadEndpointTests(APITestCase):
         self.assertEqual(self.client.post(self.url, {"photo": _create_test_image_file()}).status_code, 403)
         self.assertEqual(self.client.delete(self.url).status_code, 403)
 
-    def test_non_gold_user_cannot_upload_or_delete_custom_photo(self):
+    def test_non_gold_user_cannot_upload_but_can_delete_custom_photo(self):
         self.user.account_level = AccountLevel.BASIC
         self.user.save(update_fields=["account_level"])
 
         self.assertEqual(self.client.post(self.url, {"photo": _create_test_image_file()}).status_code, 403)
-        self.assertEqual(self.client.delete(self.url).status_code, 403)
+        self.assertEqual(self.client.delete(self.url).status_code, 200)
 
     def test_temporary_gold_access_expires_for_an_already_authenticated_user(self):
         self.user.account_level = AccountLevel.BASIC
@@ -261,9 +261,12 @@ class UserPhotoUploadEndpointTests(APITestCase):
         grant.save(update_fields=["expires_at"])
         upload_after_expiry = self.client.post(self.url, {"photo": _create_test_image_file()}, format="multipart")
         self.assertEqual(upload_after_expiry.status_code, 403)
-        self.assertEqual(self.client.delete(self.url).status_code, 403)
         self.user.refresh_from_db()
         self.assertEqual(self.user.custom_photo_image_id, custom_photo_id)
+
+        self.assertEqual(self.client.delete(self.url).status_code, 200)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.custom_photo_image_id)
 
     def test_reset_clears_legacy_photo_and_does_not_resurrect_in_backfill(self):
         self.user.overriden_photo_url = "https://api.dicebear.com/9.x/micah/svg?seed=legacy"
