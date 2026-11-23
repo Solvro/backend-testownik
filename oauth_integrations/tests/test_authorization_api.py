@@ -3,7 +3,7 @@ from unittest.mock import patch
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
-from oauth2_provider.models import AbstractApplication, AccessToken, get_application_model
+from oauth2_provider.models import AbstractApplication, AccessToken, Grant, get_application_model
 from rest_framework.test import APITestCase
 
 from oauth_integrations.models import OAuthApplicationMetadata, OAuthClientMetadata
@@ -58,6 +58,19 @@ class OAuthAuthorizationAPITests(APITestCase):
             [scope["value"] for scope in response.data["scopes"]],
             ["quizzes:read", "user:read"],
         )
+
+    def test_authorization_request_accepts_any_port_for_registered_localhost_redirect(self):
+        self.application.redirect_uris = "http://localhost/callback"
+        self.application.save()
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(
+            reverse("oauth_authorize_request"),
+            {**self.authorization_params, "redirect_uri": "http://localhost:64715/callback"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["redirect_uri"], "http://localhost:64715/callback")
 
     def test_authorization_request_returns_application_logo_uri(self):
         OAuthApplicationMetadata.objects.create(
@@ -156,6 +169,39 @@ class OAuthAuthorizationAPITests(APITestCase):
         self.assertTrue(response.data["redirect_url"].startswith(f"{AUTHORIZATION_PARAMS['redirect_uri']}?"))
         self.assertIn("code=", response.data["redirect_url"])
         self.assertIn("state=test-state", response.data["redirect_url"])
+
+    def test_authorization_request_with_resource_indicator_stores_resource_list(self):
+        self.client.force_authenticate(user=self.user)
+        resource = "https://api.example.com/api/mcp/"
+
+        response = self.client.post(
+            reverse("oauth_authorize_request"),
+            {
+                "authorization_params": {**self.authorization_params, "resource": resource},
+                "scopes": ["quizzes:read"],
+                "allow": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Grant.objects.get().resource, [resource])
+
+    def test_authorization_request_rejects_invalid_resource_indicator(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            reverse("oauth_authorize_request"),
+            {
+                "authorization_params": {**self.authorization_params, "resource": "not-a-uri"},
+                "scopes": ["quizzes:read"],
+                "allow": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Grant.objects.exists())
 
     def test_authorization_request_denial_returns_access_denied_redirect(self):
         self.client.force_authenticate(user=self.user)

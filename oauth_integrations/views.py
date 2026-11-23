@@ -10,6 +10,7 @@ from oauth2_provider.models import (
     RefreshToken,
     get_application_model,
 )
+from oauth2_provider.oauth2_validators import is_valid_resource_uri
 from oauth2_provider.scopes import get_scopes_backend
 from oauth2_provider.views.mixins import OAuthLibMixin
 from rest_framework import mixins, viewsets
@@ -148,6 +149,14 @@ class AuthorizationRequestAPIView(OAuthLibMixin, APIView):
             raise
         finally:
             self._restore_request(raw_request, original_get, original_query_string, original_user)
+
+        resources = params.getlist("resource") if isinstance(params, QueryDict) else params.get("resource", [])
+        if isinstance(resources, str):
+            resources = [resources]
+        if not all(is_valid_resource_uri(resource) for resource in resources):
+            return None, None, Response({"error": "Invalid resource indicator."}, status=400)
+        if resources:
+            credentials["resource"] = resources
 
         return scopes, credentials, None
 

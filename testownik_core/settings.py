@@ -366,6 +366,7 @@ OAUTH2_PROVIDER = {
     "PKCE_REQUIRED": True,
     "COMPLIANT_BCP_RFC9700_IMPLICIT_GRANT": True,
     "ALLOWED_REDIRECT_URI_SCHEMES": ["https", "http"],
+    "ALLOW_LOCALHOST_LOOPBACK": True,
     "CIMD_ENABLED": True,
     "CIMD_METADATA_FETCHER": "oauth_integrations.cimd_metadata_fetcher.PersistingCIMDMetadataFetcher",
 }
