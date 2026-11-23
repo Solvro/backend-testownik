@@ -89,6 +89,28 @@ class AIUsageServicesTests(TestCase):
         self.assertEqual(get_limits(self.user).credits_session, 100)
         self.assertNotIn(silver_model, available_models_for_user(self.user))
 
+    def test_admin_user_listing_uses_one_effective_level_query_for_many_users(self):
+        from ai.selectors import get_admin_users
+
+        users = [self.user]
+        users.extend(User.objects.create_user(email=f"level-query-{index}@example.com") for index in range(5))
+        for user in users:
+            AccountLevelGrant.objects.create(
+                user=user,
+                level=AccountLevel.SILVER,
+                source=AccountLevelGrantSource.ADMIN,
+                starts_at=timezone.now() - timedelta(minutes=1),
+                expires_at=timezone.now() + timedelta(days=1),
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            results = get_admin_users(limit=100)
+
+        grant_table_queries = [query for query in queries if "users_accountlevelgrant" in query["sql"].lower()]
+        self.assertEqual(len(grant_table_queries), 1)
+        self.assertEqual(len(results), len(users))
+        self.assertTrue(all(result["account_level"] == AccountLevel.SILVER for result in results))
+
     def test_null_override_disables_both_windows(self):
         AIUserLimitOverride.objects.create(user=self.user)
         limits = get_limits(self.user)

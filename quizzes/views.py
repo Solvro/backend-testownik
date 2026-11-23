@@ -104,6 +104,7 @@ from quizzes.services.stats import (
 )
 from quizzes.throttling import CopyQuizThrottle, QuizStatsThrottle
 from quizzes.utils import parse_include_values, parse_positive_int_query_param
+from users.account_levels import active_grants_prefetch
 from users.models import AccountType
 
 logger = logging.getLogger(__name__)
@@ -228,7 +229,7 @@ class LastUsedQuizzesView(generics.ListAPIView):
                 avg_rating=Avg("ratings__score"),
                 review_count=Count("ratings", distinct=True),
             )
-            .prefetch_related(user_ratings)
+            .prefetch_related(user_ratings, active_grants_prefetch("creator"))
             .order_by("-sessions__updated_at")
             .distinct()
         )
@@ -349,7 +350,8 @@ class QuizViewSet(viewsets.ModelViewSet):
                     review_count=Count("ratings", distinct=True),
                 )
                 .prefetch_related(
-                    Prefetch("ratings", queryset=QuizRating.objects.filter(user=user), to_attr="_user_rating")
+                    Prefetch("ratings", queryset=QuizRating.objects.filter(user=user), to_attr="_user_rating"),
+                    active_grants_prefetch("creator"),
                 )
             )
 
@@ -371,6 +373,8 @@ class QuizViewSet(viewsets.ModelViewSet):
                     queryset=Answer.objects.select_related("image_upload"),
                 ),
                 "sharedquiz_set__user",
+                active_grants_prefetch("creator"),
+                active_grants_prefetch("sharedquiz_set__user"),
             )
 
         return queryset
@@ -982,9 +986,11 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
             SharedQuiz.objects.filter(_filter)
             .select_related("user", "user__photo_image", "user__custom_photo_image", "study_group")
             .prefetch_related(
+                active_grants_prefetch("user"),
                 Prefetch(
                     "quiz",
-                    queryset=Quiz.objects.annotate(questions_count=Count("questions", distinct=True)).select_related(
+                    queryset=Quiz.objects.annotate(questions_count=Count("questions", distinct=True))
+                    .select_related(
                         "creator",
                         "creator__photo_image",
                         "creator__custom_photo_image",
@@ -992,8 +998,9 @@ class SharedQuizViewSet(viewsets.ModelViewSet):
                         "folder__owner",
                         "folder__owner__photo_image",
                         "folder__owner__custom_photo_image",
-                    ),
-                )
+                    )
+                    .prefetch_related(active_grants_prefetch("creator")),
+                ),
             )
         )
 
@@ -1210,6 +1217,7 @@ class QuizRatingViewSet(viewsets.ModelViewSet):
         return (
             QuizRating.objects.filter(accessible_quizzes_q(user))
             .select_related("quiz", "user", "user__photo_image", "user__custom_photo_image")
+            .prefetch_related(active_grants_prefetch("user"))
             .distinct()
         )
 
@@ -1257,6 +1265,7 @@ class CommentViewSet(viewsets.ModelViewSet):
         return (
             Comment.objects.filter(accessible_quizzes_q(user))
             .select_related("author", "author__photo_image", "author__custom_photo_image", "parent")
+            .prefetch_related(active_grants_prefetch("author"))
             .distinct()
         )
 
@@ -1321,6 +1330,7 @@ class LibraryView(APIView):
             Folder.objects.filter(parent_id=folder_id)
             .filter(Q(owner=user) | ~Q(folder_type=FolderType.TRASH))
             .select_related("owner", "owner__photo_image", "owner__custom_photo_image")
+            .prefetch_related(active_grants_prefetch("owner"))
             .distinct()
             .order_by("-created_at")
         )
@@ -1335,6 +1345,7 @@ class LibraryView(APIView):
                 "folder__owner__photo_image",
                 "folder__owner__custom_photo_image",
             )
+            .prefetch_related(active_grants_prefetch("creator"))
             .distinct()
             .order_by("-created_at")
         )

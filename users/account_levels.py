@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Case, CharField, Exists, IntegerField, OuterRef, Prefetch, Q, QuerySet, Value, When
 from django.utils import timezone
 
 from users.models import AccountLevel, AccountLevelGrant, AccountLevelGrantSource, AccountType, User
@@ -76,7 +76,73 @@ def get_account_level_state(user: User, *, at: datetime | None = None) -> Accoun
     return AccountLevelState(effective_level, permanent_level, None, None)
 
 
+def annotate_effective_account_level(
+    queryset: QuerySet[User],
+    *,
+    at: datetime | None = None,
+) -> QuerySet[User]:
+    at = at if at is not None else timezone.now()
+    if timezone.is_naive(at):
+        raise ValidationError({"at": "at must include a timezone."})
+
+    active_window = Q(starts_at__lte=at) & (Q(expires_at__isnull=True) | Q(expires_at__gt=at))
+    has_active_gold = Exists(
+        AccountLevelGrant.objects.filter(active_window, user_id=OuterRef("pk"), level=AccountLevel.GOLD)
+    )
+    has_active_silver = Exists(
+        AccountLevelGrant.objects.filter(active_window, user_id=OuterRef("pk"), level=AccountLevel.SILVER)
+    )
+
+    return queryset.annotate(
+        _has_active_gold=has_active_gold,
+        _has_active_silver=has_active_silver,
+    ).annotate(
+        _effective_account_level=Case(
+            When(Q(account_level=AccountLevel.GOLD) | Q(_has_active_gold=True), then=Value(AccountLevel.GOLD)),
+            When(Q(account_level=AccountLevel.SILVER) | Q(_has_active_silver=True), then=Value(AccountLevel.SILVER)),
+            default=Value(AccountLevel.BASIC),
+            output_field=CharField(),
+        ),
+        _effective_account_level_rank=Case(
+            When(
+                Q(account_level=AccountLevel.GOLD) | Q(_has_active_gold=True),
+                then=Value(LEVEL_ORDER[AccountLevel.GOLD]),
+            ),
+            When(
+                Q(account_level=AccountLevel.SILVER) | Q(_has_active_silver=True),
+                then=Value(LEVEL_ORDER[AccountLevel.SILVER]),
+            ),
+            default=Value(LEVEL_ORDER[AccountLevel.BASIC]),
+            output_field=IntegerField(),
+        ),
+    )
+
+
+def active_grants_prefetch(relation: str = "", *, at: datetime | None = None) -> Prefetch:
+    at = at if at is not None else timezone.now()
+    if timezone.is_naive(at):
+        raise ValidationError({"at": "at must include a timezone."})
+
+    lookup = f"{relation}__account_level_grants" if relation else "account_level_grants"
+    active_qs = AccountLevelGrant.objects.filter(starts_at__lte=at).filter(
+        Q(expires_at__isnull=True) | Q(expires_at__gt=at)
+    )
+    return Prefetch(lookup, queryset=active_qs, to_attr="_active_account_level_grants")
+
+
 def get_effective_account_level(user: User, *, at: datetime | None = None) -> AccountLevel:
+    if at is None:
+        annotated = getattr(user, "_effective_account_level", None)
+        if annotated is not None:
+            return AccountLevel(annotated)
+        prefetched = getattr(user, "_active_account_level_grants", None)
+        if prefetched is not None:
+            best = AccountLevel(user.account_level)
+            for grant in prefetched:
+                grant_level = AccountLevel(grant.level)
+                if LEVEL_ORDER[grant_level] > LEVEL_ORDER[best]:
+                    best = grant_level
+            return best
     return get_account_level_state(user, at=at).effective_level
 
 

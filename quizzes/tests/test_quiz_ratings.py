@@ -1,9 +1,15 @@
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from quizzes.models import Folder, Quiz, QuizRating
+from users.models import AccountLevel, AccountLevelGrant, AccountLevelGrantSource
 
 User = get_user_model()
 
@@ -34,6 +40,39 @@ class QuizRatingViewSetTestCase(TestCase):
         response = self.client.get(f"/api/quiz-ratings/?quiz={self.quiz.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 2)
+
+    def test_rating_list_prefetches_grants_for_all_serialized_users(self):
+        raters = [User.objects.create_user(email=f"rater-{index}@example.com") for index in range(5)]
+        QuizRating.objects.bulk_create([QuizRating(user=rater, quiz=self.quiz, score=3) for rater in raters])
+        starts_at = timezone.now() - timedelta(minutes=1)
+        expires_at = timezone.now() + timedelta(days=1)
+        AccountLevelGrant.objects.bulk_create(
+            [
+                AccountLevelGrant(
+                    user=rater,
+                    level=AccountLevel.SILVER,
+                    source=AccountLevelGrantSource.ADMIN,
+                    starts_at=starts_at,
+                    expires_at=expires_at,
+                )
+                for rater in raters
+            ]
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/quiz-ratings/?quiz={self.quiz.id}")
+
+        grant_table_queries = [query for query in queries if "users_accountlevelgrant" in query["sql"].lower()]
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), len(raters) + 1)
+        self.assertEqual(len(grant_table_queries), 1)
+        self.assertTrue(
+            all(
+                row["user"]["account_level"] == AccountLevel.SILVER
+                for row in response.data
+                if row["user"]["id"] in {str(rater.pk) for rater in raters}
+            )
+        )
 
     # CREATE
     def test_create_rating(self):

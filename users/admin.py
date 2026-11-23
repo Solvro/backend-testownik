@@ -29,7 +29,7 @@ from unfold.admin import ModelAdmin, StackedInline
 
 from oauth_integrations.models import OAuthApplicationMetadata
 
-from .account_levels import get_effective_account_level
+from .account_levels import annotate_effective_account_level, get_effective_account_level
 from .models import AccountLevelGrant, CourseClassType, EmailLoginToken, StudyGroup, Term, User, UserSettings
 
 
@@ -119,7 +119,10 @@ class UserAdmin(ModelAdmin):
     def has_add_permission(self, request, obj=None):
         return False
 
-    @admin.display(description="Account level")
+    def get_queryset(self, request):
+        return annotate_effective_account_level(super().get_queryset(request))
+
+    @admin.display(description="Account level", ordering="_effective_account_level_rank")
     def effective_account_level(self, obj: User) -> str:
         return get_effective_account_level(obj).value
 

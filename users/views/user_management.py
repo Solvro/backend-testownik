@@ -15,7 +15,7 @@ from quizzes.models import Quiz, QuizSession, SharedQuiz
 from quizzes.permissions import IsInternalApiRequest
 from uploads.models import UploadedImage
 from uploads.utils import process_uploaded_image
-from users.account_levels import get_effective_account_level
+from users.account_levels import annotate_effective_account_level, get_effective_account_level
 from users.auth_cookies import set_jwt_cookies
 from users.models import AccountLevel, AccountType, StudyGroup, User, UserSettings
 from users.serializers import (
@@ -304,7 +304,7 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.Gen
                 )
             else:
                 return self.queryset.none()
-            return self.queryset.filter(filters)
+            return annotate_effective_account_level(self.queryset.filter(filters))
         else:
             return self.queryset.none()
 
