@@ -59,6 +59,19 @@ class OAuthAuthorizationAPITests(APITestCase):
             ["quizzes:read", "user:read"],
         )
 
+    def test_authorization_request_accepts_any_port_for_registered_localhost_redirect(self):
+        self.application.redirect_uris = "http://localhost/callback"
+        self.application.save()
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(
+            reverse("oauth_authorize_request"),
+            {**self.authorization_params, "redirect_uri": "http://localhost:64715/callback"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["redirect_uri"], "http://localhost:64715/callback")
+
     def test_authorization_request_returns_application_logo_uri(self):
         OAuthApplicationMetadata.objects.create(
             application=self.application,
