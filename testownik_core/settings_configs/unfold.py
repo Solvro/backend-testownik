@@ -2,6 +2,17 @@ from django.templatetags.static import static
 from django.urls import reverse_lazy
 
 
+def _item(title, icon, url_name):
+    return {"title": title, "icon": icon, "link": reverse_lazy(url_name)}
+
+
+def _group(title, items):
+    group = {"separator": True, "collapsible": False, "items": items}
+    if title is not None:
+        group["title"] = title
+    return group
+
+
 def get_unfold_settings(frontend_url):
     return {
         "SITE_TITLE": "Testownik Solvro",
@@ -54,160 +65,51 @@ def get_unfold_settings(frontend_url):
         },
         "SIDEBAR": {
             "show_search": True,
+            # The sidebar holds everyday pages; "All applications" reaches every other model.
             "show_all_applications": True,
             "navigation": [
-                {
-                    "title": "Navigation",
-                    "separator": True,
-                    "items": [
-                        {
-                            "title": "Dashboard",
-                            "icon": "dashboard",
-                            "link": reverse_lazy("admin:index"),
-                        },
+                _group(None, [_item("Dashboard", "dashboard", "admin:index")]),
+                _group(
+                    "Users",
+                    [
+                        _item("Users", "people", "admin:users_user_changelist"),
+                        _item("Study groups", "groups", "admin:users_studygroup_changelist"),
                     ],
-                },
-                {
-                    "title": "Users",
-                    "separator": True,
-                    "collapsible": True,
-                    "items": [
-                        {
-                            "title": "Users",
-                            "icon": "people",
-                            "link": reverse_lazy("admin:users_user_changelist"),
-                        },
-                        {
-                            "title": "Study Groups",
-                            "icon": "groups",
-                            "link": reverse_lazy("admin:users_studygroup_changelist"),
-                        },
-                        {
-                            "title": "Email Login Tokens",
-                            "icon": "key",
-                            "link": reverse_lazy("admin:users_emaillogintoken_changelist"),
-                        },
-                        {
-                            "title": "Wrapped Reports",
-                            "icon": "featured_seasonal_and_gifts",
-                            "link": reverse_lazy("admin:wrapped_wrappedreport_changelist"),
-                        },
+                ),
+                _group(
+                    "Quizzes",
+                    [
+                        _item("Quizzes", "quiz", "admin:quizzes_quiz_changelist"),
+                        _item("Questions", "help", "admin:quizzes_question_changelist"),
+                        _item("Uploaded images", "image", "admin:uploads_uploadedimage_changelist"),
                     ],
-                },
-                {
-                    "title": "Quizzes",
-                    "separator": True,
-                    "collapsible": True,
-                    "items": [
-                        {
-                            "title": "Quizzes",
-                            "icon": "quiz",
-                            "link": reverse_lazy("admin:quizzes_quiz_changelist"),
-                        },
-                        {
-                            "title": "Questions",
-                            "icon": "help",
-                            "link": reverse_lazy("admin:quizzes_question_changelist"),
-                        },
-                        {
-                            "title": "Sessions",
-                            "icon": "play_circle",
-                            "link": reverse_lazy("admin:quizzes_quizsession_changelist"),
-                        },
-                        {
-                            "title": "Shared Quizzes",
-                            "icon": "share",
-                            "link": reverse_lazy("admin:quizzes_sharedquiz_changelist"),
-                        },
-                        {
-                            "title": "Folders",
-                            "icon": "folder",
-                            "link": reverse_lazy("admin:quizzes_folder_changelist"),
-                        },
+                ),
+                _group(
+                    "Content",
+                    [
+                        _item("Blog posts", "article", "admin:blog_blogpost_changelist"),
+                        _item("Legal documents", "gavel", "admin:legal_legaldocumentversion_changelist"),
+                        _item("Notifications", "notifications", "admin:notifications_notification_changelist"),
                     ],
-                },
-                {
-                    "title": "Uploads",
-                    "separator": True,
-                    "collapsible": True,
-                    "items": [
-                        {
-                            "title": "Uploaded Images",
-                            "icon": "image",
-                            "link": reverse_lazy("admin:uploads_uploadedimage_changelist"),
-                        },
+                ),
+                _group(
+                    "AI",
+                    [
+                        _item("Conversations", "forum", "admin:ai_aichatconversation_changelist"),
+                        _item("Daily usage", "bar_chart", "admin:ai_aiusagedailyaggregate_changelist"),
+                        _item("Account limits", "speed", "admin:ai_aiaccountlimit_changelist"),
+                        _item("Models and pricing", "paid", "admin:ai_aimodel_changelist"),
                     ],
-                },
-                {
-                    "title": "OAuth",
-                    "separator": True,
-                    "collapsible": True,
-                    "items": [
-                        {
-                            "title": "Applications",
-                            "icon": "apps",
-                            "link": reverse_lazy("admin:oauth2_provider_application_changelist"),
-                        },
-                        {
-                            "title": "Access Tokens",
-                            "icon": "token",
-                            "link": reverse_lazy("admin:oauth2_provider_accesstoken_changelist"),
-                        },
-                        {
-                            "title": "CIMD Metadata",
-                            "icon": "hub",
-                            "link": reverse_lazy("admin:oauth_integrations_oauthclientmetadata_changelist"),
-                        },
+                ),
+                _group(
+                    "System",
+                    [
+                        _item("Settings", "settings", "admin:constance_config_changelist"),
+                        _item(
+                            "Background tasks", "pending_actions", "admin:django_tasks_database_dbtaskresult_changelist"
+                        ),
                     ],
-                },
-                {
-                    "title": "AI",
-                    "separator": True,
-                    "items": [
-                        {
-                            "title": "Conversations",
-                            "icon": "forum",
-                            "link": reverse_lazy("admin:ai_aichatconversation_changelist"),
-                        },
-                        {
-                            "title": "Usage events",
-                            "icon": "query_stats",
-                            "link": reverse_lazy("admin:ai_aiusageevent_changelist"),
-                        },
-                        {
-                            "title": "Limits",
-                            "icon": "speed",
-                            "link": reverse_lazy("admin:ai_aiaccountlimit_changelist"),
-                        },
-                        {
-                            "title": "Model pricing",
-                            "icon": "paid",
-                            "link": reverse_lazy("admin:ai_aimodel_changelist"),
-                        },
-                    ],
-                },
-                {
-                    "title": "System",
-                    "separator": True,
-                    "collapsible": True,
-                    "items": [
-                        {
-                            "title": "Constance",
-                            "icon": "settings",
-                            "link": reverse_lazy("admin:constance_config_changelist"),
-                        },
-                        {
-                            "title": "Terms",
-                            "icon": "calendar_month",
-                            "link": reverse_lazy("admin:users_term_changelist"),
-                        },
-                        {
-                            "title": "Course Class Types",
-                            "icon": "category",
-                            "link": reverse_lazy("admin:users_courseclasstype_changelist"),
-                        },
-                    ],
-                },
+                ),
             ],
         },
     }

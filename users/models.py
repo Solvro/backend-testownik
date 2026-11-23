@@ -273,7 +273,7 @@ class UserSettings(models.Model):
     # user notification preferences
     notify_quiz_shared = models.BooleanField(default=True)
     notify_bug_reported = models.BooleanField(default=True)
-    notify_marketing = models.BooleanField(default=True)
+    notify_marketing = models.BooleanField(default=False)
 
     def __str__(self):
         return f"Settings for {self.user}"
@@ -293,6 +293,59 @@ class Term(models.Model):
     @extend_schema_field(serializers.BooleanField(allow_null=True))
     def is_current(self) -> bool | None:
         return self.start_date <= date.today() <= self.finish_date if self.start_date and self.finish_date else None
+
+
+class Faculty(models.Model):
+    id = models.CharField(max_length=100, primary_key=True)
+    name = models.CharField(max_length=255)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name_plural = "faculties"
+
+    def __str__(self):
+        return self.name or self.id
+
+
+class StudyProgramme(models.Model):
+    id = models.CharField(max_length=100, primary_key=True)
+    name = models.CharField(max_length=255)
+    faculty = models.ForeignKey(
+        Faculty,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="programmes",
+    )
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name or self.id
+
+
+class StudentProgramme(models.Model):
+    """A programme the user actively studies, refreshed from USOS on every login and never exposed by the API."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="student_programmes")
+    programme = models.ForeignKey(StudyProgramme, on_delete=models.CASCADE, related_name="student_programmes")
+    semester = models.PositiveSmallIntegerField(null=True, blank=True)
+    is_primary = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-is_primary", "programme_id"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "programme"], name="unique_student_programme"),
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=models.Q(is_primary=True),
+                name="unique_primary_student_programme",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id}: {self.programme_id}"
 
 
 class CourseClassType(models.Model):

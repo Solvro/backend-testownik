@@ -1,8 +1,11 @@
 import contextlib
 
+from django import forms
 from django.contrib import admin
+from django.contrib.admin import helpers
 from django.contrib.admin.sites import NotRegistered
 from django.contrib.auth.models import Group
+from django.template.response import TemplateResponse
 from oauth2_provider.admin import AccessTokenAdmin as BaseAccessTokenAdmin
 from oauth2_provider.admin import ApplicationAdmin as BaseApplicationAdmin
 from oauth2_provider.admin import GrantAdmin as BaseGrantAdmin
@@ -25,12 +28,24 @@ from rest_framework_simplejwt.token_blacklist.models import (
     BlacklistedToken,
     OutstandingToken,
 )
-from unfold.admin import ModelAdmin, StackedInline
+from unfold.admin import ModelAdmin, StackedInline, TabularInline
+from unfold.widgets import UnfoldAdminTextareaWidget
 
 from oauth_integrations.models import OAuthApplicationMetadata
 
 from .account_levels import annotate_effective_account_level, get_effective_account_level
-from .models import AccountLevelGrant, CourseClassType, EmailLoginToken, StudyGroup, Term, User, UserSettings
+from .models import (
+    AccountLevelGrant,
+    CourseClassType,
+    EmailLoginToken,
+    Faculty,
+    StudentProgramme,
+    StudyGroup,
+    StudyProgramme,
+    Term,
+    User,
+    UserSettings,
+)
 
 
 class UserSettingsInline(StackedInline):
@@ -40,8 +55,37 @@ class UserSettingsInline(StackedInline):
     fk_name = "user"
 
 
+class StudentProgrammeInline(TabularInline):
+    model = StudentProgramme
+    extra = 0
+    can_delete = False
+    fields = ["programme", "semester", "is_primary"]
+    readonly_fields = fields
+    verbose_name_plural = "Studies (from USOS)"
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+class UserAdminForm(forms.ModelForm):
+    def clean(self):
+        cleaned_data = super().clean()
+        if cleaned_data.get("is_banned") and not (cleaned_data.get("ban_reason") or "").strip():
+            self.add_error("ban_reason", "A banned user must be told why.")
+        return cleaned_data
+
+
+class BanUsersForm(forms.Form):
+    reason = forms.CharField(
+        label="Reason",
+        help_text="Shown to the banned users when they try to log in.",
+        widget=UnfoldAdminTextareaWidget(attrs={"rows": 4}),
+    )
+
+
 @admin.register(User)
 class UserAdmin(ModelAdmin):
+    form = UserAdminForm
     list_display = [
         "id",
         "first_name",
@@ -64,6 +108,8 @@ class UserAdmin(ModelAdmin):
         "is_superuser",
         "student_status",
         "staff_status",
+        "student_programmes__programme__faculty",
+        "student_programmes__semester",
         "sex",
         "hide_profile",
         "created_at",
@@ -113,7 +159,7 @@ class UserAdmin(ModelAdmin):
     readonly_fields = ["id", "photo_url", "created_at", "updated_at"]
     date_hierarchy = "created_at"
 
-    inlines = (UserSettingsInline,)
+    inlines = (StudentProgrammeInline, UserSettingsInline)
     actions = ["ban_users", "unban_users"]
 
     def has_add_permission(self, request, obj=None):
@@ -128,8 +174,25 @@ class UserAdmin(ModelAdmin):
 
     @admin.action(description="Ban selected users")
     def ban_users(self, request, queryset):
-        count = queryset.update(is_banned=True)
-        self.message_user(request, f"Successfully banned {count} user(s).")
+        form = BanUsersForm(request.POST if "apply" in request.POST else None)
+        if form.is_valid():
+            count = queryset.update(is_banned=True, ban_reason=form.cleaned_data["reason"])
+            self.message_user(request, f"Successfully banned {count} user(s).")
+            return None
+        return TemplateResponse(
+            request,
+            "admin/users/user/ban_users.html",
+            {
+                **self.admin_site.each_context(request),
+                "title": "Ban selected users",
+                "opts": self.model._meta,
+                "form": form,
+                "user_count": queryset.count(),
+                "selected_ids": request.POST.getlist(helpers.ACTION_CHECKBOX_NAME),
+                "select_across": request.POST.get("select_across", "0"),
+                "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
+            },
+        )
 
     @admin.action(description="Unban selected users")
     def unban_users(self, request, queryset):
@@ -151,6 +214,20 @@ class TermAdmin(ModelAdmin):
     list_filter = ["start_date", "end_date", "finish_date"]
     search_fields = ["id", "name"]
     date_hierarchy = "start_date"
+
+
+@admin.register(Faculty)
+class FacultyAdmin(ModelAdmin):
+    list_display = ["id", "name"]
+    search_fields = ["id", "name"]
+
+
+@admin.register(StudyProgramme)
+class StudyProgrammeAdmin(ModelAdmin):
+    list_display = ["id", "name", "faculty"]
+    list_filter = ["faculty"]
+    list_select_related = ["faculty"]
+    search_fields = ["id", "name", "faculty__name"]
 
 
 @admin.register(CourseClassType)

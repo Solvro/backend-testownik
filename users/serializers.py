@@ -176,7 +176,7 @@ class PublicUserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "full_name", "student_number", "photo", "account_type", "account_level"]
+        fields = ["id", "full_name", "photo", "account_type", "account_level"]
 
     @extend_schema_field(serializers.CharField())
     def get_account_level(self, obj: User) -> str:

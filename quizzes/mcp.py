@@ -1,3 +1,5 @@
+from typing import Literal
+
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
@@ -6,6 +8,7 @@ from quizzes.models import (
     Question,
     QuestionType,
     Quiz,
+    QuizVersionSource,
 )
 from quizzes.serializers import (
     BulkCreateQuestionsSerializer,
@@ -13,6 +16,7 @@ from quizzes.serializers import (
     QuizMetaDataSerializer,
     QuizSerializer,
 )
+from quizzes.services.history import record_created, track_quiz_change
 from quizzes.services.operations import (
     QuizOperationError,
     get_current_session_question,
@@ -26,6 +30,7 @@ from quizzes.services.operations import (
     reset_readable_session,
     searchable_quizzes_queryset,
 )
+from quizzes.services.question_validation import validate_question, validate_unique_ids
 from testownik_core.mcp_auth import require_scope as _require_scope
 from testownik_core.mcp_tools import AnnotatedMCPToolset, tool_annotations
 
@@ -83,41 +88,32 @@ def _quiz_data(quiz, request):
 def _normalize_answers(answers):
     if not isinstance(answers, list):
         raise _QuestionError("answers must be a list of objects.")
-    if len(answers) < 1:
-        raise _QuestionError("Normal questions require at least one answer.")
     if any(not isinstance(answer, dict) for answer in answers):
         raise _QuestionError("Each answer must be an object with text and is_correct.")
 
     normalized = []
-    has_correct = False
     for index, answer in enumerate(answers):
         if "is_correct" not in answer:
             raise _QuestionError(f"answers[{index}] is missing is_correct.")
         normalized_answer = dict(answer)
         normalized_answer.setdefault("order", index + 1)
         normalized_answer["is_correct"] = bool(normalized_answer["is_correct"])
-        has_correct = has_correct or normalized_answer["is_correct"]
         normalized.append(normalized_answer)
 
-    if not has_correct:
-        raise _QuestionError("Normal questions require at least one correct answer.")
     return normalized
+
+
+def _validate_type(data, question=None):
+    """Checks the final answers against the question type, as the API will once it validates them too."""
+    try:
+        validate_question(data, question)
+    except ValidationError as exc:
+        messages = [str(message) for messages in exc.detail.values() for message in messages]
+        raise _QuestionError(" ".join(messages)) from exc
 
 
 def _correct_answer_count(answers):
     return sum(1 for answer in answers if (answer["is_correct"] if isinstance(answer, dict) else answer.is_correct))
-
-
-def _normalize_multiple(value, answers):
-    correct_count = _correct_answer_count(answers)
-    inferred = correct_count > 1
-    if value is None:
-        return inferred
-    if type(value) is not bool:
-        raise _QuestionError("multiple must be a boolean.")
-    if not value and inferred:
-        raise _QuestionError("multiple must be true when more than one answer is correct.")
-    return value
 
 
 def _normalize_question_spec(spec):
@@ -127,31 +123,35 @@ def _normalize_question_spec(spec):
     answers = _normalize_answers(spec.get("answers") or [])
     data = {
         "text": spec.get("text", ""),
-        "question_type": QuestionType.CLOSED,
-        "multiple": _normalize_multiple(spec.get("multiple"), answers),
+        "type": spec.get("type")
+        if spec.get("type") is not None
+        else (QuestionType.SINGLE_CHOICE if _correct_answer_count(answers) == 1 else QuestionType.MULTIPLE_CHOICE),
         "explanation": spec.get("explanation", "") or "",
         "is_ai_generated": True,
         "answers": answers,
     }
 
-    for optional_field in ("image_url", "image_upload", "is_markdown_enabled"):
+    for optional_field in ("image_url", "image_upload", "is_markdown_enabled", "open_matching"):
         if optional_field in spec:
             data[optional_field] = spec[optional_field]
+    _validate_type(data)
     return data
 
 
-def _normalize_question_update(*, text=None, explanation=None, answers=None, multiple=None, current_answers=None):
+def _normalize_question_update(question, *, text=None, explanation=None, answers=None, type=None, open_matching=None):
     data = {}
-    if text is not None:
-        data["text"] = text
-    if explanation is not None:
-        data["explanation"] = explanation
+    for field, value in (
+        ("text", text),
+        ("explanation", explanation),
+        ("type", type),
+        ("open_matching", open_matching),
+    ):
+        if value is not None:
+            data[field] = value
     if answers is not None:
-        normalized_answers = _normalize_answers(answers)
-        data["answers"] = normalized_answers
-        data["multiple"] = _normalize_multiple(multiple, normalized_answers)
-    elif multiple is not None:
-        data["multiple"] = _normalize_multiple(multiple, current_answers or [])
+        data["answers"] = _normalize_answers(answers)
+    if "type" in data or "answers" in data:
+        _validate_type(data, question)
     return data
 
 
@@ -194,6 +194,8 @@ def _format_question_error(prefix, exc):
 
 
 def _normalize_indexed_question_specs(questions):
+    if all(isinstance(spec, dict) for spec in questions or []):
+        validate_unique_ids(questions or [])
     normalized = []
     for index, spec in enumerate(questions or []):
         try:
@@ -274,9 +276,10 @@ class QuizTools(AnnotatedMCPToolset):
         `questions` (optional): a list of question objects. Each object accepts:
           - text (str): the question prompt
           - answers (list): at least one {text, is_correct} object. Each answer
-            is a normal answer option marked true or false with is_correct.
-          - multiple (bool): optional UI/selection setting. If omitted, it is
-            inferred from how many answers have is_correct=true.
+            is marked correct or incorrect with is_correct.
+          - type: single_choice, multiple_choice, true_false, or open. If omitted,
+            single_choice is used for exactly one correct answer, otherwise multiple_choice.
+          - open_matching: exact (default) or similar
           - explanation (str): optional
 
         The quiz and all its questions are flagged is_ai_generated=true so the UI
@@ -307,6 +310,7 @@ class QuizTools(AnnotatedMCPToolset):
                     )
                     serializer.is_valid(raise_exception=True)
                     serializer.save()
+                record_created(quiz, user=user, source=QuizVersionSource.MCP)
                 created = len(normalized_questions)
         except _QuestionError as exc:
             return {"error": str(exc)}
@@ -327,14 +331,17 @@ class QuizTools(AnnotatedMCPToolset):
         quiz_id: str,
         text: str,
         answers: list[dict] | None = None,
-        multiple: bool | None = None,
+        type: Literal["single_choice", "multiple_choice", "true_false", "open"] | None = None,
+        open_matching: Literal["exact", "similar"] | None = None,
         explanation: str = "",
     ) -> dict:
         """Add a single question to an existing quiz. Marked is_ai_generated=true.
 
         Pass `answers` as at least one {text, is_correct} object. Each answer is
-        a normal answer option marked true or false with is_correct. If `multiple`
-        is omitted, it is inferred from the number of correct answers.
+        marked correct with is_correct. Optional type is single_choice, multiple_choice,
+        true_false, or open; it defaults to single_choice for exactly one correct answer,
+        otherwise multiple_choice. true_false requires two ordered labels and one correct
+        answer. Open answers must all be correct, without images.
 
         To add many questions at once, use add_questions instead."""
         _require_scope(self.request, "quizzes:write")
@@ -346,11 +353,13 @@ class QuizTools(AnnotatedMCPToolset):
         spec = {
             "text": text,
             "answers": answers,
-            "multiple": multiple,
+            "type": type,
+            **({"open_matching": open_matching} if open_matching is not None else {}),
             "explanation": explanation,
         }
         try:
-            question = _create_single_question(quiz, spec, self.request)
+            with track_quiz_change(quiz, user=self.request.user, source=QuizVersionSource.MCP):
+                question = _create_single_question(quiz, spec, self.request)
         except _QuestionError as exc:
             return {"error": str(exc)}
         except ValidationError as exc:
@@ -363,7 +372,7 @@ class QuizTools(AnnotatedMCPToolset):
         is_ai_generated=true.
 
         `questions`: a list of question objects with the same shape as
-        add_question (text, answers, multiple, explanation). This is the
+        add_question (text, answers, type, open_matching, explanation). This is the
         preferred way to add more than one question — it is atomic, so if
         any question is invalid nothing is saved and the error names the
         offending index."""
@@ -376,7 +385,8 @@ class QuizTools(AnnotatedMCPToolset):
             return {"error": "Provide at least one question."}
 
         try:
-            created_questions = _create_questions(quiz, questions, self.request)
+            with track_quiz_change(quiz, user=self.request.user, source=QuizVersionSource.MCP):
+                created_questions = _create_questions(quiz, questions, self.request)
         except _QuestionError as exc:
             return {"error": str(exc)}
         except ValidationError as exc:
@@ -391,29 +401,29 @@ class QuizTools(AnnotatedMCPToolset):
         text: str | None = None,
         explanation: str | None = None,
         answers: list[dict] | None = None,
-        multiple: bool | None = None,
+        type: Literal["single_choice", "multiple_choice", "true_false", "open"] | None = None,
+        open_matching: Literal["exact", "similar"] | None = None,
     ) -> dict:
-        """Update a normal question's text, explanation, or answers.
+        """Update a question's type, settings, text, explanation, or answers.
 
         Only provided fields are changed. Passing `answers` replaces all existing
-        answers. Each answer must be a {text, is_correct} object. If `answers`
-        is provided and `multiple` is omitted, `multiple` is inferred from the
-        new answer set."""
+        answers. Each answer must be a {text, is_correct} object.
+        The current type is kept unless type is provided (single_choice,
+        multiple_choice, true_false, or open)."""
         _require_scope(self.request, "quizzes:write")
         try:
             question = get_editable_question(self.request.user, question_id)
         except QuizOperationError as exc:
             return _operation_error(exc)
 
-        if question.question_type != QuestionType.CLOSED:
-            return {"error": "MCP only supports editing normal questions."}
         try:
             data = _normalize_question_update(
+                question,
                 text=text,
                 explanation=explanation,
                 answers=answers,
-                multiple=multiple,
-                current_answers=list(question.answers.all()),
+                type=type,
+                open_matching=open_matching,
             )
         except _QuestionError as exc:
             return {"error": str(exc)}
@@ -428,20 +438,20 @@ class QuizTools(AnnotatedMCPToolset):
         )
         try:
             serializer.is_valid(raise_exception=True)
-            serializer.save()
+            with track_quiz_change(question.quiz, user=self.request.user, source=QuizVersionSource.MCP):
+                serializer.save()
         except ValidationError as exc:
             return _validation_error(exc.detail)
         return {"id": str(question.id), "status": "updated"}
 
     @tool_annotations(title="Edit questions", read_only=False, destructive=True, idempotent=False)
     def edit_questions(self, updates: list[dict]) -> dict:
-        """Batch-edit normal questions in one atomic call.
+        """Batch-edit questions in one atomic call.
 
         Each update object must include question_id and may include text,
-        explanation, answers, or multiple. Passing `answers` replaces all
-        existing answers for that question. Each answer must be a
-        {text, is_correct} object. If `answers` is provided and `multiple` is
-        omitted, `multiple` is inferred from the new answer set.
+        explanation, answers, type, or open_matching. Passing `answers`
+        replaces all existing answers for that question. Each answer must be a
+        {text, is_correct} object. Omitted type keeps the current type.
         """
         _require_scope(self.request, "quizzes:write")
         if not updates:
@@ -451,6 +461,7 @@ class QuizTools(AnnotatedMCPToolset):
 
         serializers = []
         try:
+            validate_unique_ids(updates, field="question_id")
             with transaction.atomic():
                 for index, update in enumerate(updates):
                     question_id = update.get("question_id")
@@ -462,16 +473,14 @@ class QuizTools(AnnotatedMCPToolset):
                     except QuizOperationError as exc:
                         return {"error": f"updates[{index}]: {exc.message}"}
 
-                    if question.question_type != QuestionType.CLOSED:
-                        return {"error": f"updates[{index}]: MCP only supports editing normal questions."}
-
                     try:
                         data = _normalize_question_update(
+                            question,
                             text=update.get("text"),
                             explanation=update.get("explanation"),
                             answers=update.get("answers"),
-                            multiple=update.get("multiple"),
-                            current_answers=list(question.answers.all()),
+                            type=update.get("type"),
+                            open_matching=update.get("open_matching"),
                         )
                     except _QuestionError as exc:
                         return {"error": f"updates[{index}]: {exc}"}
@@ -492,11 +501,16 @@ class QuizTools(AnnotatedMCPToolset):
                         return {"error": {f"updates[{index}]": _plain_data(exc.detail)}}
                     serializers.append((question, serializer))
 
-                updated_ids = []
+                # One version per quiz for the whole batch.
+                by_quiz = {}
                 for question, serializer in serializers:
-                    if serializer is not None:
-                        serializer.save()
-                    updated_ids.append(str(question.id))
+                    by_quiz.setdefault(question.quiz_id, (question.quiz, []))[1].append(serializer)
+                for quiz, quiz_serializers in by_quiz.values():
+                    with track_quiz_change(quiz, user=self.request.user, source=QuizVersionSource.MCP):
+                        for serializer in quiz_serializers:
+                            if serializer is not None:
+                                serializer.save()
+                updated_ids = [str(question.id) for question, _ in serializers]
         except ValidationError as exc:
             return _validation_error(exc.detail)
 
@@ -510,7 +524,8 @@ class QuizTools(AnnotatedMCPToolset):
             question = get_editable_question(self.request.user, question_id)
         except QuizOperationError as exc:
             return _operation_error(exc)
-        question.delete()
+        with track_quiz_change(question.quiz, user=self.request.user, source=QuizVersionSource.MCP):
+            question.delete()
         return {"status": "deleted"}
 
 
@@ -572,7 +587,8 @@ class StudyTools(AnnotatedMCPToolset):
         selected_answers: list,
     ) -> dict:
         """Submit an answer for a question in the current study session.
-        Pass a list of selected answer UUIDs for normal questions.
+        Pass answer UUIDs for choice types (including true_false), one text string
+        for open questions, or [] to skip.
         Returns whether the answer was correct and the updated session state."""
         _require_scope(self.request, "study:write")
         try:
@@ -581,7 +597,6 @@ class StudyTools(AnnotatedMCPToolset):
                 quiz_id,
                 question_id,
                 selected_answers,
-                closed_only=True,
                 choose_random_next=True,
             )
         except QuizOperationError as exc:

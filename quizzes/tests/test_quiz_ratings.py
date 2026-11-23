@@ -155,3 +155,16 @@ class QuizRatingViewSetTestCase(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("non_field_errors", response.data)
+
+    def test_rating_survives_account_deletion(self):
+        rating = QuizRating.objects.create(user=self.other_user, quiz=self.quiz, score=2)
+        self.other_user.delete()
+
+        rating.refresh_from_db()
+        self.assertIsNone(rating.user)
+        self.assertEqual(self.quiz.ratings.count(), 2)
+
+        response = self.client.get(f"/api/quiz-ratings/?quiz={self.quiz.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        orphaned = next(r for r in response.data if r["id"] == str(rating.id))
+        self.assertIsNone(orphaned["user"])

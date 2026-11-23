@@ -40,6 +40,7 @@ class UploadedImageAdmin(ModelAdmin):
         return qs.annotate(
             _question_count=Count("questions", distinct=True),
             _answer_count=Count("answers", distinct=True),
+            _version_count=Count("quiz_versions", distinct=True),
         )
 
     def thumbnail_preview(self, obj):
@@ -86,8 +87,10 @@ class UploadedImageAdmin(ModelAdmin):
 
     def reference_count(self, obj):
         count = obj._question_count + obj._answer_count
-        if count == 0:
+        if count == 0 and obj._version_count == 0:
             return mark_safe('<span style="color: #999;">0 (orphan)</span>')
+        if count == 0:
+            return mark_safe(f'<span style="color: #999;">0 (in {obj._version_count} quiz versions)</span>')
         return count
 
     reference_count.short_description = "References"

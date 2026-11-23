@@ -101,6 +101,39 @@ class AuthorizedAppsViewSetTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data[0]["logo_uri"], "https://example.com/logo.png")
 
+    def test_list_returns_native_cimd_display_metadata(self):
+        client_id = "https://example.com/client.json"
+        application = get_application_model().objects.create(
+            name="Native MCP Client",
+            client_id=client_id,
+            client_type=AbstractApplication.CLIENT_PUBLIC,
+            authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+        )
+        OAuthClientMetadata.objects.create(
+            application=application,
+            client_id_url=client_id,
+            client_name=application.name,
+            client_uri="https://example.com",
+            logo_uri="https://example.com/logo.png",
+            redirect_uris=["https://example.com/callback"],
+            fetched_at=timezone.now(),
+        )
+        self._create_access_token(
+            user=self.user,
+            application=application,
+            token="native-client-token",
+            scope="quizzes:read",
+            created=timezone.now(),
+        )
+
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(reverse("authorized_apps"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data[0]["client_uri"], "https://example.com")
+        self.assertEqual(response.data[0]["logo_uri"], "https://example.com/logo.png")
+
     def test_destroy_revokes_access_and_refresh_tokens_for_current_user(self):
         access_token = self._create_access_token(
             user=self.user,
@@ -138,28 +171,3 @@ class AuthorizedAppsViewSetTests(APITestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.data["error"], "No tokens found for this app")
-
-    def test_destroy_supports_cimd_client_id_url(self):
-        client_id_url = "https://client.example/.well-known/oauth-client"
-        OAuthClientMetadata.objects.create(
-            application=self.application,
-            client_id_url=client_id_url,
-            client_name="CIMD Client",
-            redirect_uris=["https://client.example/callback"],
-            grant_types=["authorization_code"],
-            response_types=["code"],
-            fetched_at=timezone.now(),
-        )
-        self._create_access_token(
-            user=self.user,
-            application=self.application,
-            token="cimd-token-to-revoke",
-            scope="quizzes:read",
-            created=timezone.now(),
-        )
-
-        self.client.force_authenticate(user=self.user)
-        response = self.client.delete(reverse("authorized_app_detail", kwargs={"client_id": client_id_url}))
-
-        self.assertEqual(response.status_code, 204)
-        self.assertFalse(AccessToken.objects.filter(user=self.user, application=self.application).exists())

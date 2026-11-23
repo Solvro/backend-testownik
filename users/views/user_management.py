@@ -61,7 +61,7 @@ class SettingsViewSet(
                     "default_ai_model": None,
                     "notify_quiz_shared": False,
                     "notify_bug_reported": False,
-                    "notify_marketing": True,
+                    "notify_marketing": False,
                 },
             )
         ],
@@ -242,6 +242,8 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.Gen
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        if self.request.user.account_type == AccountType.GUEST:
+            raise PermissionDenied("Guests cannot search for users.")
         search = self.request.query_params.get("search", "").strip()
         if search and len(search) >= 3:
             search_terms = search.split(" ")
@@ -276,31 +278,37 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.Gen
                     first_name__icontains=search_terms[0],
                     last_name__icontains=search_terms[1],
                     student_number__icontains=search_terms[2],
+                    hide_profile=False,
                 )
                 filters |= Q(
                     first_name__icontains=search_terms[0],
                     last_name__icontains=search_terms[2],
                     student_number__icontains=search_terms[1],
+                    hide_profile=False,
                 )
                 filters |= Q(
                     first_name__icontains=search_terms[1],
                     last_name__icontains=search_terms[0],
                     student_number__icontains=search_terms[2],
+                    hide_profile=False,
                 )
                 filters |= Q(
                     first_name__icontains=search_terms[1],
                     last_name__icontains=search_terms[2],
                     student_number__icontains=search_terms[0],
+                    hide_profile=False,
                 )
                 filters |= Q(
                     first_name__icontains=search_terms[2],
                     last_name__icontains=search_terms[0],
                     student_number__icontains=search_terms[1],
+                    hide_profile=False,
                 )
                 filters |= Q(
                     first_name__icontains=search_terms[2],
                     last_name__icontains=search_terms[1],
                     student_number__icontains=search_terms[0],
+                    hide_profile=False,
                 )
             else:
                 return self.queryset.none()

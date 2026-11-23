@@ -10,7 +10,7 @@ from oauth2_provider.models import AbstractApplication, AccessToken, get_applica
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from quizzes.models import Answer, Folder, FolderType, Question, Quiz
+from quizzes.models import Answer, Folder, FolderType, Question, QuestionType, Quiz
 from users.models import User
 
 
@@ -44,7 +44,7 @@ class QuizCRUDTestCase(APITestCase):
                 {
                     "order": 1,
                     "text": "What is 2+2?",
-                    "multiple": False,
+                    "type": "single_choice",
                     "answers": [
                         {"order": 1, "text": "3", "is_correct": False},
                         {"order": 2, "text": "4", "is_correct": True},
@@ -53,7 +53,7 @@ class QuizCRUDTestCase(APITestCase):
                 {
                     "order": 2,
                     "text": "Select all prime numbers",
-                    "multiple": True,
+                    "type": "multiple_choice",
                     "answers": [
                         {"order": 1, "text": "2", "is_correct": True},
                         {"order": 2, "text": "3", "is_correct": True},
@@ -109,7 +109,7 @@ class QuizCRUDTestCase(APITestCase):
                     "id": question_id,
                     "order": 1,
                     "text": "Question with ID",
-                    "multiple": False,
+                    "type": "single_choice",
                     "answers": [
                         {"id": answer_id, "order": 1, "text": "Answer with ID", "is_correct": True},
                     ],
@@ -382,8 +382,7 @@ class QuizOAuthScopeTestCase(APITestCase):
                 {
                     "order": 1,
                     "text": "Question?",
-                    "question_type": 0,
-                    "multiple": False,
+                    "type": "single_choice",
                     "answers": [
                         {"order": 1, "text": "Correct", "is_correct": True},
                         {"order": 2, "text": "Wrong", "is_correct": False},
@@ -470,9 +469,9 @@ class QuizQuestionAnswerTestCase(APITestCase):
         a.refresh_from_db()
         self.assertTrue(a.is_correct)
 
-    def test_change_question_multiple_flag(self):
-        """Test changing a question's multiple flag."""
-        q = Question.objects.create(quiz=self.quiz, order=1, text="Q1", multiple=False)
+    def test_change_question_type(self):
+        """Test changing a question from single to multiple choice."""
+        q = Question.objects.create(quiz=self.quiz, order=1, text="Q1", type=QuestionType.SINGLE_CHOICE)
         a = Answer.objects.create(question=q, order=1, text="A1", is_correct=True)
 
         url = reverse("quiz-detail", kwargs={"pk": self.quiz.id})
@@ -482,7 +481,7 @@ class QuizQuestionAnswerTestCase(APITestCase):
                     "id": str(q.id),
                     "order": 1,
                     "text": "Q1",
-                    "multiple": True,
+                    "type": "multiple_choice",
                     "answers": [{"id": str(a.id), "order": 1, "text": "A1", "is_correct": True}],
                 }
             ]
@@ -491,7 +490,7 @@ class QuizQuestionAnswerTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         q.refresh_from_db()
-        self.assertTrue(q.multiple)
+        self.assertEqual(q.type, QuestionType.MULTIPLE_CHOICE)
 
     # --- ADD/REMOVE ANSWERS ---
     def test_add_answer_to_existing_question(self):
