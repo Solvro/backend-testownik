@@ -60,6 +60,15 @@ class PersistingCIMDMetadataFetcherTests(TestCase):
         self.assertFalse(OAuthClientMetadata.objects.exists())
         self.assertFalse(get_application_model().objects.filter(client_id=CLIENT_ID).exists())
 
+    def test_auth_methods_must_explicitly_offer_public_exchange(self, fetch):
+        for methods in (["private_key_jwt"], "none", ["none", None], None):
+            with self.subTest(methods=methods):
+                cache.clear()
+                fetch.return_value = (_document(token_endpoint_auth_methods_supported=methods), 3600)
+
+                self.assertIsNone(self._resolve())
+                self.assertFalse(OAuthClientMetadata.objects.exists())
+
     def test_accepted_refresh_updates_existing_metadata(self, fetch):
         fetch.return_value = (_document(), 3600)
         application = self._resolve()
