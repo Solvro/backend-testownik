@@ -1,4 +1,7 @@
+import base64
+import hashlib
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 from django.test import override_settings
 from django.urls import reverse
@@ -151,6 +154,60 @@ class OAuthAuthorizationAPITests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("code=", response.data["redirect_url"])
         mock_fetch.assert_called_once_with(client_id)
+
+    @patch("oauth2_provider.cimd.SafeMetadataFetcher.fetch")
+    def test_cimd_with_multiple_auth_methods_uses_public_pkce_exchange(self, mock_fetch):
+        client_id = "https://example.com/public-pkce.json"
+        redirect_uri = "https://example.com/connector/callback"
+        resource = "https://api.example.com/api/mcp"
+        verifier = "v" * 43
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        mock_fetch.return_value = (
+            {
+                "client_id": client_id,
+                "redirect_uris": [redirect_uri],
+                "grant_types": ["authorization_code", "refresh_token"],
+                "response_types": ["code"],
+                "token_endpoint_auth_method": "private_key_jwt",
+                "token_endpoint_auth_methods_supported": ["none", "private_key_jwt"],
+                "jwks_uri": "https://example.com/oauth/jwks.json",
+            },
+            3600,
+        )
+        params = {
+            **AUTHORIZATION_PARAMS,
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "code_challenge": challenge,
+            "resource": resource,
+        }
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(reverse("oauth_authorize_request"), params)
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data.get("redirect_uri"), redirect_uri, response.data)
+        decision = self.client.post(
+            reverse("oauth_authorize_request"),
+            {"authorization_params": params, "scopes": ["quizzes:read"], "allow": True},
+            format="json",
+        )
+        self.assertEqual(decision.status_code, 200, decision.data)
+        code = parse_qs(urlsplit(decision.data["redirect_url"]).query)["code"][0]
+        self.client.force_authenticate(user=None)
+        token = self.client.post(
+            reverse("oauth2_provider:token"),
+            {
+                "grant_type": "authorization_code",
+                "client_id": client_id,
+                "code": code,
+                "code_verifier": verifier,
+                "redirect_uri": redirect_uri,
+                "resource": resource,
+            },
+        )
+        self.assertEqual(token.status_code, 200, token.json())
+        self.assertEqual(token.json()["scope"], "quizzes:read")
+        self.assertTrue(token.json()["refresh_token"])
+        self.assertEqual(OAuthClientMetadata.objects.get(client_id_url=client_id).token_endpoint_auth_method, "none")
 
     def test_authorization_request_approval_returns_redirect_url(self):
         self.client.force_authenticate(user=self.user)
