@@ -16,14 +16,14 @@ class SchemaTagTests(SimpleTestCase):
 
         self.assertNotIn("api", tags)
 
-    def test_operations_are_grouped_by_area(self):
-        self.assertEqual(self._tags("/api/ai/chats/", "get"), ["AI"])
-        self.assertEqual(self._tags("/api/quizzes/", "get"), ["Quizzes"])
-        self.assertEqual(self._tags("/api/oauth/authorize/request/", "get"), ["OAuth"])
-        self.assertEqual(self._tags("/api/generate-otp/", "post"), ["Authentication"])
+    def test_operations_are_tagged_by_their_first_segment_after_api(self):
+        self.assertEqual(self._tags("/api/ai/chats/", "get"), ["ai"])
+        self.assertEqual(self._tags("/api/quizzes/", "get"), ["quizzes"])
+        self.assertEqual(self._tags("/api/oauth/authorize/request/", "get"), ["oauth"])
 
     def test_well_known_keeps_its_own_group(self):
         self.assertEqual(self._tags("/.well-known/oauth-authorization-server", "get"), [".well-known"])
 
     def test_explicit_view_tags_still_win(self):
-        self.assertEqual(self._tags("/api/upload/", "post"), ["Uploads"])
+        self.assertEqual(self._tags("/api/login/", "get"), ["Authentication"])
+        self.assertEqual(self._tags("/api/upload/", "post"), ["uploads"])
