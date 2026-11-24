@@ -54,7 +54,7 @@ class ImageUploadView(APIView):
             400: OpenApiResponse(description="Invalid file, unsupported format, or size limit exceeded"),
             401: OpenApiResponse(description="Authentication required"),
         },
-        tags=["uploads"],
+        tags=["Uploads"],
     )
     def post(self, request, *args, **kwargs):
         if "image" not in request.FILES:
