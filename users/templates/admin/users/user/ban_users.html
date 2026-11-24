@@ -1,0 +1,29 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <form method="post" class="flex max-w-2xl flex-col gap-4">
+    {% csrf_token %}
+    <p>Users to ban: <strong>{{ user_count }}</strong></p>
+
+    <div class="flex flex-col gap-2">
+      <label for="{{ form.reason.id_for_label }}" class="font-semibold">{{ form.reason.label }}</label>
+      {{ form.reason }}
+      <p class="text-sm">{{ form.reason.help_text }}</p>
+      {% for error in form.reason.errors %}
+        <p class="text-sm text-red-600">{{ error }}</p>
+      {% endfor %}
+    </div>
+
+    {% for id in selected_ids %}
+      <input type="hidden" name="{{ action_checkbox_name }}" value="{{ id }}">
+    {% endfor %}
+    <input type="hidden" name="select_across" value="{{ select_across }}">
+    <input type="hidden" name="action" value="ban_users">
+
+    <div>
+      <button type="submit" name="apply" value="1" class="bg-primary-600 rounded-default px-3 py-2 font-medium text-white">
+        Ban users
+      </button>
+    </div>
+  </form>
+{% endblock %}

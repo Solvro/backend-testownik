@@ -2,7 +2,7 @@ import logging
 import os
 from asyncio import CancelledError, sleep
 from datetime import timedelta
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 
 import dotenv
 from adrf.views import APIView as AsyncAPIView
@@ -20,11 +20,13 @@ from rest_framework.views import APIView
 from usos_api import USOSAPIException, USOSClient
 from usos_api.models import StaffStatus, StudentStatus
 
+from legal.models import record_signup_acceptance
 from testownik_core.settings import oauth
 from uploads.image_sources import download_image_source
 from uploads.utils import validate_image_source_url
 from users.models import AccountType, StudyGroup, Term, User
 from users.tasks import sync_user_photo_task
+from users.usos_studies import sync_user_studies
 
 from .auth_helpers import (
     ahandle_oauth_login_result,
@@ -282,16 +284,16 @@ class SolvroAuthorizeView(APIView):
             messages.error(request, "Brak adresu email w profilu użytkownika.")
             return redirect(redirect_url)
 
+        user, created = User.objects.get_or_create(email=profile["email"], defaults={"account_type": AccountType.EMAIL})
+        if created:
+            record_signup_acceptance(user)
+
         # The source URL is what the login token shows until the worker stores the photo.
-        dicebear_url = f"https://api.dicebear.com/9.x/adventurer/png?seed={quote(profile['email'])}"
-        user, _ = User.objects.update_or_create(
-            email=profile["email"],
-            defaults={"photo_url": dicebear_url},
-            create_defaults={
-                "account_type": AccountType.EMAIL,
-                "photo_url": dicebear_url,
-            },
-        )
+        # Seeded with the user ID so the email never reaches DiceBear.
+        dicebear_url = f"https://api.dicebear.com/9.x/adventurer/png?seed={user.id}"
+        if user.photo_url != dicebear_url:
+            user.photo_url = dicebear_url
+            user.save(update_fields=["photo_url"])
 
         # Defer the avatar fetch (outbound DiceBear request + image processing + DB writes)
         # off the request thread so login latency isn't coupled to a third-party call.
@@ -417,6 +419,9 @@ class UsosAuthorizeView(AsyncAPIView):
                     return redirect(add_query_params(redirect_url, {"error": "not_student"}))
                 return redirect("index")
 
+            if created:
+                await sync_to_async(record_signup_acceptance)(user)
+
         return await ahandle_oauth_login_result(request, user, jwt=jwt, redirect_url=redirect_url, guest_id=guest_id)
 
 
@@ -531,6 +536,8 @@ async def _sync_usos_user(client, access_token, access_token_secret):
             },
         )
         await user_obj.study_groups.aadd(group_obj)
+
+    await sync_user_studies(client, user_obj)
 
     return user_obj, created
 

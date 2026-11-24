@@ -19,6 +19,7 @@ def migrate_guest_to_user(guest_id: str, target_user: User) -> bool:
     - Folders (owner)
     - Authorship of quiz versions, comments, and reported question issues,
       which would otherwise be lost when the guest is deleted
+    - Quiz ratings (where target hasn't already rated that quiz)
 
     Only works when the source account is of type GUEST.
     Returns True on success, False on any failure.
@@ -46,7 +47,16 @@ def migrate_guest_to_user(guest_id: str, target_user: User) -> bool:
 
     try:
         with transaction.atomic():
-            from quizzes.models import Comment, Folder, FolderType, QuestionIssue, Quiz, QuizSession, QuizVersion
+            from quizzes.models import (
+                Comment,
+                Folder,
+                FolderType,
+                QuestionIssue,
+                Quiz,
+                QuizRating,
+                QuizSession,
+                QuizVersion,
+            )
 
             Quiz.objects.filter(creator=guest).update(creator=target_user)
             # These point at the user with SET_NULL; deleting the guest would
@@ -54,6 +64,11 @@ def migrate_guest_to_user(guest_id: str, target_user: User) -> bool:
             QuizVersion.objects.filter(author=guest).update(author=target_user)
             Comment.objects.filter(author=guest).update(author=target_user)
             QuestionIssue.objects.filter(user=guest).update(user=target_user)
+            # The user's own rating wins; the guest's duplicate would count twice.
+            QuizRating.objects.filter(user=guest).exclude(
+                quiz_id__in=QuizRating.objects.filter(user=target_user).values("quiz_id")
+            ).update(user=target_user)
+            QuizRating.objects.filter(user=guest).delete()
 
             guest_active_sessions = {s.quiz_id: s for s in QuizSession.objects.filter(user=guest, is_active=True)}
             target_active_sessions = {
