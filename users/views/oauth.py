@@ -39,6 +39,7 @@ from .auth_helpers import (
 from .utils import (
     add_query_params,
     build_oauth_callback_url,
+    get_safe_redirect_url,
 )
 
 dotenv.load_dotenv()
@@ -165,7 +166,14 @@ class UsosLoginView(AsyncAPIView):
         if error_response is not None:
             return error_response
 
-        callback_url = build_oauth_callback_url(request, "/api/authorize/usos/", build_callback_params(params))
+        # USOS answers "Invalid signature" to any percent-encoded character in `oauth_callback`, so a
+        # redirect with its own query string (an OAuth authorize URL) cannot travel in it. The redirect
+        # waits in the session next to the request token secret instead.
+        callback_params = build_callback_params(params)
+        callback_params.pop("redirect", None)
+        if request.GET.get("retry") == "1":
+            callback_params["retry"] = "1"
+        callback_url = build_oauth_callback_url(request, "/api/authorize/usos/", callback_params)
 
         usos_key = os.getenv("USOS_CONSUMER_KEY")
         usos_secret = os.getenv("USOS_CONSUMER_SECRET")
@@ -195,6 +203,8 @@ class UsosLoginView(AsyncAPIView):
                     authorization_url = await client.get_authorization_url(callback_url, params.confirm_user)
                     request_token, request_token_secret = client.connection.auth_manager.get_request_token()
                     await request.session.aset(f"request_token_{request_token}", request_token_secret)
+                    if params.redirect_url:
+                        await request.session.aset(_usos_redirect_session_key(request_token), params.redirect_url)
                     request.session.modified = True
 
                 return redirect(authorization_url)
@@ -355,7 +365,14 @@ class UsosAuthorizeView(AsyncAPIView):
         tags=["Authentication"],
     )
     async def get(self, request):
-        redirect_url = resolve_callback_redirect_url(request)
+        stored_redirect_url = await request.session.apop(
+            _usos_redirect_session_key(request.GET.get("oauth_token")), None
+        )
+        if stored_redirect_url:
+            redirect_url = get_safe_redirect_url(stored_redirect_url, request, default=resolve_url("index"))
+        else:
+            # Callbacks started before the redirect moved to the session still carry it in the query.
+            redirect_url = resolve_callback_redirect_url(request)
         jwt = request.GET.get("jwt", "false") == "true"
         guest_id = request.GET.get("guest_id", "")
 
@@ -425,6 +442,10 @@ class UsosAuthorizeView(AsyncAPIView):
         return await ahandle_oauth_login_result(request, user, jwt=jwt, redirect_url=redirect_url, guest_id=guest_id)
 
 
+def _usos_redirect_session_key(request_token) -> str:
+    return f"usos_redirect_{request_token}"
+
+
 def _usos_retry_or_error(request, redirect_url: str, jwt: bool, *, error: str):
     """
     Handle a recoverable USOS failure: on first attempt, bounce back through /api/login/usos/
@@ -432,9 +453,11 @@ def _usos_retry_or_error(request, redirect_url: str, jwt: bool, *, error: str):
     """
     if request.GET.get("retry") != "1":
         login_url = request.build_absolute_uri("/api/login/usos/")
-        params = request.GET.copy()
-        params["retry"] = "1"
-        return redirect(add_query_params(login_url, dict(params)))
+        params = {"jwt": str(jwt).lower(), "redirect": redirect_url, "retry": "1"}
+        guest_id = request.GET.get("guest_id")
+        if guest_id:
+            params["guest_id"] = guest_id
+        return redirect(add_query_params(login_url, params))
 
     if jwt:
         return redirect(add_query_params(redirect_url, {"error": error}))
