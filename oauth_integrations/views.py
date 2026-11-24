@@ -19,8 +19,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from oauth_integrations.serializers import AuthorizationDecisionSerializer, AuthorizedAppSerializer
+from users.models import AccountType
 
 logger = logging.getLogger(__name__)
+
+GUEST_NOT_ALLOWED_CODE = "guest_not_allowed"
+GUEST_NOT_ALLOWED_MESSAGE = "Guest accounts cannot connect apps. Sign in with USOS or email first."
 
 
 def _oauth_error_redirect_url(oauth_error):
@@ -102,6 +106,13 @@ class AuthorizationRequestAPIView(OAuthLibMixin, APIView):
     def _get_application(self, client_id):
         return get_application_model().objects.filter(client_id=client_id).first()
 
+    def _guest_response(self, request):
+        """A guest account is throwaway, so no app may be granted access to it."""
+        if request.user.account_type != AccountType.GUEST:
+            return None
+        logger.info("Guest user tried to authorize an OAuth client: user_id=%s", request.user.pk)
+        return Response({"error": GUEST_NOT_ALLOWED_MESSAGE, "code": GUEST_NOT_ALLOWED_CODE}, status=403)
+
     def _request_with_authorization_params(self, request, params):
         raw_request = request._request
         original_get = raw_request.GET
@@ -161,6 +172,10 @@ class AuthorizationRequestAPIView(OAuthLibMixin, APIView):
         return scopes, credentials, None
 
     def get(self, request):
+        guest_response = self._guest_response(request)
+        if guest_response is not None:
+            return guest_response
+
         scopes, credentials, error_response = self._validate_params(request, request.query_params)
         if error_response is not None:
             return error_response
@@ -182,6 +197,10 @@ class AuthorizationRequestAPIView(OAuthLibMixin, APIView):
         )
 
     def post(self, request):
+        guest_response = self._guest_response(request)
+        if guest_response is not None:
+            return guest_response
+
         serializer = AuthorizationDecisionSerializer(data=request.data)
         if not serializer.is_valid():
             logger.warning("Invalid OAuth authorization decision payload: errors=%s", serializer.errors)

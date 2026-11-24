@@ -49,6 +49,32 @@ class OAuthAuthorizationAPITests(APITestCase):
 
         self.assertEqual(response.status_code, 401)
 
+    def test_guest_cannot_view_authorization_request(self):
+        self.client.force_authenticate(user=User.objects.create_guest_user())
+
+        response = self.client.get(reverse("oauth_authorize_request"), self.authorization_params)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data["code"], "guest_not_allowed")
+
+    def test_guest_cannot_approve_authorization_request(self):
+        guest = User.objects.create_guest_user()
+        self.client.force_authenticate(user=guest)
+
+        response = self.client.post(
+            reverse("oauth_authorize_request"),
+            {
+                "authorization_params": self.authorization_params,
+                "scopes": ["quizzes:read"],
+                "allow": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data["code"], "guest_not_allowed")
+        self.assertFalse(Grant.objects.filter(user=guest).exists())
+
     def test_authorization_request_returns_consent_details(self):
         self.client.force_authenticate(user=self.user)
 
