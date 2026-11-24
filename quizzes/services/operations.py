@@ -11,13 +11,12 @@ from quizzes.models import (
     AnswerRecord,
     FolderType,
     Question,
-    QuestionType,
     Quiz,
     QuizSession,
     SharedQuiz,
 )
 from quizzes.permissions import DELETED_QUIZ_MESSAGE, not_guest_owned_q, quiz_is_deleted, user_has_quiz_read_access
-from quizzes.services.normalizer import normalize
+from quizzes.services.grading import GradingError, grade
 
 PUBLIC_VISIBILITY = 3
 UNSET = object()
@@ -212,33 +211,11 @@ def get_random_recent_question(user, *, days: int = 90):
     return questions.select_related("quiz").prefetch_related("answers").order_by("id")[random_offset]
 
 
-CHOICE_TYPES = (QuestionType.SINGLE_CHOICE, QuestionType.MULTIPLE_CHOICE, QuestionType.TRUE_FALSE)
-
-
 def _resolve_answer_correctness(question, selected_answers):
-    if question.type in CHOICE_TYPES:
-        answers = list(question.answers.all())
-        selected_ids = set(str(answer) for answer in selected_answers)
-        valid_answer_ids = set(str(answer.id) for answer in answers)
-        if not selected_ids.issubset(valid_answer_ids):
-            raise QuizOperationError("One or more selected answers do not belong to this question", status_code=400)
-        correct_answer_ids = set(str(answer.id) for answer in answers if answer.is_correct)
-        return correct_answer_ids == selected_ids, list(selected_ids)
-
-    if question.type == QuestionType.OPEN:
-        if not selected_answers:
-            return False, []
-        if len(selected_answers) > 1:
-            raise QuizOperationError("Invalid list size for this question type", status_code=400)
-        input_text = selected_answers[0]
-        if not isinstance(input_text, str):
-            raise QuizOperationError("Invalid data type", status_code=400)
-        accepted = [normalize(answer.text) for answer in question.answers.all() if answer.is_correct]
-        if not accepted:
-            raise QuizOperationError("Question has no correct answer", status_code=500)
-        return normalize(input_text) in accepted, selected_answers
-
-    raise QuizOperationError("Unsupported question type", status_code=400)
+    try:
+        return grade(question, selected_answers), selected_answers
+    except GradingError as exc:
+        raise QuizOperationError(str(exc), status_code=400) from exc
 
 
 def record_quiz_answer(
@@ -247,6 +224,8 @@ def record_quiz_answer(
     question_id,
     selected_answers,
     *,
+    self_assessment=UNSET,
+    skipped=False,
     study_time=None,
     next_question_id=UNSET,
     choose_random_next: bool = False,
@@ -260,7 +239,16 @@ def record_quiz_answer(
     except (Question.DoesNotExist, ValueError, TypeError, DjangoValidationError) as exc:
         raise QuizOperationError("Question not found in this quiz", status_code=404) from exc
 
-    was_correct, recorded_answers = _resolve_answer_correctness(question, selected_answers)
+    if skipped:
+        if selected_answers != [] or self_assessment is not UNSET:
+            raise QuizOperationError("Pominięcie wymaga pustej listy odpowiedzi.", status_code=400)
+        was_correct, recorded_answers = False, []
+    elif self_assessment is not UNSET:
+        if selected_answers != [] or type(self_assessment) is not bool:
+            raise QuizOperationError("Samoocena wymaga pustej listy odpowiedzi i wartości logicznej.", status_code=400)
+        was_correct, recorded_answers = self_assessment, []
+    else:
+        was_correct, recorded_answers = _resolve_answer_correctness(question, selected_answers)
     record = AnswerRecord.objects.create(
         session=session,
         question=question,

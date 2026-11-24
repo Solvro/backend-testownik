@@ -26,11 +26,11 @@ class LastUsedQuizzesViewTest(TestCase):
         )
 
         # Create questions with answers
-        q1 = Question.objects.create(quiz=self.quiz, order=1, text="Question 1")
+        q1 = Question.objects.create(quiz=self.quiz, order=1, text="Question 1", type="single_choice")
         for i, text in enumerate(["A", "B", "C", "D"]):
             Answer.objects.create(question=q1, order=i, text=text, is_correct=(i == 0))
 
-        q2 = Question.objects.create(quiz=self.quiz, order=2, text="Question 2")
+        q2 = Question.objects.create(quiz=self.quiz, order=2, text="Question 2", type="single_choice")
         for i, text in enumerate(["A", "B", "C", "D"]):
             Answer.objects.create(question=q2, order=i, text=text, is_correct=(i == 1))
 

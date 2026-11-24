@@ -30,7 +30,7 @@ from quizzes.services.operations import (
     reset_readable_session,
     searchable_quizzes_queryset,
 )
-from quizzes.services.question_validation import validate_question, validate_unique_ids
+from quizzes.services.question_validation import validate_unique_ids
 from testownik_core.mcp_auth import require_scope as _require_scope
 from testownik_core.mcp_tools import AnnotatedMCPToolset, tool_annotations
 
@@ -103,15 +103,6 @@ def _normalize_answers(answers):
     return normalized
 
 
-def _validate_type(data, question=None):
-    """Checks the final answers against the question type, as the API will once it validates them too."""
-    try:
-        validate_question(data, question)
-    except ValidationError as exc:
-        messages = [str(message) for messages in exc.detail.values() for message in messages]
-        raise _QuestionError(" ".join(messages)) from exc
-
-
 def _correct_answer_count(answers):
     return sum(1 for answer in answers if (answer["is_correct"] if isinstance(answer, dict) else answer.is_correct))
 
@@ -134,11 +125,10 @@ def _normalize_question_spec(spec):
     for optional_field in ("image_url", "image_upload", "is_markdown_enabled", "open_matching"):
         if optional_field in spec:
             data[optional_field] = spec[optional_field]
-    _validate_type(data)
     return data
 
 
-def _normalize_question_update(question, *, text=None, explanation=None, answers=None, type=None, open_matching=None):
+def _normalize_question_update(*, text=None, explanation=None, answers=None, type=None, open_matching=None):
     data = {}
     for field, value in (
         ("text", text),
@@ -150,8 +140,6 @@ def _normalize_question_update(question, *, text=None, explanation=None, answers
             data[field] = value
     if answers is not None:
         data["answers"] = _normalize_answers(answers)
-    if "type" in data or "answers" in data:
-        _validate_type(data, question)
     return data
 
 
@@ -281,6 +269,9 @@ class QuizTools(AnnotatedMCPToolset):
             single_choice is used for exactly one correct answer, otherwise multiple_choice.
           - open_matching: exact (default) or similar
           - explanation (str): optional
+
+        Clients shuffle single_choice and multiple_choice answers; true_false and
+        open answers keep their order.
 
         The quiz and all its questions are flagged is_ai_generated=true so the UI
         can label them. Prefer passing questions here over many add_question calls.
@@ -418,7 +409,6 @@ class QuizTools(AnnotatedMCPToolset):
 
         try:
             data = _normalize_question_update(
-                question,
                 text=text,
                 explanation=explanation,
                 answers=answers,
@@ -475,7 +465,6 @@ class QuizTools(AnnotatedMCPToolset):
 
                     try:
                         data = _normalize_question_update(
-                            question,
                             text=update.get("text"),
                             explanation=update.get("explanation"),
                             answers=update.get("answers"),
@@ -585,10 +574,13 @@ class StudyTools(AnnotatedMCPToolset):
         quiz_id: str,
         question_id: str,
         selected_answers: list,
+        skip: bool = False,
     ) -> dict:
         """Submit an answer for a question in the current study session.
-        Pass answer UUIDs for choice types (including true_false), one text string
-        for open questions, or [] to skip.
+        Pass answer UUIDs for choice types (including true_false) or one text string
+        for open questions. [] selects nothing, which is correct only for a choice
+        question without a correct answer. Pass skip=true with [] to skip; a skip
+        counts as wrong.
         Returns whether the answer was correct and the updated session state."""
         _require_scope(self.request, "study:write")
         try:
@@ -597,6 +589,7 @@ class StudyTools(AnnotatedMCPToolset):
                 quiz_id,
                 question_id,
                 selected_answers,
+                skipped=skip,
                 choose_random_next=True,
             )
         except QuizOperationError as exc:

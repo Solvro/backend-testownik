@@ -330,7 +330,7 @@ class AnswerRecord(models.Model):
     answered_at = models.DateTimeField(auto_now_add=True, db_index=True)
     selected_answers = models.JSONField(
         default=list
-    )  # Answer UUIDs for choice types (true/false included), one string for open
+    )  # Answer UUIDs for choice types, one string for open, [] for skips/self-assessments
     was_correct = models.BooleanField()
 
     class Meta:
