@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 def add_query_params(url, params):
     url_parts = list(urlparse(url))
-    query = dict(parse_qs(url_parts[4]))
+    query = dict(parse_qs(url_parts[4], keep_blank_values=True))
     query.update(params)
     url_parts[4] = urlencode(query, doseq=True)
     return str(urlunparse(url_parts))
@@ -25,7 +25,7 @@ def add_query_params(url, params):
 
 def remove_query_params(url, params):
     url_parts = list(urlparse(url))
-    query = dict(parse_qs(url_parts[4]))
+    query = dict(parse_qs(url_parts[4], keep_blank_values=True))
     for param in params:
         query.pop(param, None)
     url_parts[4] = urlencode(query, doseq=True)
