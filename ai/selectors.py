@@ -5,6 +5,7 @@ from django.db.models import CharField, Count, F, Max, Min, Q, Sum, Value
 from django.db.models.functions import Concat
 from django.utils import timezone
 
+from users.account_levels import annotate_effective_account_level, get_effective_account_level
 from users.models import AccountLevel, AccountType, User
 
 from .models import (
@@ -59,8 +60,12 @@ def _usage_reset(events, window, limit, used, first_event_at, now, *, exhausted)
 
 
 def get_admin_users(*, query="", overrides_only=False, limit=100):
-    users = User.objects.annotate(
-        searchable_full_name=Concat("first_name", Value(" "), "last_name", output_field=CharField())
+    now = timezone.now()
+    users = annotate_effective_account_level(
+        User.objects.annotate(
+            searchable_full_name=Concat("first_name", Value(" "), "last_name", output_field=CharField())
+        ),
+        at=now,
     )
     if overrides_only:
         users = users.filter(ai_limit_override__isnull=False)
@@ -78,7 +83,6 @@ def get_admin_users(*, query="", overrides_only=False, limit=100):
     limits_disabled = not settings.limits_enabled
     limit_rows = {(row.account_type, row.account_level): row for row in AIAccountLimit.objects.all()}
     overrides = {row.user_id: row for row in AIUserLimitOverride.objects.filter(user_id__in=user_ids)}
-    now = timezone.now()
     weekly_start = quota_window_start(settings, now, WEEKLY_WINDOW)
     session_start = quota_window_start(settings, now, SESSION_WINDOW)
     usage_stats = {
@@ -110,6 +114,7 @@ def get_admin_users(*, query="", overrides_only=False, limit=100):
     }
     fallback_model = active_fallback_model_id(settings)
 
+    effective_levels = {user.id: get_effective_account_level(user) for user in selected_users}
     effective_by_user = {
         user.id: resolve_effective_limits(
             user,
@@ -117,7 +122,7 @@ def get_admin_users(*, query="", overrides_only=False, limit=100):
             limit_rows.get(
                 (
                     user.account_type or AccountType.EMAIL,
-                    user.account_level or AccountLevel.BASIC,
+                    effective_levels[user.id],
                 )
             ),
             overrides.get(user.id),
@@ -195,17 +200,14 @@ def get_admin_users(*, query="", overrides_only=False, limit=100):
         )
         if fallback_resets_at is not None and fallback_resets_at <= now:
             fallback_resets_at = None
-        active_models = active_models_by_level.get(
-            user.account_level or AccountLevel.BASIC,
-            active_models_by_level[AccountLevel.BASIC],
-        )
+        active_models = active_models_by_level[effective_levels[user.id]]
         rows.append(
             {
                 "id": user.id,
                 "email": user.email,
                 "name": user.get_full_name(),
                 "account_type": user.account_type,
-                "account_level": user.account_level,
+                "account_level": effective_levels[user.id],
                 "has_override": user.id in overrides,
                 "usage": {
                     "session": _usage_window(

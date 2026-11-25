@@ -1,7 +1,12 @@
+from datetime import timedelta
+
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 from rest_framework.test import APITestCase
 from usos_api.models import Sex
 
-from users.models import AccountType, User
+from users.models import AccountLevel, AccountLevelGrant, AccountLevelGrantSource, AccountType, User
 
 
 class CurrentUserProfileTests(APITestCase):
@@ -24,6 +29,39 @@ class CurrentUserProfileTests(APITestCase):
         self.assertEqual(self.user.last_name, "Nowak")
         self.assertEqual(self.user.sex, Sex.FEMALE.value)
         self.assertEqual(response.data["full_name"], "Anna Nowak")
+
+    def test_user_search_serializes_effective_levels_without_per_user_grant_queries(self):
+        matching_users = [
+            User.objects.create_user(
+                email=f"search-level-{index}@example.com",
+                first_name="Search",
+                last_name=f"User{index}",
+            )
+            for index in range(5)
+        ]
+        starts_at = timezone.now() - timedelta(minutes=1)
+        expires_at = timezone.now() + timedelta(days=1)
+        AccountLevelGrant.objects.bulk_create(
+            [
+                AccountLevelGrant(
+                    user=user,
+                    level=AccountLevel.SILVER,
+                    source=AccountLevelGrantSource.ADMIN,
+                    starts_at=starts_at,
+                    expires_at=expires_at,
+                )
+                for user in matching_users
+            ]
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get("/api/users/?search=Search")
+
+        grant_table_queries = [query for query in queries if "users_accountlevelgrant" in query["sql"].lower()]
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), len(matching_users))
+        self.assertEqual(len(grant_table_queries), 1)
+        self.assertTrue(all(result["account_level"] == AccountLevel.SILVER for result in response.data))
 
     def test_email_user_can_clear_names_without_changing_other_fields(self):
         response = self.client.patch(self.url, {"first_name": "", "last_name": ""}, format="json")

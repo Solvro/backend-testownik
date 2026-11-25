@@ -15,8 +15,9 @@ from quizzes.models import Quiz, QuizSession, SharedQuiz
 from quizzes.permissions import IsInternalApiRequest
 from uploads.models import UploadedImage
 from uploads.utils import process_uploaded_image
+from users.account_levels import annotate_effective_account_level, get_effective_account_level
 from users.auth_cookies import set_jwt_cookies
-from users.models import AccountType, StudyGroup, User, UserSettings
+from users.models import AccountLevel, AccountType, StudyGroup, User, UserSettings
 from users.serializers import (
     PublicUserSerializer,
     StudyGroupSerializer,
@@ -163,6 +164,12 @@ class CurrentUserView(GenericAPIView):
 class UserPhotoView(APIView):
     permission_classes = [IsAuthenticated]
 
+    def _require_gold(self, user: User):
+        if user.account_type == AccountType.GUEST:
+            raise PermissionDenied("Guest users cannot update their profile.")
+        if get_effective_account_level(user) != AccountLevel.GOLD:
+            raise PermissionDenied("This feature requires a Gold account level.")
+
     @extend_schema(
         summary="Upload custom profile photo",
         description="Uploads a custom profile photo, compresses it to AVIF, and sets it for the user.",
@@ -181,8 +188,8 @@ class UserPhotoView(APIView):
         responses={200: UserSerializer},
     )
     def post(self, request):
-        if request.user.account_type == AccountType.GUEST:
-            raise PermissionDenied("Guest users cannot update their profile.")
+        self._require_gold(request.user)
+
         if "photo" not in request.FILES:
             return Response({"error": "No photo provided"}, status=400)
 
@@ -305,7 +312,7 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.Gen
                 )
             else:
                 return self.queryset.none()
-            return self.queryset.filter(filters)
+            return annotate_effective_account_level(self.queryset.filter(filters))
         else:
             return self.queryset.none()
 

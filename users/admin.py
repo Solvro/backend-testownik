@@ -33,7 +33,9 @@ from unfold.widgets import UnfoldAdminTextareaWidget
 
 from oauth_integrations.models import OAuthApplicationMetadata
 
+from .account_levels import annotate_effective_account_level, get_effective_account_level
 from .models import (
+    AccountLevelGrant,
     CourseClassType,
     EmailLoginToken,
     Faculty,
@@ -91,7 +93,7 @@ class UserAdmin(ModelAdmin):
         "student_number",
         "email",
         "account_type",
-        "account_level",
+        "effective_account_level",
         "is_banned",
         "is_staff",
         "is_superuser",
@@ -162,6 +164,13 @@ class UserAdmin(ModelAdmin):
 
     def has_add_permission(self, request, obj=None):
         return False
+
+    def get_queryset(self, request):
+        return annotate_effective_account_level(super().get_queryset(request))
+
+    @admin.display(description="Account level", ordering="_effective_account_level_rank")
+    def effective_account_level(self, obj: User) -> str:
+        return get_effective_account_level(obj).value
 
     @admin.action(description="Ban selected users")
     def ban_users(self, request, queryset):
@@ -307,3 +316,34 @@ class OutstandingTokenAdmin(BaseOutstandingTokenAdmin, ModelAdmin):
 @admin.register(BlacklistedToken)
 class BlacklistedTokenAdmin(BaseBlacklistedTokenAdmin, ModelAdmin):
     autocomplete_fields = ["token"]
+
+
+@admin.register(AccountLevelGrant)
+class AccountLevelGrantAdmin(ModelAdmin):
+    list_display = ("user", "level", "source", "starts_at", "expires_at", "created_by", "created_at")
+    list_filter = ("level", "source")
+    search_fields = ("user__email", "user__first_name", "user__last_name", "source_ref", "reason")
+    ordering = ("-created_at",)
+    readonly_fields = (
+        "user",
+        "level",
+        "source",
+        "source_ref",
+        "reason",
+        "starts_at",
+        "expires_at",
+        "created_by",
+        "created_at",
+    )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("user", "created_by")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

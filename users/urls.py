@@ -8,6 +8,21 @@ router.register("users", views.UserViewSet)
 router.register("study-groups", views.StudyGroupViewSet)
 
 urlpatterns = [
+    path(
+        "account-levels/permissions/",
+        views.AccountLevelAdminPermissionsView.as_view(),
+        name="account_level_admin_permissions",
+    ),
+    path(
+        "users/<uuid:user_pk>/account-level-grants/",
+        views.UserAccountLevelGrantViewSet.as_view({"get": "list", "post": "create"}),
+        name="user_account_level_grants",
+    ),
+    path(
+        "users/<uuid:user_pk>/account-level-grants/<uuid:grant_id>/",
+        views.AccountLevelGrantViewSet.as_view({"get": "retrieve"}),
+        name="account_level_grant_detail",
+    ),
     path("generate-otp/", views.GenerateOtpView.as_view(), name="generate_otp"),
     path("login-link/", views.LoginLinkView.as_view(), name="login_link"),
     path("login-otp/", views.LoginOtpView.as_view(), name="login_otp"),
