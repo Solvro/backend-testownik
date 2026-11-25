@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db import DatabaseError, transaction
 from django.utils import timezone
-from oauth2_provider.cimd import SafeMetadataFetcher
+from oauth2_provider.cimd import CIMDError, SafeMetadataFetcher
 
 from oauth_integrations.models import OAuthClientMetadata
 
@@ -55,6 +55,15 @@ class PersistingCIMDMetadataFetcher(SafeMetadataFetcher):
     def fetch(self, client_id):
         _pending_metadata.set(None)
         metadata, max_age = super().fetch(client_id)
+        if "token_endpoint_auth_methods_supported" in metadata:
+            methods = metadata["token_endpoint_auth_methods_supported"]
+            if not isinstance(methods, list) or not all(isinstance(method, str) for method in methods):
+                raise CIMDError("token_endpoint_auth_methods_supported must be an array of strings")
+            if "none" not in methods:
+                raise CIMDError("CIMD client does not advertise public token exchange")
+            # DOT 3.4 reads only the legacy preference. Select the method our
+            # server supports from the client's advertised choices for now.
+            metadata = {**metadata, "token_endpoint_auth_method": "none"}
         fetched_at = timezone.now()
         _pending_metadata.set(
             _PendingMetadata(
